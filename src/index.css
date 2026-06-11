@@ -1,0 +1,309 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-surface-subtle text-ink-primary font-sans antialiased;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+  }
+
+  .dark body {
+    @apply bg-dark-surface-subtle text-dark-ink-primary;
+  }
+
+  /* 滚动条样式 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-border rounded-full border-2 border-surface-subtle;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-dark-surface-muted border-dark-surface-subtle;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-muted;
+  }
+
+  /* Focus ring */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500/40 ring-offset-1 ring-offset-surface-subtle;
+  }
+  .dark :focus-visible {
+    @apply ring-offset-dark-surface-subtle;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-brand-500/20 text-ink-primary;
+  }
+  .dark ::selection {
+    @apply bg-brand-500/30 text-dark-ink-primary;
+  }
+}
+
+@layer components {
+  /* Notion 风格的按钮基础 */
+  .btn-base {
+    @apply inline-flex items-center justify-center gap-1.5 rounded font-medium
+      transition-all duration-200 ease-out
+      disabled:opacity-50 disabled:cursor-not-allowed
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40
+      focus-visible:ring-offset-1 focus-visible:ring-offset-surface;
+  }
+  .dark .btn-base {
+    @apply focus-visible:ring-offset-dark-surface;
+  }
+
+  .btn-sm {
+    @apply h-7 px-2.5 text-xs;
+  }
+  .btn-md {
+    @apply h-8 px-3 text-sm;
+  }
+  .btn-lg {
+    @apply h-10 px-4 text-sm;
+  }
+
+  .btn-primary {
+    @apply btn-base bg-brand-900 text-white hover:bg-brand-700 active:bg-brand-900
+      shadow-notion-sm;
+  }
+  .dark .btn-primary {
+    @apply bg-brand-500 text-white hover:bg-brand-400;
+  }
+
+  .btn-secondary {
+    @apply btn-base bg-surface text-ink-primary border border-surface-border
+      hover:bg-surface-muted hover:border-ink-muted/30;
+  }
+  .dark .btn-secondary {
+    @apply bg-dark-surface-muted text-dark-ink-primary border-dark-surface-border
+      hover:bg-dark-surface-border;
+  }
+
+  .btn-ghost {
+    @apply btn-base text-ink-secondary hover:bg-surface-muted hover:text-ink-primary;
+  }
+  .dark .btn-ghost {
+    @apply text-dark-ink-secondary hover:bg-dark-surface-muted hover:text-dark-ink-primary;
+  }
+
+  .btn-danger {
+    @apply btn-base text-red-600 hover:bg-red-50;
+  }
+  .dark .btn-danger {
+    @apply text-red-400 hover:bg-red-500/10;
+  }
+
+  /* 卡片 */
+  .card {
+    @apply bg-surface border border-surface-border rounded-md
+      transition-all duration-200;
+  }
+  .dark .card {
+    @apply bg-dark-surface border-dark-surface-border;
+  }
+
+  .card-hover {
+    @apply card hover:border-ink-muted/40 hover:shadow-notion-sm cursor-pointer;
+  }
+
+  /* 输入框 */
+  .input-base {
+    @apply w-full bg-transparent text-ink-primary placeholder:text-ink-muted
+      border border-surface-border rounded
+      transition-all duration-200
+      focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15
+      disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .dark .input-base {
+    @apply text-dark-ink-primary placeholder:text-dark-ink-muted
+      border-dark-surface-border;
+  }
+
+  .input-sm {
+    @apply input-base h-7 px-2.5 text-xs;
+  }
+  .input-md {
+    @apply input-base h-9 px-3 text-sm;
+  }
+  .input-lg {
+    @apply input-base h-11 px-4 text-base;
+  }
+
+  /* 标签 */
+  .tag {
+    @apply inline-flex items-center gap-1 px-1.5 h-5 rounded text-2xs font-medium;
+  }
+
+  .tag-default {
+    @apply tag bg-surface-muted text-ink-secondary;
+  }
+  .dark .tag-default {
+    @apply bg-dark-surface-muted text-dark-ink-secondary;
+  }
+
+  .tag-brand {
+    @apply tag bg-brand-50 text-brand-600;
+  }
+  .dark .tag-brand {
+    @apply bg-brand-500/15 text-brand-300;
+  }
+
+  .tag-success {
+    @apply tag bg-emerald-50 text-emerald-700;
+  }
+  .dark .tag-success {
+    @apply bg-emerald-500/15 text-emerald-400;
+  }
+
+  .tag-warning {
+    @apply tag bg-amber-50 text-amber-700;
+  }
+  .dark .tag-warning {
+    @apply bg-amber-500/15 text-amber-400;
+  }
+
+  .tag-danger {
+    @apply tag bg-red-50 text-red-600;
+  }
+  .dark .tag-danger {
+    @apply bg-red-500/15 text-red-400;
+  }
+
+  /* 导航项 */
+  .nav-item {
+    @apply flex items-center gap-2 px-2 h-7 rounded text-sm
+      text-ink-secondary hover:bg-surface-muted hover:text-ink-primary
+      transition-colors duration-200 cursor-pointer select-none;
+  }
+  .dark .nav-item {
+    @apply text-dark-ink-secondary hover:bg-dark-surface-muted hover:text-dark-ink-primary;
+  }
+
+  .nav-item-active {
+    @apply nav-item bg-brand-50 text-brand-700 font-medium;
+  }
+  .dark .nav-item-active {
+    @apply bg-brand-500/15 text-brand-300;
+  }
+
+  /* Notion 风格块 */
+  .notion-block {
+    @apply relative px-2 py-1.5 -mx-2 rounded transition-colors duration-150
+      hover:bg-surface-muted/60;
+  }
+  .dark .notion-block {
+    @apply hover:bg-dark-surface-muted/40;
+  }
+
+  /* 分隔线 */
+  .divider {
+    @apply h-px w-full bg-surface-border;
+  }
+  .dark .divider {
+    @apply bg-dark-surface-border;
+  }
+
+  /* 表面色 */
+  .surface-1 {
+    @apply bg-surface;
+  }
+  .dark .surface-1 {
+    @apply bg-dark-surface;
+  }
+
+  .surface-2 {
+    @apply bg-surface-subtle;
+  }
+  .dark .surface-2 {
+    @apply bg-dark-surface-subtle;
+  }
+
+  .surface-3 {
+    @apply bg-surface-muted;
+  }
+  .dark .surface-3 {
+    @apply bg-dark-surface-muted;
+  }
+
+  /* 文字色 */
+  .text-ink-1 {
+    @apply text-ink-primary;
+  }
+  .dark .text-ink-1 {
+    @apply text-dark-ink-primary;
+  }
+
+  .text-ink-2 {
+    @apply text-ink-secondary;
+  }
+  .dark .text-ink-2 {
+    @apply text-dark-ink-secondary;
+  }
+
+  .text-ink-3 {
+    @apply text-ink-tertiary;
+  }
+  .dark .text-ink-3 {
+    @apply text-dark-ink-tertiary;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* 隐藏滚动条但保留功能 */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* 渐变文字 */
+  .text-gradient-brand {
+    @apply bg-clip-text text-transparent bg-gradient-to-br from-brand-900 to-brand-600;
+  }
+  .dark .text-gradient-brand {
+    @apply from-white to-brand-300;
+  }
+
+  /* 闪烁加载 */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(148, 163, 184, 0.08) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+}

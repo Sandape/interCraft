@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python scripts/search.py \"SaaS professional career tool minimalism Notion\" --design-system -p \"InterCraft\")",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(curl *)"
+    ]
+  }
+}
