@@ -1,14 +1,48 @@
-import { Search, BookOpen, MessageCircle, Mail, ChevronRight, Sparkles } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Search, BookOpen, MessageCircle, Mail, ChevronDown, Sparkles, ExternalLink } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
-
-const faqs = [
-  { q: '如何开始第一次模拟面试？', a: '进入「模拟面试」页面，点击「开始新面试」即可。' },
-  { q: 'AI 简历优化是如何工作的？', a: '粘贴招聘 JD 后，AI 会分析关键能力词，与你的核心简历匹配，生成针对性优化建议。' },
-  { q: '如何切换深色 / 浅色模式？', a: '点击右上角的太阳/月亮图标即可切换。' },
-  { q: '数据是否安全？', a: '所有数据传输使用 TLS 加密，存储使用 AES-256，已通过 ISO 27001 认证。' },
-]
+import { contentApi, type FaqCategory, type FaqItem, type SearchResult } from '@/api/content'
 
 export default function Help() {
+  const [categories, setCategories] = useState<FaqCategory[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<{ faq: SearchResult[]; resources: SearchResult[] } | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [expandedFaq, setExpandedFaq] = useState<string | null>(null)
+  const [faqAnswers, setFaqAnswers] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    contentApi.listFaq().then((res) => {
+      setCategories(res.categories)
+      setLoading(false)
+    })
+  }, [])
+
+  const handleSearch = async (q: string) => {
+    setSearchQuery(q)
+    if (!q.trim()) {
+      setSearchResults(null)
+      return
+    }
+    setSearching(true)
+    const res = await contentApi.search(q)
+    setSearchResults(res)
+    setSearching(false)
+  }
+
+  const handleToggleFaq = async (item: FaqItem) => {
+    if (expandedFaq === item.id) {
+      setExpandedFaq(null)
+      return
+    }
+    setExpandedFaq(item.id)
+    if (!faqAnswers[item.id]) {
+      const detail = await contentApi.getFaq(item.id)
+      setFaqAnswers((prev) => ({ ...prev, [item.id]: detail.answer }))
+    }
+  }
+
   return (
     <div className="px-8 py-6 max-w-3xl mx-auto">
       <div className="text-center mb-8">
@@ -21,10 +55,43 @@ export default function Help() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-muted" />
           <input
             placeholder="搜索问题…"
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
             className="w-full h-10 pl-10 pr-4 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border-0 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
           />
         </div>
       </div>
+
+      {searchQuery.trim() && searchResults && (
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold text-ink-1 mb-3">搜索结果</h2>
+          {searchResults.faq.length === 0 && searchResults.resources.length === 0 && (
+            <p className="text-sm text-ink-3 text-center py-4">未找到相关结果</p>
+          )}
+          {searchResults.faq.length > 0 && (
+            <div className="mb-4">
+              <p className="text-2xs text-ink-3 mb-2 font-medium">常见问题</p>
+              {searchResults.faq.map((r) => (
+                <Card key={r.id} hover padding="sm" className="flex items-center justify-between mb-1">
+                  <span className="text-sm text-ink-1">{r.question}</span>
+                  <ExternalLink className="h-3.5 w-3.5 text-ink-muted" />
+                </Card>
+              ))}
+            </div>
+          )}
+          {searchResults.resources.length > 0 && (
+            <div>
+              <p className="text-2xs text-ink-3 mb-2 font-medium">学习资源</p>
+              {searchResults.resources.map((r) => (
+                <Card key={r.id} hover padding="sm" className="flex items-center justify-between mb-1">
+                  <span className="text-sm text-ink-1">{r.title}</span>
+                  <ExternalLink className="h-3.5 w-3.5 text-ink-muted" />
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-2 mb-6">
         <Card hover className="text-center p-4">
@@ -44,18 +111,45 @@ export default function Help() {
         </Card>
       </div>
 
-      <h2 className="text-sm font-semibold text-ink-1 mb-2">常见问题</h2>
-      <div className="space-y-1.5">
-        {faqs.map((f) => (
-          <Card key={f.q} hover padding="sm" className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-ink-1">{f.q}</div>
-              <div className="text-2xs text-ink-3 mt-0.5">{f.a}</div>
+      <h2 className="text-sm font-semibold text-ink-1 mb-3">常见问题</h2>
+
+      {loading ? (
+        <p className="text-sm text-ink-3 text-center py-4">加载中...</p>
+      ) : categories.length === 0 ? (
+        <p className="text-sm text-ink-3 text-center py-4">暂无常见问题</p>
+      ) : (
+        categories.map((cat) => (
+          <div key={cat.category} className="mb-6">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2">{cat.label}</h3>
+            <div className="space-y-1">
+              {cat.items.map((item) => (
+                <div key={item.id}>
+                  <Card
+                    hover
+                    padding="sm"
+                    className="flex items-center justify-between cursor-pointer"
+                    onClick={() => handleToggleFaq(item)}
+                  >
+                    <span className="text-sm text-ink-1">{item.question}</span>
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 text-ink-muted transition-transform ${
+                        expandedFaq === item.id ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </Card>
+                  {expandedFaq === item.id && faqAnswers[item.id] && (
+                    <div className="px-4 py-3 bg-surface-muted dark:bg-dark-surface-muted rounded-b-md text-sm text-ink-2 leading-relaxed">
+                      {faqAnswers[item.id].split('\n').map((line, i) => (
+                        <p key={i}>{line}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-            <ChevronRight className="h-3.5 w-3.5 text-ink-muted" />
-          </Card>
-        ))}
-      </div>
+          </div>
+        ))
+      )}
     </div>
   )
 }

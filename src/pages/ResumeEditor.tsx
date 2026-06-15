@@ -1,824 +1,773 @@
-import { useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
-import {
-  ArrowLeft,
-  Sparkles,
-  Download,
-  Share2,
-  History,
-  GitCompare,
-  Wand2,
-  Type,
-  Heading2,
-  List,
-  Plus,
-  GripVertical,
-  Trash2,
-  Copy,
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  Code,
-  Layout,
-  MoreHorizontal,
-  Check,
-  X,
-  Loader2,
-  FileText,
-  TrendingUp,
-  AlertCircle,
-  Zap,
-  Star,
-  Command,
-} from 'lucide-react'
-import { Card, CardHeader } from '@/components/ui/Card'
+/**
+ * ResumeEditor page — loads a branch + its blocks, supports add / edit /
+ * delete / reorder, and exposes version controls (save / rollback).
+ * Supports two modes: Quick (block cards + preview) and Code (Markdown editor + preview).
+ */
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Plus, Save, History, RotateCcw, Eye, Pencil, RefreshCw, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
-import { Tabs } from '@/components/ui/Tabs'
-import { Progress } from '@/components/ui/Progress'
-import { Textarea } from '@/components/ui/Input'
-import { coreResumeBlocks, resumeBranches, sampleJD, type ResumeBlock } from '@/data/mockData'
-import { cn, timeAgo } from '@/lib/utils'
+import AiOptimizePanel from '@/components/resume/AiOptimizePanel'
+import { useResumeBranch, useResumeBlocks } from '@/hooks/queries/useResumeBranches'
+import {
+  useCreateBlock,
+  useDeleteBlock,
+  usePatchBlock,
+  useReorderBlocks,
+} from '@/hooks/mutations/useBranchMutations'
+import { usePatchBranch } from '@/hooks/mutations/useBranchMutations'
+import { useResumeVersion, useResumeVersions } from '@/hooks/queries/useResumeVersions'
+import { useRollbackVersion, useSaveVersion } from '@/hooks/mutations/useVersionMutations'
+import { useResumeUIStore } from '@/stores/useResumeUIStore'
+import { timeAgo, cn } from '@/lib/utils'
+import type { BlockType, BranchStatus, ResumeBlock, ResumeBranch } from '@/api/types'
+import { useLock } from '@/lib/lock/useLock'
+import { LockIndicator } from '@/components/lock/LockIndicator'
+import { OfflineBanner } from '@/components/lock/OfflineBanner'
+import { getResumeRepository } from '@/repositories/types'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { BLOCKS_KEY, BRANCHES_KEY, BRANCH_KEY } from '@/hooks/queries/useResumeBranches'
+import { markdownToBlocks, blocksToMarkdown } from '@/lib/markdown-converter'
+import { RESUME_STYLES, DEFAULT_STYLE_ID, getStyleById } from '@/lib/resume-styles'
+import UnifiedToolbar from '@/components/resume/editor/UnifiedToolbar'
+import { useModeToggle } from '@/components/resume/editor/useModeToggle'
+import { QuickEditor, BLOCK_TYPES } from '@/components/resume/editor/QuickEditor'
+import MarkdownEditor from '@/components/resume/editor/MarkdownEditor'
+import ResumePreview from '@/components/resume/editor/ResumePreview'
+import StyleSelector from '@/components/resume/editor/StyleSelector'
+import EditorSidebar from '@/components/resume/editor/EditorSidebar'
+import ExportMenu from '@/components/resume/export/ExportMenu'
 
-const blockTypeMeta = {
-  heading: { label: '标题', icon: Heading2, color: 'text-brand-600 dark:text-brand-300' },
-  summary: { label: '简介', icon: Type, color: 'text-emerald-600 dark:text-emerald-400' },
-  experience: { label: '经历', icon: List, color: 'text-violet-600 dark:text-violet-400' },
-  project: { label: '项目', icon: FileText, color: 'text-amber-600 dark:text-amber-400' },
-  skill: { label: '技能', icon: Zap, color: 'text-cyan-600 dark:text-cyan-400' },
-  education: { label: '教育', icon: Star, color: 'text-pink-600 dark:text-pink-400' },
+const STATUS_LABEL: Record<BranchStatus, string> = {
+  draft: '草稿',
+  optimizing: '优化中',
+  ready: '就绪',
+  submitted: '已投递',
+  archived: '归档',
 }
-
-const templates = [
-  { key: 'classic', name: '经典', desc: '稳重专业，适合传统大厂' },
-  { key: 'modern', name: '现代', desc: '信息密度高，适合互联网' },
-  { key: 'minimal', name: '极简', desc: 'Notion 风格，内容优先' },
-  { key: 'tech', name: '技术', desc: '突出技术栈与项目' },
-]
 
 export default function ResumeEditor() {
-  const { branchId = 'core' } = useParams<{ branchId: string }>()
+  const { branchId } = useParams<{ branchId: string }>()
   const navigate = useNavigate()
-  const branch = resumeBranches.find((b) => b.id === branchId) || resumeBranches[0]
+  const qc = useQueryClient()
+  const { data: branch } = useResumeBranch(branchId ?? null)
+  const { data: blocks = [], isLoading } = useResumeBlocks(branchId ?? null)
+  const { data: versions = [] } = useResumeVersions(branchId ?? null)
+  const createBlock = useCreateBlock(branchId ?? '')
+  const deleteBlock = useDeleteBlock(branchId ?? '')
+  const patchBlock = usePatchBlock(branchId ?? '')
+  const patchBranch = usePatchBranch()
+  const reorder = useReorderBlocks(branchId ?? '')
+  const saveVersion = useSaveVersion(branchId ?? '')
+  const rollbackVersion = useRollbackVersion(branchId ?? '')
 
-  const [blocks, setBlocks] = useState<ResumeBlock[]>(coreResumeBlocks)
-  const [activeBlock, setActiveBlock] = useState<string | null>(null)
-  const [view, setView] = useState<'edit' | 'preview' | 'split' | 'diff'>('split')
-  const [template, setTemplate] = useState('minimal')
-  const [aiPanelOpen, setAiPanelOpen] = useState(true)
-  const [jdInput, setJdInput] = useState(sampleJD)
-  const [aiGenerating, setAiGenerating] = useState(false)
-  const [aiStage, setAiStage] = useState(0)
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
+  const collapsedBlockIds = useResumeUIStore((s) => s.collapsedBlockIds)
+  const toggleCollapse = useResumeUIStore((s) => s.toggleCollapse)
 
-  const startAiGenerate = () => {
-    setAiGenerating(true)
-    setAiStage(0)
-    const stages = [
-      { time: 600, stage: 1 }, // 分析 JD
-      { time: 1200, stage: 2 }, // 匹配核心
-      { time: 1800, stage: 3 }, // 生成优化
-      { time: 2400, stage: 4 }, // 完成
-    ]
-    stages.forEach(({ time, stage }) => {
-      setTimeout(() => setAiStage(stage), time)
+  const lock = useLock('resume_branch', branchId ?? null)
+
+  // Save version modal
+  const [saveOpen, setSaveOpen] = useState(false)
+  const [label, setLabel] = useState('')
+
+  // Version drawer
+  const [versionDrawerOpen, setVersionDrawerOpen] = useState(false)
+  const [rollbackTarget, setRollbackTarget] = useState<number | null>(null)
+
+  // Version detail viewer
+  const [viewVersionNo, setViewVersionNo] = useState<number | null>(null)
+  const { data: versionDetail } = useResumeVersion(branchId ?? null, viewVersionNo)
+
+  // Add block modal
+  const [addBlockOpen, setAddBlockOpen] = useState(false)
+  const [newBlockType, setNewBlockType] = useState<BlockType>('custom')
+  const [newBlockTitle, setNewBlockTitle] = useState('')
+
+  // Edit branch modal
+  const [editBranchOpen, setEditBranchOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editCompany, setEditCompany] = useState('')
+  const [editPosition, setEditPosition] = useState('')
+  const [editStatus, setEditStatus] = useState<BranchStatus>('draft')
+
+  const refreshFromParent = useMutation({
+    mutationFn: () => getResumeRepository().refreshFromParent(branchId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: BLOCKS_KEY(branchId!) })
+      qc.invalidateQueries({ queryKey: BRANCH_KEY(branchId!) })
+      qc.invalidateQueries({ queryKey: BRANCHES_KEY })
+    },
+  })
+
+  // Style selection state — default from branch or system default
+  const [styleSelectorOpen, setStyleSelectorOpen] = useState(false)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+
+  // Split pane state
+  const [splitRatio, setSplitRatio] = useState(50)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+  const dragging = useRef(false)
+
+  const handleSplitDrag = useCallback(() => {
+    dragging.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragging.current || !splitContainerRef.current) return
+      const rect = splitContainerRef.current.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const pct = Math.max(20, Math.min(80, (x / rect.width) * 100))
+      setSplitRatio(pct)
+    }
+
+    const handleMouseUp = () => {
+      dragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }, [])
+
+  // Sidebar drawer
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const styleId =
+    branch?.style_preference && getStyleById(branch.style_preference)
+      ? branch.style_preference
+      : DEFAULT_STYLE_ID
+
+  function handleStyleSelect(newStyleId: string) {
+    if (!branch) return
+    patchBranch.mutate({
+      id: branch.id,
+      input: { style_preference: newStyleId },
     })
-    setTimeout(() => setAiGenerating(false), 3000)
   }
 
+  // Mode toggle: Quick ↔ Code
+  const { mode, setMode, markdownContent, setMarkdownContent, switchToCode, switchToQuick } =
+    useModeToggle({
+      branch,
+      blocks,
+      onBlocksChange: useCallback(
+        (newBlocks: ResumeBlock[]) => {
+          // Persist each changed block
+          newBlocks.forEach((b, i) => {
+            const existing = blocks[i]
+            if (
+              !existing ||
+              existing.content_md !== b.content_md ||
+              existing.type !== b.type ||
+              existing.title !== b.title
+            ) {
+              patchBlock.mutate({
+                id: b.id,
+                input: {
+                  type: b.type,
+                  title: b.title,
+                  content_md: b.content_md,
+                  meta: b.meta,
+                },
+              })
+            }
+          })
+        },
+        [blocks, patchBlock],
+      ),
+    })
+
+  // Preview markdown: from code editor in code mode, or generated from blocks in quick mode
+  const previewMarkdown = useMemo(() => {
+    if (mode === 'code') return markdownContent
+    if (!branch) return ''
+    return blocksToMarkdown(
+      { name: branch.name, company: branch.company, position: branch.position },
+      blocks,
+    )
+  }, [mode, markdownContent, branch, blocks])
+
+  function moveBlock(blockId: string, direction: -1 | 1) {
+    const idx = blocks.findIndex((b) => b.id === blockId)
+    if (idx < 0) return
+    const targetIdx = idx + direction
+    if (targetIdx < 0 || targetIdx >= blocks.length) return
+    const prev = targetIdx > 0 ? blocks[targetIdx - 1].id : null
+    const next = blocks[targetIdx + 1]?.id ?? null
+    reorder.mutate({ id: blockId, input: { prev_id: prev, next_id: next } })
+  }
+
+  function onSaveVersion() {
+    if (!label.trim()) return
+    saveVersion.mutate(
+      { label: label.trim() },
+      {
+        onSuccess: () => {
+          setLabel('')
+          setSaveOpen(false)
+        },
+      },
+    )
+  }
+
+  function onRollback() {
+    if (rollbackTarget == null) return
+    rollbackVersion.mutate(
+      { versionNo: rollbackTarget },
+      {
+        onSuccess: (res) => {
+          setRollbackTarget(null)
+          navigate(`/resume/${res.new_branch_id}`)
+        },
+      },
+    )
+  }
+
+  function onAddBlock() {
+    createBlock.mutate(
+      { type: newBlockType, title: newBlockTitle || null, content_md: '' },
+      {
+        onSuccess: () => {
+          setAddBlockOpen(false)
+          setNewBlockTitle('')
+          setNewBlockType('custom')
+        },
+      },
+    )
+  }
+
+  function openEditBranch() {
+    if (!branch) return
+    setEditName(branch.name)
+    setEditCompany(branch.company ?? '')
+    setEditPosition(branch.position ?? '')
+    setEditStatus(branch.status)
+    setEditBranchOpen(true)
+  }
+
+  function onSaveBranch() {
+    if (!branch || !editName.trim()) return
+    patchBranch.mutate(
+      {
+        id: branch.id,
+        input: {
+          name: editName.trim(),
+          company: editCompany.trim() || null,
+          position: editPosition.trim() || null,
+          status: editStatus,
+        },
+      },
+      { onSuccess: () => setEditBranchOpen(false) },
+    )
+  }
+
+  function autoSave(id: string, content_md: string) {
+    patchBlock.mutate({ id, input: { content_md } })
+  }
+
+  // Code mode auto-save: parse markdown and persist changed blocks
+  function handleCodeAutoSave(md: string) {
+    const parsed = markdownToBlocks(md)
+    parsed.forEach((pb, i) => {
+      const existing = blocks[i]
+      if (
+        !existing ||
+        existing.content_md !== pb.content_md ||
+        existing.type !== pb.type ||
+        existing.title !== pb.title
+      ) {
+        patchBlock.mutate({
+          id: existing?.id ?? `new-${i}`,
+          input: {
+            type: pb.type,
+            title: pb.title,
+            content_md: pb.content_md,
+            meta: pb.meta as Record<string, unknown> | null,
+          },
+        })
+      }
+    })
+  }
+
+  if (isLoading) {
+    return <div className="p-8 text-sm text-ink-3">加载中…</div>
+  }
+  if (!branch) {
+    return <div className="p-8 text-sm text-ink-3">未找到该简历</div>
+  }
+
+  const isReadonly = lock.status === 'readonly'
+
   return (
-    <div className="h-full flex flex-col">
-      {/* 编辑器工具栏 */}
-      <div className="border-b border-surface-border dark:border-dark-surface-border bg-surface dark:bg-dark-surface flex-shrink-0">
-        <div className="px-6 py-2.5 flex items-center gap-3">
-          <Link
-            to="/resume"
-            className="p-1.5 -ml-1.5 rounded text-ink-3 hover:bg-surface-muted hover:text-ink-1 transition-colors"
-            aria-label="返回"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+    <div className="h-screen flex flex-col">
+      <UnifiedToolbar
+        branchName={branch.name}
+        branchId={branch.id}
+        mode={mode}
+        onModeChange={(newMode) => {
+          if (newMode === 'code' && mode === 'quick') {
+            switchToCode()
+          } else if (newMode === 'quick' && mode === 'code') {
+            switchToQuick()
+          }
+        }}
+        versionCount={versions.length}
+        onSaveVersion={() => setSaveOpen(true)}
+        onOpenVersions={() => setVersionDrawerOpen(true)}
+        onStyleSelect={() => setStyleSelectorOpen(true)}
+        onExport={() => setExportMenuOpen(true)}
+        onToggleSidebar={() => setSidebarOpen(true)}
+        lockStatus={
+          <LockIndicator
+            status={lock.status}
+            holder={lock.holder}
+            onRelease={lock.release}
+          />
+        }
+      />
 
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="text-sm font-medium text-ink-1 truncate">{branch.name}</div>
-            {!branch.isMain && branch.matchScore && (
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <span className="text-2xs text-ink-3">匹配度</span>
-                <span
-                  className={cn(
-                    'text-xs font-semibold tabular-nums',
-                    branch.matchScore >= 90
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-brand-600 dark:text-brand-300',
-                  )}
-                >
-                  {branch.matchScore}
-                </span>
-              </div>
-            )}
-            <Badge
-              variant={
-                branch.status === 'ready'
-                  ? 'success'
-                  : branch.status === 'optimizing'
-                    ? 'warning'
-                    : 'default'
-              }
-            >
-              {branch.status === 'ready' ? '已就绪' : branch.status === 'optimizing' ? '优化中' : '草稿'}
-            </Badge>
-            <span className="text-2xs text-ink-3 hidden md:inline">·</span>
-            <span className="text-2xs text-ink-3 hidden md:inline">
-              {timeAgo(branch.lastEdited)} · {branch.versionCount} 个版本
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <Tabs
-              value={view}
-              onChange={(v) => setView(v as typeof view)}
-              size="sm"
-              items={[
-                { key: 'edit', label: '编辑' },
-                { key: 'split', label: '分屏' },
-                { key: 'preview', label: '预览' },
-                { key: 'diff', label: '对比' },
-              ]}
-            />
-
-            <div className="w-px h-5 bg-surface-border dark:bg-dark-surface-border mx-1" />
-
-            <div className="relative">
-              <Button
-                size="sm"
-                variant="ghost"
-                leftIcon={<Layout className="h-3.5 w-3.5" />}
-                rightIcon={<ChevronDown className="h-3 w-3" />}
-                onClick={() => setTemplatePickerOpen((v) => !v)}
-              >
-                {templates.find((t) => t.key === template)?.name}
-              </Button>
-              {templatePickerOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setTemplatePickerOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 w-64 z-50 surface-1 rounded-md border border-surface-border dark:border-dark-surface-border shadow-notion-md p-1.5 animate-fade-in">
-                    {templates.map((t) => (
-                      <button
-                        key={t.key}
-                        onClick={() => {
-                          setTemplate(t.key)
-                          setTemplatePickerOpen(false)
-                        }}
-                        className={cn(
-                          'w-full flex items-start gap-2.5 p-2 rounded text-left transition-colors',
-                          template === t.key
-                            ? 'bg-brand-50 dark:bg-brand-500/15'
-                            : 'hover:bg-surface-muted dark:hover:bg-dark-surface-muted',
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            'h-7 w-5 rounded border flex-shrink-0 flex items-center justify-center text-2xs font-bold',
-                            template === t.key
-                              ? 'border-brand-500 bg-brand-500 text-white'
-                              : 'border-surface-border dark:border-dark-surface-border text-ink-3',
-                          )}
-                        >
-                          Aa
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-ink-1">{t.name}</div>
-                          <div className="text-2xs text-ink-3 mt-0.5">{t.desc}</div>
-                        </div>
-                        {template === t.key && <Check className="h-3.5 w-3.5 text-brand-500 mt-1" />}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <Button size="sm" variant="ghost" leftIcon={<History className="h-3.5 w-3.5" />}>
-              历史
-            </Button>
-            <Button size="sm" variant="ghost" leftIcon={<Share2 className="h-3.5 w-3.5" />}>
-              分享
-            </Button>
-            <Button size="sm" variant="primary" leftIcon={<Download className="h-3.5 w-3.5" />}>
-              导出 PDF
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* 主工作区 - 三栏 */}
-      <div className="flex-1 flex min-h-0">
-        {/* 左侧：块编辑器 */}
-        {(view === 'edit' || view === 'split' || view === 'diff') && (
-          <div
-            className={cn(
-              'flex-1 overflow-y-auto',
-              view === 'split' && 'lg:flex-none lg:w-[44%] border-r border-surface-border dark:border-dark-surface-border',
-            )}
-          >
-            <div className="max-w-3xl mx-auto px-8 py-8">
-              {/* 块列表 */}
-              <div className="space-y-1">
-                {blocks.map((block, idx) => (
-                  <BlockEditor
-                    key={block.id}
-                    block={block}
-                    index={idx}
-                    isActive={activeBlock === block.id}
-                    isDiff={view === 'diff'}
-                    onSelect={() => setActiveBlock(block.id)}
-                    onUpdate={(updates) => {
-                      setBlocks((prev) => prev.map((b) => (b.id === block.id ? { ...b, ...updates } : b)))
-                    }}
-                    onDelete={() => setBlocks((prev) => prev.filter((b) => b.id !== block.id))}
-                    onDuplicate={() => {
-                      const newBlock = { ...block, id: `b-${Date.now()}` }
-                      setBlocks((prev) => [...prev.slice(0, idx + 1), newBlock, ...prev.slice(idx + 1)])
-                    }}
-                  />
-                ))}
-
-                <button
-                  className="w-full mt-2 flex items-center justify-center gap-1.5 h-9 rounded border border-dashed border-surface-border dark:border-dark-surface-border text-2xs text-ink-3 hover:border-ink-muted hover:text-ink-1 hover:bg-surface-muted/50 dark:hover:bg-dark-surface-muted/30 transition-colors"
-                  onClick={() => {
-                    const id = `b-${Date.now()}`
-                    setBlocks((prev) => [
-                      ...prev,
-                      { id, type: 'experience', title: '', content: '', meta: '' },
-                    ])
-                    setActiveBlock(id)
-                  }}
-                >
-                  <Plus className="h-3 w-3" />
-                  添加块
-                </button>
-              </div>
-            </div>
-          </div>
+      {/* Branch meta bar (edit pencil, company, status) */}
+      <div className="px-4 py-1.5 border-b border-surface-border dark:border-dark-surface-border flex items-center gap-3 text-xs text-ink-3">
+        {branch.is_main && (
+          <Badge variant="brand">主简历</Badge>
         )}
-
-        {/* 右侧：实时预览 */}
-        {(view === 'preview' || view === 'split') && (
-          <div
-            className={cn(
-              'flex-1 overflow-y-auto bg-surface-muted/40 dark:bg-dark-surface-subtle/40',
-              view === 'split' && 'lg:flex-none lg:w-[56%]',
-            )}
-          >
-            <div className="px-8 py-8 max-w-3xl mx-auto">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-2xs text-ink-3">实时预览 · {templates.find((t) => t.key === template)?.name} 模板</div>
-                <Button size="sm" variant="ghost" leftIcon={<Eye className="h-3.5 w-3.5" />}>
-                  全屏预览
-                </Button>
-              </div>
-              <ResumePreview blocks={blocks} template={template} />
-            </div>
-          </div>
+        {branch.parent_id && !branch.is_main && (
+          <Badge variant="default">派生分支</Badge>
         )}
-
-        {/* 对比模式 */}
-        {view === 'diff' && (
-          <div className="flex-1 overflow-y-auto bg-surface-muted/40 dark:bg-dark-surface-subtle/40">
-            <div className="px-8 py-8 max-w-4xl mx-auto">
-              <div className="mb-4 flex items-center gap-3">
-                <GitCompare className="h-4 w-4 text-ink-3" />
-                <div className="text-sm font-medium text-ink-1">
-                  对比：V{branch.versionCount - 1} <span className="text-ink-3 mx-1">→</span> V
-                  {branch.versionCount}
-                </div>
-                <Badge variant="brand" leftIcon={<Sparkles className="h-2.5 w-2.5" />}>
-                  AI 修改
-                </Badge>
-                <div className="flex-1" />
-                <div className="flex items-center gap-2 text-2xs text-ink-3">
-                  <span className="flex items-center gap-1">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/30 border border-emerald-500/40" />
-                    新增
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-500/30 border border-amber-500/40" />
-                    修改
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-red-500/30 border border-red-500/40" />
-                    删除
-                  </span>
-                </div>
-              </div>
-              <DiffView blocks={blocks} />
-            </div>
-          </div>
+        {!branch.parent_id && !branch.is_main && (
+          <Badge variant="default">独立分支</Badge>
         )}
-      </div>
-
-      {/* AI 助手浮动按钮 / 侧边面板 */}
-      {!aiPanelOpen && (
+        {branch.company && <span>{branch.company}</span>}
+        {branch.position && <span>{branch.position}</span>}
+        <Badge variant={branch.status === 'ready' ? 'success' : branch.status === 'optimizing' ? 'warning' : branch.status === 'submitted' ? 'brand' : 'default'}>
+          {STATUS_LABEL[branch.status]}
+        </Badge>
+        {branch.last_edited_at && <span>最后编辑 {timeAgo(branch.last_edited_at)}</span>}
         <button
-          onClick={() => setAiPanelOpen(true)}
-          className="fixed bottom-6 right-6 z-30 h-12 w-12 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-notion-md hover:shadow-notion-lg hover:scale-105 transition-all flex items-center justify-center"
-          aria-label="打开 AI 助手"
+          onClick={openEditBranch}
+          className="p-0.5 rounded hover:bg-surface-muted text-ink-3 hover:text-ink-1"
+          aria-label="编辑分支属性"
         >
-          <Sparkles className="h-5 w-5" />
+          <Pencil className="h-3 w-3" />
         </button>
-      )}
-
-      {aiPanelOpen && (
-        <aside className="w-80 border-l border-surface-border dark:border-dark-surface-border bg-surface dark:bg-dark-surface flex flex-col flex-shrink-0 animate-slide-in-right">
-          <div className="px-4 py-3 border-b border-surface-border dark:border-dark-surface-border flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <div className="h-6 w-6 rounded-md bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
-                <Sparkles className="h-3 w-3 text-white" strokeWidth={2.5} />
-              </div>
-              <span className="text-sm font-semibold text-ink-1">AI 简历助手</span>
-            </div>
-            <button
-              onClick={() => setAiPanelOpen(false)}
-              className="p-1 rounded text-ink-3 hover:bg-surface-muted hover:text-ink-1 transition-colors"
-              aria-label="关闭"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {/* JD 输入 */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-ink-1">招聘 JD</label>
-                <button className="text-2xs text-ink-3 hover:text-ink-1 transition-colors">
-                  粘贴 URL
-                </button>
-              </div>
-              <Textarea
-                value={jdInput}
-                onChange={(e) => setJdInput(e.target.value)}
-                rows={6}
-                placeholder="将招聘 JD 粘贴到这里…"
-                className="text-xs leading-relaxed"
-              />
-            </div>
-
-            {/* AI 生成按钮 */}
-            <Button
-              variant="primary"
-              className="w-full"
-              leftIcon={
-                aiGenerating ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Wand2 className="h-3.5 w-3.5" />
-                )
-              }
-              onClick={startAiGenerate}
-              loading={aiGenerating}
-            >
-              {aiGenerating ? 'AI 正在优化…' : '开始 AI 优化'}
-            </Button>
-
-            {/* 进度指示器 */}
-            {aiGenerating && (
-              <div className="space-y-2 animate-fade-in">
-                <div className="space-y-1.5">
-                  <Stage done={aiStage >= 1} active={aiStage === 1} label="解析 JD 关键能力词" />
-                  <Stage done={aiStage >= 2} active={aiStage === 2} label="匹配核心简历内容" />
-                  <Stage done={aiStage >= 3} active={aiStage === 3} label="生成针对性优化建议" />
-                  <Stage done={aiStage >= 4} active={aiStage === 4} label="应用修改并预览" />
-                </div>
-              </div>
-            )}
-
-            {/* 生成结果 */}
-            {!aiGenerating && aiStage === 0 && (
-              <>
-                <div>
-                  <div className="text-xs font-medium text-ink-1 mb-2">AI 建议</div>
-                  <div className="space-y-2">
-                    <Suggestion
-                      title="突出「微前端架构」经验"
-                      impact="匹配度 +3"
-                      detail="JD 第 2 条提到「微前端、组件库」，建议将 EdgeKit 项目的描述前置。"
-                    />
-                    <Suggestion
-                      title="补充电商业务理解"
-                      impact="匹配度 +4"
-                      detail="JD 强调电商交易链路，可在项目经历中加入「订单」「履约」相关关键词。"
-                    />
-                    <Suggestion
-                      title="强化 TypeScript 进阶能力"
-                      impact="匹配度 +2"
-                      detail="JD 提到「TypeScript 原理」，建议在技能清单中标注 TS 高级类型应用经验。"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-xs font-medium text-ink-1 mb-2">智能操作</div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <ActionBtn icon={<Zap className="h-3 w-3" />} label="智能重写" />
-                    <ActionBtn icon={<Type className="h-3 w-3" />} label="润色措辞" />
-                    <ActionBtn icon={<TrendingUp className="h-3 w-3" />} label="量化成果" />
-                    <ActionBtn icon={<Layout className="h-3 w-3" />} label="优化排版" />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {aiStage === 4 && !aiGenerating && (
-              <div className="animate-fade-in space-y-3">
-                <div className="p-3 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200/60 dark:border-emerald-500/20">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                      优化完成
-                    </span>
-                  </div>
-                  <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80 leading-relaxed">
-                    匹配度从 82 提升至
-                    <span className="font-semibold mx-0.5">87</span>
-                    · 共修改 6 处 · 新增 2 个亮点
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Button variant="primary" className="w-full" size="sm">
-                    应用所有修改
-                  </Button>
-                  <Button variant="secondary" className="w-full" size="sm">
-                    逐条审阅
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="px-4 py-2.5 border-t border-surface-border dark:border-dark-surface-border text-2xs text-ink-3 flex items-center gap-1.5 flex-shrink-0">
-            <Command className="h-2.5 w-2.5" />
-            <span>选中文本按</span>
-            <kbd className="px-1 rounded bg-surface-muted dark:bg-dark-surface-muted">⌘ K</kbd>
-            <span>召唤 AI</span>
-          </div>
-        </aside>
-      )}
-    </div>
-  )
-}
-
-// ============== 子组件 ==============
-
-function BlockEditor({
-  block,
-  index,
-  isActive,
-  isDiff,
-  onSelect,
-  onUpdate,
-  onDelete,
-  onDuplicate,
-}: {
-  block: ResumeBlock
-  index: number
-  isActive: boolean
-  isDiff: boolean
-  onSelect: () => void
-  onUpdate: (updates: Partial<ResumeBlock>) => void
-  onDelete: () => void
-  onDuplicate: () => void
-}) {
-  const meta = blockTypeMeta[block.type]
-  const [hovered, setHovered] = useState(false)
-
-  return (
-    <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={onSelect}
-      className={cn(
-        'group relative rounded transition-colors cursor-text',
-        isActive ? 'bg-surface-muted/50 dark:bg-dark-surface-muted/30' : 'hover:bg-surface-muted/30 dark:hover:bg-dark-surface-muted/20',
-      )}
-    >
-      <div className="flex items-start pl-9 pr-2 py-2">
-        {/* 拖拽手柄 + 类型指示 */}
-        <div className="absolute left-0 top-0 h-full flex flex-col items-center pt-2.5 gap-1.5">
-          <button
-            className={cn(
-              'h-5 w-5 rounded flex items-center justify-center text-ink-muted',
-              'hover:bg-surface-muted hover:text-ink-2 transition-all',
-              hovered || isActive ? 'opacity-100' : 'opacity-0',
-            )}
-            aria-label="拖拽排序"
-            onClick={(e) => e.stopPropagation()}
+        <div className="flex-1" />
+        {branch.parent_id && (
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={<RefreshCw className="h-3 w-3" />}
+            onClick={() => refreshFromParent.mutate()}
+            disabled={refreshFromParent.isPending}
           >
-            <GripVertical className="h-3.5 w-3.5" />
-          </button>
+            {refreshFromParent.isPending ? '同步中…' : '同步父级'}
+          </Button>
+        )}
+      </div>
+
+      {/* Editor area with sidebar */}
+      <div className="flex-1 min-h-0 flex relative">
+        {/* Main split pane */}
+        <div ref={splitContainerRef} className="flex-1 min-w-0 flex">
+          {/* Left: Editor */}
+          <div className="min-h-0 overflow-y-auto" style={{ width: `${splitRatio}%` }}>
+            {mode === 'quick' ? (
+              <div className="px-6 py-4">
+                <QuickEditor
+                  blocks={blocks}
+                  collapsedBlockIds={collapsedBlockIds}
+                  onToggleCollapse={(id) => {
+                    toggleCollapse(id)
+                    patchBlock.mutate({ id, input: { collapsed: !collapsedBlockIds.has(id) } })
+                  }}
+                  onAutoSave={autoSave}
+                  onDelete={(id) => deleteBlock.mutate(id)}
+                  onMoveUp={(id) => moveBlock(id, -1)}
+                  onMoveDown={(id) => moveBlock(id, 1)}
+                  onPatchMeta={(id, meta) => patchBlock.mutate({ id, input: { meta } })}
+                  isReadonly={isReadonly}
+                />
+                {!isReadonly && (
+                  <Button
+                    variant="secondary"
+                    leftIcon={<Plus className="h-3.5 w-3.5" />}
+                    className="mt-4"
+                    disabled={createBlock.isPending}
+                    onClick={() => setAddBlockOpen(true)}
+                    data-testid="add-block"
+                  >
+                    {createBlock.isPending ? '创建中…' : '添加模块'}
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <MarkdownEditor
+                value={markdownContent}
+                onChange={setMarkdownContent}
+                readOnly={isReadonly}
+                onAutoSave={handleCodeAutoSave}
+              />
+            )}
+          </div>
+
+          {/* Drag handle */}
           <div
-            className={cn(
-              'h-5 w-5 rounded flex items-center justify-center transition-opacity',
-              hovered || isActive ? 'opacity-100' : 'opacity-0',
-              meta.color,
-            )}
-            title={meta.label}
-          >
-            <meta.icon className="h-3.5 w-3.5" />
+            onMouseDown={handleSplitDrag}
+            className="w-2 cursor-col-resize bg-surface-border dark:bg-dark-surface-border hover:bg-brand-500/30 transition-colors flex-shrink-0"
+            data-testid="split-handle"
+          />
+
+          {/* Right: Resume Preview */}
+          <div className="overflow-hidden flex-1" style={{ width: `${100 - splitRatio}%` }}>
+            <ResumePreview markdown={previewMarkdown} styleId={styleId} />
           </div>
         </div>
 
-        {/* 块内容 */}
-        <div className="flex-1 min-w-0">
-          {block.type === 'heading' ? (
-            <input
-              type="text"
-              value={block.title}
-              onChange={(e) => onUpdate({ title: e.target.value })}
-              placeholder="姓名"
-              className="w-full text-2xl font-semibold text-ink-1 bg-transparent border-0 focus:outline-none placeholder:text-ink-muted tracking-tight"
-            />
-          ) : (
-            <>
-              {block.title && (
-                <input
-                  type="text"
-                  value={block.title}
-                  onChange={(e) => onUpdate({ title: e.target.value })}
-                  placeholder="块标题"
-                  className="w-full text-sm font-semibold text-ink-1 bg-transparent border-0 focus:outline-none placeholder:text-ink-muted mb-1"
-                />
-              )}
-              {!block.title && block.type !== 'experience' && (
-                <input
-                  type="text"
-                  value={block.meta || ''}
-                  onChange={(e) => onUpdate({ meta: e.target.value })}
-                  placeholder="添加副标题…"
-                  className="w-full text-xs text-ink-3 bg-transparent border-0 focus:outline-none placeholder:text-ink-muted mb-1.5 italic"
-                />
-              )}
-              {block.type === 'experience' && (
-                <input
-                  type="text"
-                  value={block.meta || ''}
-                  onChange={(e) => onUpdate({ meta: e.target.value })}
-                  placeholder="时间 · 公司 · 职位"
-                  className="w-full text-xs text-ink-3 bg-transparent border-0 focus:outline-none placeholder:text-ink-muted mb-1.5"
-                />
-              )}
-              <textarea
-                value={block.content}
-                onChange={(e) => onUpdate({ content: e.target.value })}
-                placeholder="开始输入，或按 / 召唤 AI 助手…"
-                rows={block.content.split('\n').length || 1}
-                className="w-full text-sm leading-relaxed text-ink-2 bg-transparent border-0 focus:outline-none placeholder:text-ink-muted resize-none"
-              />
-            </>
-          )}
-        </div>
-
-        {/* 块操作按钮 */}
+        {/* Sidebar drawer backdrop */}
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-20 bg-black/20" onClick={() => setSidebarOpen(false)} />
+        )}
+        {/* Sidebar drawer (slides from right, overlays preview) */}
         <div
           className={cn(
-            'flex items-center gap-0.5 flex-shrink-0 transition-opacity',
-            hovered || isActive ? 'opacity-100' : 'opacity-0',
+            'absolute top-0 right-0 h-full w-[340px] z-30 bg-surface dark:bg-dark-surface border-l border-surface-border dark:border-dark-surface-border overflow-y-auto transition-transform duration-200 shadow-lg',
+            sidebarOpen ? 'translate-x-0' : 'translate-x-full',
           )}
         >
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onUpdate({ collapsed: !block.collapsed })
+          <div className="flex items-center justify-between px-3 py-2 border-b border-surface-border dark:border-dark-surface-border">
+            <span className="text-xs font-semibold text-ink-2">信息面板</span>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-0.5 rounded hover:bg-surface-muted text-ink-3 hover:text-ink-1"
+              aria-label="关闭面板"
+            >
+              <PanelRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <EditorSidebar
+            branch={branch}
+            versions={versions}
+            styleId={styleId}
+            onStyleSelect={handleStyleSelect}
+            onVersionSelect={(versionNo) => {
+              setVersionDrawerOpen(false)
+              setViewVersionNo(versionNo)
             }}
-            className="p-1 rounded text-ink-3 hover:bg-surface-muted hover:text-ink-1 transition-colors"
-            aria-label="折叠"
-            title="折叠"
-          >
-            {block.collapsed ? (
-              <ChevronRight className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronDown className="h-3.5 w-3.5" />
-            )}
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onDuplicate()
+            onRollback={() => {
+              if (versions.length > 0) {
+                const latest = [...versions].reverse()[0]
+                setRollbackTarget(latest.version_no)
+              }
             }}
-            className="p-1 rounded text-ink-3 hover:bg-surface-muted hover:text-ink-1 transition-colors"
-            aria-label="复制"
-            title="复制"
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete()
-            }}
-            className="p-1 rounded text-ink-3 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400 transition-colors"
-            aria-label="删除"
-            title="删除"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+            onSaveVersion={() => setSaveOpen(true)}
+          />
         </div>
       </div>
-    </div>
-  )
-}
 
-function Stage({ done, active, label }: { done: boolean; active?: boolean; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className={cn(
-          'h-4 w-4 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
-          done
-            ? 'bg-emerald-500 text-white'
-            : active
-              ? 'bg-brand-500/20 text-brand-600 dark:text-brand-300 ring-2 ring-brand-500/30'
-              : 'bg-surface-muted dark:bg-dark-surface-muted text-ink-muted',
-        )}
+      {/* ---- Modals (shared across modes) ---- */}
+
+      {/* Add block type selector modal */}
+      <Modal
+        open={addBlockOpen}
+        onClose={() => setAddBlockOpen(false)}
+        title="添加模块"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAddBlockOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              disabled={createBlock.isPending}
+              onClick={onAddBlock}
+            >
+              {createBlock.isPending ? '创建中…' : '创建'}
+            </Button>
+          </>
+        }
       >
-        {done ? (
-          <Check className="h-2.5 w-2.5" strokeWidth={3} />
-        ) : active ? (
-          <Loader2 className="h-2.5 w-2.5 animate-spin" />
-        ) : (
-          <div className="h-1 w-1 rounded-full bg-current" />
-        )}
-      </div>
-      <span
-        className={cn(
-          'text-xs',
-          done
-            ? 'text-ink-2 dark:text-dark-ink-secondary'
-            : active
-              ? 'text-ink-1 font-medium'
-              : 'text-ink-3',
-        )}
-      >
-        {label}
-      </span>
-    </div>
-  )
-}
-
-function Suggestion({
-  title,
-  impact,
-  detail,
-}: {
-  title: string
-  impact: string
-  detail: string
-}) {
-  return (
-    <div className="p-2.5 rounded-md border border-surface-border dark:border-dark-surface-border hover:border-ink-muted/40 transition-colors cursor-pointer group">
-      <div className="flex items-start justify-between gap-2 mb-1">
-        <div className="text-xs font-medium text-ink-1 leading-snug">{title}</div>
-        <Badge variant="success">{impact}</Badge>
-      </div>
-      <div className="text-2xs text-ink-3 leading-relaxed">{detail}</div>
-    </div>
-  )
-}
-
-function ActionBtn({ icon, label }: { icon: React.ReactNode; label: string }) {
-  return (
-    <button className="flex items-center gap-1.5 px-2.5 h-7 rounded border border-surface-border dark:border-dark-surface-border text-xs text-ink-2 dark:text-dark-ink-secondary hover:bg-surface-muted dark:hover:bg-dark-surface-muted hover:border-ink-muted/40 transition-all">
-      {icon}
-      {label}
-    </button>
-  )
-}
-
-// 简历预览（极简风，模拟 A4 纸张）
-function ResumePreview({ blocks, template }: { blocks: ResumeBlock[]; template: string }) {
-  return (
-    <div className="rounded-md border border-surface-border dark:border-dark-surface-border shadow-notion-md overflow-hidden bg-white text-ink-primary">
-      {/* 模拟 A4 纸张比例 */}
-      <div className="aspect-[1/1.414] p-10 text-[11px] leading-relaxed">
-        {blocks.map((b) => {
-          if (b.collapsed) return null
-          if (b.type === 'heading') {
-            return (
-              <div key={b.id} className="pb-3 mb-4 border-b-2 border-ink-primary">
-                <h1 className="text-2xl font-bold tracking-tight text-ink-primary">{b.title}</h1>
-                <div className="text-xs text-ink-secondary mt-1">{b.content}</div>
-                {b.meta && <div className="text-2xs text-ink-tertiary mt-0.5">{b.meta}</div>}
-              </div>
-            )
-          }
-          if (b.type === 'summary') {
-            return (
-              <div key={b.id} className="mb-4">
-                <div className="text-2xs font-semibold text-ink-tertiary uppercase tracking-wider mb-1">
-                  {b.title}
-                </div>
-                <p className="text-xs text-ink-secondary leading-relaxed">{b.content}</p>
-              </div>
-            )
-          }
-          if (b.type === 'experience') {
-            return (
-              <div key={b.id} className="mb-4">
-                {b.title && (
-                  <div className="text-2xs font-semibold text-ink-tertiary uppercase tracking-wider mb-1.5">
-                    {b.title}
-                  </div>
-                )}
-                <div className="text-2xs text-ink-tertiary mb-1">{b.meta}</div>
-                <div className="text-xs text-ink-secondary whitespace-pre-line leading-relaxed">
-                  {b.content}
-                </div>
-              </div>
-            )
-          }
-          if (b.type === 'project') {
-            return (
-              <div key={b.id} className="mb-4">
-                <div className="text-2xs font-semibold text-ink-tertiary uppercase tracking-wider mb-1.5">
-                  {b.title}
-                </div>
-                <div className="text-2xs font-medium text-ink-primary mb-1">{b.meta}</div>
-                <div className="text-xs text-ink-secondary leading-relaxed">{b.content}</div>
-              </div>
-            )
-          }
-          if (b.type === 'skill') {
-            return (
-              <div key={b.id} className="mb-4">
-                <div className="text-2xs font-semibold text-ink-tertiary uppercase tracking-wider mb-1.5">
-                  {b.title}
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {b.content.split('·').map((s, i) => (
-                    <span
-                      key={i}
-                      className="text-2xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700"
-                    >
-                      {s.trim()}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )
-          }
-          if (b.type === 'education') {
-            return (
-              <div key={b.id} className="mb-4">
-                <div className="text-2xs font-semibold text-ink-tertiary uppercase tracking-wider mb-1.5">
-                  {b.title}
-                </div>
-                <div className="text-2xs text-ink-tertiary mb-0.5">{b.meta}</div>
-                <div className="text-xs text-ink-secondary">{b.content}</div>
-              </div>
-            )
-          }
-          return null
-        })}
-      </div>
-    </div>
-  )
-}
-
-// Diff 视图
-function DiffView({ blocks }: { blocks: ResumeBlock[] }) {
-  return (
-    <div className="rounded-md border border-surface-border dark:border-dark-surface-border bg-white text-ink-primary overflow-hidden">
-      <div className="aspect-[1/1.414] p-10 text-[11px] leading-relaxed overflow-hidden">
-        {blocks.slice(0, 4).map((b) => (
-          <div key={b.id} className="mb-4">
-            {b.title && (
-              <div className="text-2xs font-semibold uppercase tracking-wider mb-1 bg-amber-100/60 -mx-1 px-1 rounded">
-                {b.title}
-              </div>
-            )}
-            {b.meta && (
-              <div className="text-2xs mb-1 bg-emerald-100/60 -mx-1 px-1 rounded">{b.meta}</div>
-            )}
-            <div className="text-xs whitespace-pre-line">
-              {b.content.split('\n').map((line, i) => {
-                if (line.includes('12 个分散系统'))
-                  return (
-                    <div key={i} className="bg-emerald-100/60 -mx-1 px-1 rounded">
-                      {line}
-                    </div>
-                  )
-                if (line.includes('4.2s 降至 1.1s'))
-                  return (
-                    <div key={i} className="bg-amber-100/60 -mx-1 px-1 rounded">
-                      {line}
-                    </div>
-                  )
-                return <div key={i}>{line}</div>
-              })}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">类型</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {BLOCK_TYPES.map((t) => (
+                <button
+                  key={t.value}
+                  onClick={() => setNewBlockType(t.value)}
+                  className={cn(
+                    'px-2 py-1.5 text-xs rounded border text-left transition-colors',
+                    newBlockType === t.value
+                      ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                      : 'border-surface-border dark:border-dark-surface-border text-ink-2 hover:border-ink-3',
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
           </div>
-        ))}
-      </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">标题（可选）</label>
+            <Input
+              value={newBlockTitle}
+              onChange={(e) => setNewBlockTitle(e.target.value)}
+              placeholder="模块标题"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Save version modal */}
+      <Modal
+        open={saveOpen}
+        onClose={() => setSaveOpen(false)}
+        title="保存版本快照"
+        description="会创建一个完整快照，未来可一键回滚"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSaveOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!label.trim() || saveVersion.isPending}
+              onClick={onSaveVersion}
+              data-testid="save-version-confirm"
+            >
+              {saveVersion.isPending ? '保存中…' : '保存'}
+            </Button>
+          </>
+        }
+      >
+        <Input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="例如：加入字节经验"
+          maxLength={64}
+          data-testid="version-label"
+          autoFocus
+        />
+      </Modal>
+
+      {/* Version history drawer */}
+      <Modal
+        open={versionDrawerOpen}
+        onClose={() => setVersionDrawerOpen(false)}
+        title="版本历史"
+        description="点击「回滚」会基于该版本创建新分支（不破坏当前分支）"
+        size="md"
+        footer={
+          <Button variant="ghost" onClick={() => setVersionDrawerOpen(false)}>
+            关闭
+          </Button>
+        }
+      >
+        {versions.length === 0 ? (
+          <p className="text-sm text-ink-3 py-4 text-center">还没有历史版本</p>
+        ) : (
+          <ul className="divide-y divide-surface-border dark:divide-dark-surface-border">
+            {[...versions].reverse().map((v) => (
+              <li key={v.id} className="py-3 flex items-center justify-between gap-3" data-testid={`version-${v.version_no}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-ink-1">
+                    v{v.version_no} {v.label ? `· ${v.label}` : '· 未命名'}
+                  </div>
+                  <div className="text-2xs text-ink-3 mt-0.5">
+                    {v.author_type === 'ai' ? 'AI 自动' : '手动'} · {timeAgo(v.created_at)} · {v.is_full_snapshot ? '完整快照' : '差异补丁'}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    leftIcon={<Eye className="h-3 w-3" />}
+                    onClick={() => setViewVersionNo(v.version_no)}
+                    data-testid={`view-${v.version_no}`}
+                  >
+                    查看
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    leftIcon={<RotateCcw className="h-3 w-3" />}
+                    onClick={() => {
+                      setVersionDrawerOpen(false)
+                      setRollbackTarget(v.version_no)
+                    }}
+                    data-testid={`rollback-${v.version_no}`}
+                  >
+                    回滚
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Modal>
+
+      {/* Version detail viewer modal */}
+      <Modal
+        open={viewVersionNo !== null}
+        onClose={() => setViewVersionNo(null)}
+        title={`版本详情 v${viewVersionNo}`}
+        size="md"
+        footer={
+          <Button variant="ghost" onClick={() => setViewVersionNo(null)}>
+            关闭
+          </Button>
+        }
+      >
+        {versionDetail ? (
+          <div className="space-y-3">
+            <div className="text-sm text-ink-2">
+              <strong>{versionDetail.label ?? '未命名'}</strong>
+              <span className="text-ink-3 ml-2">
+                {versionDetail.author_type === 'ai' ? 'AI 自动保存' : '手动保存'} · {timeAgo(versionDetail.created_at)}
+              </span>
+            </div>
+            {versionDetail.snapshot.branch && (
+              <div className="text-xs text-ink-3 p-2 rounded bg-surface-muted dark:bg-dark-surface-muted">
+                <p><strong>分支：</strong>{versionDetail.snapshot.branch.name}</p>
+                {versionDetail.snapshot.branch.company && <p>公司：{versionDetail.snapshot.branch.company}</p>}
+                {versionDetail.snapshot.branch.position && <p>职位：{versionDetail.snapshot.branch.position}</p>}
+                <p>状态：{versionDetail.snapshot.branch.status}</p>
+              </div>
+            )}
+            <div className="text-xs font-medium text-ink-2">
+              快照模块 ({versionDetail.snapshot.blocks.length})
+            </div>
+            <ul className="space-y-1.5 max-h-64 overflow-y-auto">
+              {versionDetail.snapshot.blocks.map((sb) => (
+                <li key={sb.id} className="text-xs p-2 rounded border border-surface-border dark:border-dark-surface-border">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Badge variant="default">{sb.type}</Badge>
+                    {sb.title && <span className="font-medium text-ink-1">{sb.title}</span>}
+                  </div>
+                  <p className="text-ink-3 line-clamp-2 whitespace-pre-wrap">{sb.content_md}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-3 py-4 text-center">加载中…</p>
+        )}
+      </Modal>
+
+      {/* Rollback confirmation modal */}
+      <Modal
+        open={rollbackTarget !== null}
+        onClose={() => setRollbackTarget(null)}
+        title="确认回滚"
+        description={`将基于 v${rollbackTarget} 创建一个新分支，原分支内容不变`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRollbackTarget(null)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              disabled={rollbackVersion.isPending}
+              onClick={onRollback}
+              data-testid="rollback-confirm"
+            >
+              {rollbackVersion.isPending ? '回滚中…' : '确认回滚'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-2">新分支名称：回滚 v{rollbackTarget}</p>
+      </Modal>
+
+      {/* Edit branch modal */}
+      <Modal
+        open={editBranchOpen}
+        onClose={() => setEditBranchOpen(false)}
+        title="编辑分支属性"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditBranchOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!editName.trim() || patchBranch.isPending}
+              onClick={onSaveBranch}
+            >
+              {patchBranch.isPending ? '保存中…' : '保存'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">名称</label>
+            <Input value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">公司</label>
+            <Input value={editCompany} onChange={(e) => setEditCompany(e.target.value)} placeholder="（可选）" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">职位</label>
+            <Input value={editPosition} onChange={(e) => setEditPosition(e.target.value)} placeholder="（可选）" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">状态</label>
+            <select
+              className="w-full h-9 px-3 text-sm rounded-md border border-surface-border dark:border-dark-surface-border bg-surface dark:bg-dark-surface text-ink-1"
+              value={editStatus}
+              onChange={(e) => setEditStatus(e.target.value as BranchStatus)}
+            >
+              {Object.entries(STATUS_LABEL).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Modal>
+
+      <OfflineBanner />
+
+      {/* Phase 5 M16: AI Optimize button in branch meta bar */}
+      {branch.id && (
+        <div className="absolute top-0 right-0 mt-1 mr-2">
+          <AiOptimizePanel
+            branchId={branch.id}
+            onOptimized={() => {
+              qc.invalidateQueries({ queryKey: BLOCKS_KEY(branchId!) })
+              qc.invalidateQueries({ queryKey: BRANCH_KEY(branchId!) })
+            }}
+          />
+        </div>
+      )}
+
+      {/* Style selector popover (for small screens without sidebar) */}
+      <StyleSelector
+        selectedStyleId={styleId}
+        onSelect={handleStyleSelect}
+        open={styleSelectorOpen}
+        onClose={() => setStyleSelectorOpen(false)}
+      />
+
+      {/* Export menu popover */}
+      <ExportMenu
+        branch={branch}
+        blocks={blocks}
+        styleId={styleId}
+        markdown={mode === 'code' ? markdownContent : undefined}
+        open={exportMenuOpen}
+        onClose={() => setExportMenuOpen(false)}
+      />
     </div>
   )
 }

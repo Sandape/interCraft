@@ -1,67 +1,116 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+/**
+ * App.tsx — providers + router + auth guard.
+ */
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { useCurrentUser } from '@/hooks/queries/useCurrentUser'
+import { hasTokens } from '@/api/token-storage'
+import Login from '@/pages/Login'
+import Register from '@/pages/Register'
 import Dashboard from '@/pages/Dashboard'
 import ResumeList from '@/pages/ResumeList'
 import ResumeEditor from '@/pages/ResumeEditor'
+import Profile from '@/pages/Profile'
+import Jobs from '@/pages/Jobs'
+import ErrorBook from '@/pages/ErrorBook'
 import InterviewList from '@/pages/InterviewList'
 import InterviewLive from '@/pages/InterviewLive'
 import InterviewReport from '@/pages/InterviewReport'
-import Profile from '@/pages/Profile'
 import Settings from '@/pages/Settings'
-import Jobs from '@/pages/Jobs'
-import Resources from '@/pages/Resources'
+import GeneralCoach from '@/pages/GeneralCoach'
 import Help from '@/pages/Help'
-import Login from '@/pages/Login'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+})
+
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const status = useAuthStore((s) => s.status)
+  const location = useLocation()
+
+  if (!hasTokens() && status === 'unknown') {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
+  if (status === 'unauthenticated') {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
+  return <>{children}</>
+}
+
+function PublicOnly({ children }: { children: React.ReactNode }) {
+  const status = useAuthStore((s) => s.status)
+  if (status === 'authenticated') return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
+
+function AppRoutes() {
+  // Eagerly resolve current user on mount.
+  useCurrentUser()
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          <PublicOnly>
+            <Login />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicOnly>
+            <Register />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/*"
+        element={
+          <AuthGuard>
+            <AppShell>
+              <Routes>
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/resume" element={<ResumeList />} />
+                <Route path="/resume/:branchId" element={<ResumeEditor />} />
+                <Route path="/interview" element={<InterviewList />} />
+                <Route path="/interview/new" element={<InterviewLive />} />
+                <Route path="/interview/:id/live" element={<InterviewLive />} />
+                <Route path="/interview/:id/report" element={<InterviewReport />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/jobs" element={<Jobs />} />
+                <Route path="/error-book" element={<ErrorBook />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/coach" element={<GeneralCoach />} />
+                <Route path="/help" element={<Help />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </AppShell>
+          </AuthGuard>
+        }
+      />
+    </Routes>
+  )
+}
 
 export default function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* Auth 路由 - 无侧边栏 */}
-          <Route path="/login" element={<Login />} />
-
-          {/* 主应用路由 - 共享 AppShell */}
-          <Route
-            path="/*"
-            element={
-              <AppShell>
-                <Routes>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/dashboard" element={<Dashboard />} />
-
-                  {/* 简历中心 */}
-                  <Route path="/resume" element={<ResumeList />} />
-                  <Route path="/resume/:branchId" element={<ResumeEditor />} />
-
-                  {/* 模拟面试 */}
-                  <Route path="/interview" element={<InterviewList />} />
-                  <Route path="/interview/new" element={<InterviewLive />} />
-                  <Route path="/interview/report/:id" element={<InterviewReport />} />
-
-                  {/* 个人画像 */}
-                  <Route path="/profile" element={<Profile />} />
-
-                  {/* 求职追踪 */}
-                  <Route path="/jobs" element={<Jobs />} />
-
-                  {/* 学习资源 */}
-                  <Route path="/resources" element={<Resources />} />
-
-                  {/* 设置 */}
-                  <Route path="/settings" element={<Settings />} />
-
-                  {/* 帮助 */}
-                  <Route path="/help" element={<Help />} />
-
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                </Routes>
-              </AppShell>
-            }
-          />
-        </Routes>
-      </BrowserRouter>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </QueryClientProvider>
     </ThemeProvider>
   )
 }

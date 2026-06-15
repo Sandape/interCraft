@@ -9,10 +9,7 @@ import {
   ArrowUpRight,
   ChevronRight,
   Briefcase,
-  Calendar,
   Zap,
-  CheckCircle2,
-  AlertCircle,
   Activity,
   Clock,
   ArrowRight,
@@ -22,25 +19,65 @@ import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Progress } from '@/components/ui/Progress'
-import { Avatar } from '@/components/ui/Avatar'
-import {
-  dashboardStats,
-  upcomingTasks,
-  recentActivities,
-  resumeBranches,
-  interviewHistory,
-  growthTrajectory,
-  abilityDimensions,
-} from '@/data/mockData'
-import { formatNumber, timeAgo, truncate } from '@/lib/utils'
+import { useMemo } from 'react'
+import { useResumeBranches } from '@/hooks/queries/useResumeBranches'
+import { useAbilities, useDimensionsMeta } from '@/hooks/queries/useAbilities'
+import { useTasks } from '@/hooks/queries/useTasks'
+import { useActivities } from '@/hooks/queries/useActivities'
+import { useInterviewSessions } from '@/hooks/queries/useInterviewSessions'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { timeAgo } from '@/lib/utils'
 
 export default function Dashboard() {
-  const overallAbility = Math.round(
-    abilityDimensions.reduce((sum, d) => sum + d.actual, 0) / abilityDimensions.length,
+  const user = useAuthStore((s) => s.user)
+  const { data: resumeBranches = [] } = useResumeBranches()
+  const { data: abilitiesData } = useAbilities()
+  const { data: dimensionsMeta } = useDimensionsMeta()
+  const { data: tasksData } = useTasks({ limit: 5 })
+  const { data: activitiesData } = useActivities(undefined, 5)
+  const { data: interviewSessionsData } = useInterviewSessions({ limit: 6 })
+
+  const abilities = (abilitiesData as any)?.data ?? []
+  const dimLabels = (dimensionsMeta as any)?.dimensions ?? []
+  const tasks = (tasksData as any)?.data ?? []
+  const activities = (activitiesData as any)?.items ?? []
+  const sessions = (interviewSessionsData as any)?.data ?? []
+
+  // ---- derived stats ----
+  const completedSessions = useMemo(
+    () => sessions.filter((s: any) => s.status === 'completed'),
+    [sessions],
   )
-  const lastMonth = growthTrajectory[growthTrajectory.length - 2]
-  const thisMonth = growthTrajectory[growthTrajectory.length - 1]
-  const abilityGrowth = thisMonth.tech - lastMonth.tech
+  const interviewsCompleted = completedSessions.length
+  const averageScore = useMemo(() => {
+    const scores = completedSessions
+      .map((s: any) => s.overall_score ?? s.score)
+      .filter((v: unknown) => typeof v === 'number' && v > 0) as number[]
+    if (scores.length === 0) return 0
+    return Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length * 10) / 10
+  }, [completedSessions])
+
+  const abilityByName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const d of dimLabels) {
+      map.set(d.key, d.label_zh)
+    }
+    return map
+  }, [dimLabels])
+
+  const overallAbility = useMemo(() => {
+    if (abilities.length === 0) return 0
+    const sum = abilities.reduce((acc: number, d: any) => acc + Number(d.actual_score ?? 0), 0)
+    return Math.round((sum / abilities.length) * 10) / 10
+  }, [abilities])
+
+  const abilityGrowth = useMemo(() => {
+    if (abilities.length === 0) return 0
+    return abilities.filter((d: any) => (d.actual_score ?? 0) > 0).length > 0 ? 0 : 0
+    // Growth is computed via history API; show 0 as placeholder
+  }, [abilities])
+
+  const activeCount = resumeBranches.filter((b) => b.status !== 'archived').length
 
   return (
     <div className="px-8 py-6 max-w-7xl mx-auto">
@@ -48,11 +85,13 @@ export default function Dashboard() {
       <div className="mb-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">早上好，浩然 👋</h1>
+            <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">
+              {getGreeting()}，{user?.display_name || '用户'} 👋
+            </h1>
             <p className="text-sm text-ink-3 mt-1">
-              你已经持续求职
-              <span className="text-ink-1 font-medium mx-1">28</span>
-              天 · 当前进度良好，建议今天完成 1 场模拟面试
+              {interviewsCompleted > 0
+                ? `你已完成 ${interviewsCompleted} 场模拟面试 · 综合能力 ${overallAbility} 分`
+                : '开始你的第一场模拟面试，获取能力画像'}
             </p>
           </div>
           <div className="hidden md:flex items-center gap-2">
@@ -75,18 +114,18 @@ export default function Dashboard() {
         <StatCard
           icon={<FileText className="h-4 w-4" />}
           label="活跃简历"
-          value={dashboardStats.activeBranches}
-          suffix={`/ ${dashboardStats.resumeBranches}`}
-          change={+1}
-          changeLabel="本周新增 1"
+          value={activeCount}
+          suffix={`/ ${resumeBranches.length}`}
+          change={resumeBranches.length > 0 ? +1 : 0}
+          changeLabel={resumeBranches.length > 0 ? `${resumeBranches.length} 个分支` : '暂无'}
         />
         <StatCard
           icon={<MessageSquareText className="h-4 w-4" />}
           label="已完成面试"
-          value={dashboardStats.interviewsCompleted}
+          value={interviewsCompleted}
           suffix="场"
-          change={+3}
-          changeLabel="本周 +3"
+          change={interviewsCompleted > 0 ? interviewsCompleted : 0}
+          changeLabel={interviewsCompleted > 0 ? `共 ${interviewsCompleted} 场` : '暂无数据'}
         />
         <StatCard
           icon={<Radar className="h-4 w-4" />}
@@ -94,15 +133,15 @@ export default function Dashboard() {
           value={overallAbility}
           suffix="分"
           change={abilityGrowth}
-          changeLabel="本月 +3"
+          changeLabel={overallAbility > 0 ? `${abilities.length} 个维度` : '完成面试后生成'}
         />
         <StatCard
           icon={<Sparkles className="h-4 w-4" />}
           label="平均面试分"
-          value={dashboardStats.averageScore}
+          value={averageScore}
           suffix="分"
-          change={+2.3}
-          changeLabel="对比上月"
+          change={averageScore > 0 ? 0 : 0}
+          changeLabel={averageScore > 0 ? `${completedSessions.length} 场面试` : '暂无数据'}
           isFloat
         />
       </div>
@@ -141,7 +180,7 @@ export default function Dashboard() {
         <Card className="p-5">
           <CardHeader
             title="今日待办"
-            description={`${upcomingTasks.length} 项任务 · 1 项高优先级`}
+            description={`${tasks.length} 项任务`}
             action={
               <Link
                 to="/dashboard"
@@ -151,34 +190,38 @@ export default function Dashboard() {
               </Link>
             }
           />
-          <ul className="space-y-2">
-            {upcomingTasks.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-start gap-2.5 group cursor-pointer -mx-1.5 px-1.5 py-1.5 rounded hover:bg-surface-muted/60 dark:hover:bg-dark-surface-muted/40 transition-colors"
-              >
-                <div
-                  className={`mt-0.5 h-3.5 w-3.5 rounded border-2 flex-shrink-0 transition-colors ${
-                    t.priority === 'high'
-                      ? 'border-brand-500 group-hover:bg-brand-500'
-                      : 'border-ink-muted group-hover:border-ink-secondary group-hover:bg-ink-secondary'
-                  }`}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-ink-1 leading-snug">{t.title}</div>
-                  <div className="text-2xs text-ink-3 mt-0.5 flex items-center gap-1.5">
-                    <Clock className="h-2.5 w-2.5" />
-                    {t.due}
-                    {t.priority === 'high' && (
-                      <Badge variant="danger" className="ml-1">
-                        高优
-                      </Badge>
-                    )}
+          {tasks.length > 0 ? (
+            <ul className="space-y-2">
+              {tasks.slice(0, 5).map((t: any) => (
+                <li
+                  key={t.id}
+                  className="flex items-start gap-2.5 group cursor-pointer -mx-1.5 px-1.5 py-1.5 rounded hover:bg-surface-muted/60 dark:hover:bg-dark-surface-muted/40 transition-colors"
+                >
+                  <div
+                    className={`mt-0.5 h-3.5 w-3.5 rounded border-2 flex-shrink-0 transition-colors ${
+                      t.status === 'pending'
+                        ? 'border-brand-500 group-hover:bg-brand-500'
+                        : 'border-ink-muted group-hover:border-ink-secondary group-hover:bg-ink-secondary'
+                    }`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-ink-1 leading-snug">{t.title}</div>
+                    <div className="text-2xs text-ink-3 mt-0.5 flex items-center gap-1.5">
+                      <Clock className="h-2.5 w-2.5" />
+                      {timeAgo(t.created_at)}
+                      {t.status === 'pending' && (
+                        <Badge variant="warning" className="ml-1">
+                          待办
+                        </Badge>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-ink-3 py-3 text-center">暂无待办任务</p>
+          )}
         </Card>
       </div>
 
@@ -187,7 +230,7 @@ export default function Dashboard() {
         <Card className="lg:col-span-2">
           <CardHeader
             title="我的简历分支"
-            description="每个分支针对特定岗位自动优化"
+            description={`${activeCount} 个活跃 · ${resumeBranches.length} 个总计`}
             action={
               <Link to="/resume" className="text-xs text-brand-600 dark:text-brand-300 hover:underline">
                 管理 →
@@ -203,38 +246,38 @@ export default function Dashboard() {
               >
                 <div
                   className={`h-8 w-8 rounded-md flex items-center justify-center flex-shrink-0 ${
-                    b.isMain
+                    b.is_main
                       ? 'bg-brand-50 dark:bg-brand-500/15 text-brand-600 dark:text-brand-300'
                       : 'bg-surface-muted dark:bg-dark-surface-muted text-ink-2 dark:text-dark-ink-secondary'
                   }`}
                 >
-                  {b.isMain ? <Sparkles className="h-3.5 w-3.5" /> : <Briefcase className="h-3.5 w-3.5" />}
+                  {b.is_main ? <Sparkles className="h-3.5 w-3.5" /> : <Briefcase className="h-3.5 w-3.5" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-ink-1 truncate">{b.name}</div>
                   <div className="text-2xs text-ink-3 mt-0.5 flex items-center gap-2">
-                    <span>{timeAgo(b.lastEdited)}</span>
+                    <span>{timeAgo(b.last_edited_at)}</span>
                     <span>·</span>
-                    <span>{b.versionCount} 个版本</span>
+                    <span>{b.version_count} 个版本</span>
                   </div>
                 </div>
-                {!b.isMain && (
+                {!b.is_main && (
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <span className="text-2xs text-ink-3">匹配度</span>
                     <span
                       className={`text-sm font-semibold tabular-nums ${
-                        b.matchScore >= 90
+                        (b.match_score ?? 0) >= 90
                           ? 'text-emerald-600 dark:text-emerald-400'
-                          : b.matchScore >= 80
+                          : (b.match_score ?? 0) >= 80
                             ? 'text-brand-600 dark:text-brand-300'
                             : 'text-amber-600 dark:text-amber-400'
                       }`}
                     >
-                      {b.matchScore}
+                      {b.match_score ?? '—'}
                     </span>
                   </div>
                 )}
-                {b.isMain && (
+                {b.is_main && (
                   <Badge variant="brand" leftIcon={<Sparkles className="h-2.5 w-2.5" />}>
                     主版
                   </Badge>
@@ -242,6 +285,9 @@ export default function Dashboard() {
                 <ArrowUpRight className="h-3.5 w-3.5 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity" />
               </Link>
             ))}
+            {resumeBranches.length === 0 && (
+              <p className="text-sm text-ink-3 py-3 text-center">暂无简历，去「简历中心」创建第一份</p>
+            )}
           </div>
         </Card>
 
@@ -253,35 +299,42 @@ export default function Dashboard() {
             action={<Activity className="h-3.5 w-3.5 text-ink-3" />}
           />
           <div className="space-y-3">
-            {recentActivities.map((a) => (
-              <div key={a.id} className="flex gap-2.5 group">
-                <div className="flex flex-col items-center flex-shrink-0">
-                  <div
-                    className={`h-5 w-5 rounded-full flex items-center justify-center ${
-                      a.type === 'resume'
-                        ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                        : a.type === 'interview'
-                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400'
-                    }`}
-                  >
-                    {a.type === 'resume' ? (
-                      <FileText className="h-2.5 w-2.5" />
-                    ) : a.type === 'interview' ? (
-                      <MessageSquareText className="h-2.5 w-2.5" />
-                    ) : (
-                      <Radar className="h-2.5 w-2.5" />
-                    )}
+            {activities.length > 0 ? (
+              activities.slice(0, 5).map((a: any) => {
+                const info = getActivityDisplay(a)
+                return (
+                  <div key={a.id} className="flex gap-2.5 group">
+                    <div className="flex flex-col items-center flex-shrink-0">
+                      <div
+                        className={`h-5 w-5 rounded-full flex items-center justify-center ${
+                          info.icon === 'resume'
+                            ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                            : info.icon === 'interview'
+                              ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400'
+                        }`}
+                      >
+                        {info.icon === 'resume' ? (
+                          <FileText className="h-2.5 w-2.5" />
+                        ) : info.icon === 'interview' ? (
+                          <MessageSquareText className="h-2.5 w-2.5" />
+                        ) : (
+                          <Radar className="h-2.5 w-2.5" />
+                        )}
+                      </div>
+                      <div className="w-px flex-1 bg-surface-border dark:bg-dark-surface-border mt-1 group-last:hidden" />
+                    </div>
+                    <div className="flex-1 min-w-0 pb-3 group-last:pb-0">
+                      <div className="text-xs text-ink-1 leading-snug">{info.title}</div>
+                      <div className="text-2xs text-ink-3 mt-0.5">{info.detail}</div>
+                      <div className="text-2xs text-ink-muted mt-0.5">{timeAgo(a.occurred_at)}</div>
+                    </div>
                   </div>
-                  <div className="w-px flex-1 bg-surface-border dark:bg-dark-surface-border mt-1 group-last:hidden" />
-                </div>
-                <div className="flex-1 min-w-0 pb-3 group-last:pb-0">
-                  <div className="text-xs text-ink-1 leading-snug">{a.title}</div>
-                  <div className="text-2xs text-ink-3 mt-0.5">{a.detail}</div>
-                  <div className="text-2xs text-ink-muted mt-0.5">{a.time}</div>
-                </div>
-              </div>
-            ))}
+                )
+              })
+            ) : (
+              <p className="text-sm text-ink-3 py-3 text-center">暂无活动记录</p>
+            )}
           </div>
         </Card>
       </div>
@@ -301,12 +354,42 @@ export default function Dashboard() {
               </Link>
             }
           />
-          <Sparkline data={interviewHistory.slice(0, 6).reverse().map((i) => i.score)} />
-          <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-surface-border dark:border-dark-surface-border">
-            <MiniStat label="最高分" value="92" company="美团" tone="success" />
-            <MiniStat label="最低分" value="78" company="小红书" tone="warning" />
-            <MiniStat label="通过率" value="100%" company="≥80 分" tone="brand" />
-          </div>
+          {completedSessions.length > 0 ? (
+            <>
+              <Sparkline
+                data={[...completedSessions].reverse().map((s: any) => s.overall_score ?? s.score ?? 0)}
+                labels={[...completedSessions].reverse().map((s: any) => (s.company || '').slice(0, 2))}
+              />
+              <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-surface-border dark:border-dark-surface-border">
+                <MiniStat
+                  label="最高分"
+                  value={String(Math.max(...completedSessions.map((s: any) => s.overall_score ?? s.score ?? 0)))}
+                  company={(() => {
+                    const best = [...completedSessions].sort((a: any, b: any) => (b.overall_score ?? b.score ?? 0) - (a.overall_score ?? a.score ?? 0))[0]
+                    return best?.company || ''
+                  })()}
+                  tone="success"
+                />
+                <MiniStat
+                  label="最低分"
+                  value={String(Math.min(...completedSessions.map((s: any) => s.overall_score ?? s.score ?? 0)))}
+                  company={(() => {
+                    const worst = [...completedSessions].sort((a: any, b: any) => (a.overall_score ?? a.score ?? 0) - (b.overall_score ?? b.score ?? 0))[0]
+                    return worst?.company || ''
+                  })()}
+                  tone="warning"
+                />
+                <MiniStat
+                  label="通过率"
+                  value={`${Math.round(completedSessions.filter((s: any) => (s.overall_score ?? s.score ?? 0) >= 80).length / completedSessions.length * 100)}%`}
+                  company="≥80 分"
+                  tone="brand"
+                />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-ink-3 py-8 text-center">完成模拟面试后显示趋势图</p>
+          )}
         </Card>
 
         {/* 个性化建议 */}
@@ -357,29 +440,69 @@ export default function Dashboard() {
           }
         />
         <div className="space-y-3">
-          {abilityDimensions.map((d) => (
-            <div key={d.key} className="grid grid-cols-12 gap-3 items-center">
-              <div className="col-span-3 sm:col-span-2 text-sm font-medium text-ink-1">{d.name}</div>
-              <div className="col-span-7 sm:col-span-8">
-                <div className="relative">
-                  <Progress value={d.actual} size="md" variant="brand" />
-                  <div
-                    className="absolute top-0 h-1.5 w-px bg-ink-muted"
-                    style={{ left: `${d.ideal}%` }}
-                    title={`目标 ${d.ideal}`}
-                  />
+          {abilities.length > 0 ? (
+            abilities.map((d: any) => {
+              const name = abilityByName.get(d.dimension_key) || d.dimension_key
+              const actual = d.actual_score ?? 0
+              const ideal = d.ideal_score ?? 100
+              return (
+                <div key={d.id || d.dimension_key} className="grid grid-cols-12 gap-3 items-center">
+                  <div className="col-span-3 sm:col-span-2 text-sm font-medium text-ink-1">{name}</div>
+                  <div className="col-span-7 sm:col-span-8">
+                    <div className="relative">
+                      <Progress value={actual} size="md" variant="brand" />
+                      <div
+                        className="absolute top-0 h-1.5 w-px bg-ink-muted"
+                        style={{ left: `${Math.min(ideal, 100)}%` }}
+                        title={`目标 ${ideal}`}
+                      />
+                    </div>
+                  </div>
+                  <div className="col-span-2 sm:col-span-2 flex items-center justify-end gap-2 text-sm">
+                    <span className="text-ink-1 font-semibold tabular-nums">{actual}</span>
+                    <span className="text-ink-3 text-2xs">/ {ideal}</span>
+                  </div>
                 </div>
-              </div>
-              <div className="col-span-2 sm:col-span-2 flex items-center justify-end gap-2 text-sm">
-                <span className="text-ink-1 font-semibold tabular-nums">{d.actual}</span>
-                <span className="text-ink-3 text-2xs">/ {d.ideal}</span>
-              </div>
-            </div>
-          ))}
+              )
+            })
+          ) : (
+            <p className="text-sm text-ink-3 py-3 text-center">完成模拟面试后生成能力数据</p>
+          )}
         </div>
       </Card>
     </div>
   )
+}
+
+function getGreeting(): string {
+  const h = new Date().getHours()
+  if (h < 12) return '早上好'
+  if (h < 18) return '下午好'
+  return '晚上好'
+}
+
+function getActivityDisplay(a: any): { title: string; detail: string; icon: string } {
+  const type = a.type || ''
+  const payload = a.payload_json || {}
+  if (type.includes('resume') || payload.branch_name) {
+    return {
+      title: payload.summary || '简历更新',
+      detail: payload.branch_name || '',
+      icon: 'resume',
+    }
+  }
+  if (type.includes('interview') || type.includes('session')) {
+    return {
+      title: payload.summary || '面试记录',
+      detail: [payload.company, payload.position].filter(Boolean).join(' · ') || '',
+      icon: 'interview',
+    }
+  }
+  return {
+    title: payload.summary || type || '系统事件',
+    detail: payload.detail || '',
+    icon: 'ability',
+  }
 }
 
 function StatCard({
@@ -484,16 +607,18 @@ function SuggestionItem({
   )
 }
 
-function Sparkline({ data }: { data: number[] }) {
+function Sparkline({ data, labels }: { data: number[]; labels?: string[] }) {
+  if (data.length === 0) return <p className="text-sm text-ink-3 py-8 text-center">暂无数据</p>
   const width = 600
   const height = 120
   const padding = 8
-  const max = 100
-  const min = 60
-  const stepX = (width - padding * 2) / (data.length - 1)
+  const max = Math.max(...data, 10)
+  const min = Math.min(...data, 0)
+  const range = max - min || 1
+  const stepX = (width - padding * 2) / Math.max(data.length - 1, 1)
   const points = data.map((v, i) => {
     const x = padding + i * stepX
-    const y = height - padding - ((v - min) / (max - min)) * (height - padding * 2)
+    const y = height - padding - ((v - min) / range) * (height - padding * 2)
     return [x, y]
   })
   const linePath = points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${x} ${y}`).join(' ')
@@ -540,9 +665,9 @@ function Sparkline({ data }: { data: number[] }) {
         ))}
       </svg>
       <div className="flex items-center justify-between mt-2 text-2xs text-ink-3">
-        {data.map((_, i) => (
+        {(labels ?? data.map(() => '')).map((label, i) => (
           <span key={i} className="flex-1 text-center">
-            {interviewHistory[interviewHistory.length - 1 - i]?.company.slice(0, 2) || ''}
+            {label}
           </span>
         ))}
       </div>

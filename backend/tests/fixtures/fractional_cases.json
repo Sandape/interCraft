@@ -1,0 +1,8 @@
+[
+  { "name": "first",      "op": "between", "a": null,    "b": null,    "n": 1, "expected": "a0" },
+  { "name": "after_a0",   "op": "between", "a": "a0",    "b": null,    "n": 1, "expected": "a1" },
+  { "name": "before_a0",  "op": "between", "a": null,    "b": "a0",    "n": 1, "expected": "Zz" },
+  { "name": "between_a0_a1", "op": "between", "a": "a0", "b": "a1",   "n": 1, "expected": "a0V" },
+  { "name": "between_Zz_a0", "op": "between", "a": "Zz", "b": "a0",   "n": 1, "expected": "ZzV" },
+  { "name": "between_a0V_a1", "op": "between", "a": "a0V", "b": "a1", "n": 1, "expected": "a0l" }
+]

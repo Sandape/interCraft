@@ -1,0 +1,115 @@
+/* ── 现代双栏 (Modern Two-Column) Resume Style ── */
+/* Left sidebar (30%) + right main (70%) */
+
+.resume-style-modern {
+  --rs-bg: #ffffff;
+  --rs-sidebar-bg: #f8f9fa;
+  --rs-text: #1a1a2e;
+  --rs-text-secondary: #4a4a5a;
+  --rs-accent: #0f766e;
+  --rs-border: #e5e7eb;
+
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  background: var(--rs-bg);
+  color: var(--rs-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  font-size: 10pt;
+  line-height: 1.6;
+  display: flex;
+  box-sizing: border-box;
+}
+
+/* Left sidebar */
+.resume-style-modern .resume-sidebar {
+  width: 30%;
+  background: var(--rs-sidebar-bg);
+  padding: 20mm 8mm 20mm 12mm;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.resume-style-modern .resume-sidebar .resume-name {
+  font-size: 16pt;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.resume-style-modern .resume-sidebar .resume-contact {
+  font-size: 8pt;
+  color: var(--rs-text-secondary);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.resume-style-modern .resume-sidebar h2 {
+  font-size: 10pt;
+  font-weight: 600;
+  color: var(--rs-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.resume-style-modern .resume-sidebar p,
+.resume-style-modern .resume-sidebar li {
+  font-size: 8.5pt;
+  color: var(--rs-text-secondary);
+  margin: 2px 0;
+}
+
+.resume-style-modern .resume-sidebar ul {
+  padding-left: 14px;
+  margin: 2px 0;
+}
+
+/* Right main area */
+.resume-style-modern .resume-main {
+  width: 70%;
+  padding: 20mm 14mm 20mm 12mm;
+  box-sizing: border-box;
+}
+
+.resume-style-modern .resume-main h2 {
+  font-size: 11pt;
+  font-weight: 600;
+  color: var(--rs-accent);
+  border-bottom: 1px solid var(--rs-border);
+  padding-bottom: 3px;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.resume-style-modern .resume-main h3 {
+  font-size: 10.5pt;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.resume-style-modern .resume-main p,
+.resume-style-modern .resume-main li {
+  font-size: 9.5pt;
+  color: var(--rs-text-secondary);
+  margin: 2px 0;
+}
+
+.resume-style-modern .resume-main ul {
+  padding-left: 16px;
+  margin: 2px 0;
+}
+
+.resume-style-modern .resume-main .meta-line {
+  font-size: 8.5pt;
+  color: var(--rs-text-secondary);
+  margin-bottom: 4px;
+}
+
+@media print {
+  .resume-style-modern {
+    box-shadow: none;
+    margin: 0;
+    width: 100%;
+  }
+}

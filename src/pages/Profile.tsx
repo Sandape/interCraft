@@ -1,53 +1,107 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
-  Radar as RadarIcon,
   Download,
   Share2,
   TrendingUp,
-  TrendingDown,
   Target,
   Sparkles,
-  ArrowRight,
-  Calendar,
-  ChevronDown,
   AlertCircle,
   CheckCircle2,
   Lightbulb,
-  ExternalLink,
-  Clock,
-  BookOpen,
-  Zap,
-  FileText,
-  MessageSquare,
-  BarChart3,
   Star,
+  Loader2,
+  MessageSquare,
+  FileText,
+  Zap,
 } from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/Card'
+import AbilityUpdateStatus from '@/components/profile/AbilityUpdateStatus'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Progress } from '@/components/ui/Progress'
+import { OfflineBanner } from '@/components/lock/OfflineBanner'
 import { Tabs } from '@/components/ui/Tabs'
-import { abilityDimensions, growthTrajectory, improvementSuggestions } from '@/data/mockData'
+import { useAbilities, useDimensionsMeta, useAbilityHistory } from '@/hooks/queries/useAbilities'
+import { usePatchAbility, useToggleAbility } from '@/hooks/mutations/usePatchAbility'
+import type { AbilityDimension as ApiDim, DimensionMeta } from '@/repositories/AbilityRepository'
 import { cn } from '@/lib/utils'
+
+interface ChartDim {
+  key: string
+  name: string
+  description: string
+  ideal: number
+  actual: number
+  subItems: { name: string; score: number }[]
+}
+
+function transform(dim: ApiDim, metas: DimensionMeta[]): ChartDim {
+  const meta = metas.find((m) => m.key === dim.dimension_key)
+  const name = meta?.label_zh ?? dim.dimension_key
+  const description = meta?.label_en ?? ''
+  const subItems = meta?.sub_keys
+    ? meta.sub_keys.map((sk) => ({
+        name: sk.label_zh,
+        score: Number(dim.sub_scores?.[sk.key]?.actual ?? 0),
+      }))
+    : Object.entries(dim.sub_scores ?? {}).map(([k, v]) => ({ name: k, score: Number(v.actual) }))
+  return {
+    key: dim.dimension_key,
+    name,
+    description,
+    ideal: Number(dim.ideal_score ?? 0),
+    actual: Number(dim.actual_score ?? 0),
+    subItems,
+  }
+}
 
 export default function Profile() {
   const [activeDim, setActiveDim] = useState<string | null>(null)
-  const [timeRange, setTimeRange] = useState('6m')
   const [tab, setTab] = useState('overview')
 
+  const { data: abilitiesData, isLoading } = useAbilities(true)
+  const { data: metaData } = useDimensionsMeta()
+  const { data: historyData } = useAbilityHistory(undefined, 'month')
+  const patchAbility = usePatchAbility()
+  const toggleAbility = useToggleAbility()
+  const currentUser = useAuthStore((s) => s.user)
+
+  const metas = metaData?.dimensions ?? []
+  const allDimensions = useMemo(() => {
+    if (!abilitiesData?.data) return []
+    return abilitiesData.data
+      .filter((d) => d.is_active)
+      .map((d) => transform(d, metas))
+  }, [abilitiesData, metas])
+
   const overallIdeal = Math.round(
-    abilityDimensions.reduce((sum, d) => sum + d.ideal, 0) / abilityDimensions.length,
+    allDimensions.length ? allDimensions.reduce((s, d) => s + d.ideal, 0) / allDimensions.length : 0,
   )
   const overallActual = Math.round(
-    abilityDimensions.reduce((sum, d) => sum + d.actual, 0) / abilityDimensions.length,
+    allDimensions.length ? allDimensions.reduce((s, d) => s + d.actual, 0) / allDimensions.length : 0,
   )
   const gap = overallIdeal - overallActual
-  const lastMonth = growthTrajectory[growthTrajectory.length - 2]
-  const thisMonth = growthTrajectory[growthTrajectory.length - 1]
-  const growth = Math.round(
-    (thisMonth.tech + thisMonth.arch + thisMonth.eng + thisMonth.comm + thisMonth.algo + thisMonth.biz) / 6 -
-      (lastMonth.tech + lastMonth.arch + lastMonth.eng + lastMonth.comm + lastMonth.algo + lastMonth.biz) / 6,
-  )
+
+  const historyPoints = historyData?.data ?? []
+  const growth = historyPoints.length >= 2
+    ? Math.round(historyPoints[historyPoints.length - 1].actual_score - historyPoints[0].actual_score)
+    : 0
+
+  const bestDim = allDimensions.length
+    ? allDimensions.reduce((a, b) => (a.actual >= b.actual ? a : b))
+    : null
+  const worstDim = allDimensions.length
+    ? allDimensions.reduce((a, b) => (a.actual <= b.actual ? a : b))
+    : null
+
+  if (isLoading) {
+    return (
+      <div className="px-8 py-6 max-w-7xl mx-auto flex items-center justify-center py-24">
+        <Loader2 className="h-6 w-6 text-ink-3 animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="px-8 py-6 max-w-7xl mx-auto">
@@ -58,6 +112,9 @@ export default function Profile() {
           <p className="text-sm text-ink-3 mt-1">
             对比理想与真实能力，量化差距，AI 生成针对性提升路径
           </p>
+          <div className="mt-2">
+            <AbilityUpdateStatus userId={currentUser?.id ?? null} />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" leftIcon={<Share2 className="h-3.5 w-3.5" />}>
@@ -97,18 +154,22 @@ export default function Profile() {
         </Card>
         <Card className="p-4">
           <div className="text-2xs text-ink-3 mb-1.5">最强维度</div>
-          <div className="text-2xl font-semibold text-ink-1 tracking-tight">工程实践</div>
+          <div className="text-2xl font-semibold text-ink-1 tracking-tight">
+            {bestDim?.name ?? '—'}
+          </div>
           <div className="text-2xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
             <CheckCircle2 className="h-2.5 w-2.5" />
-            90 分 · 已达标
+            {bestDim ? `${bestDim.actual} 分 · 已达标` : '暂无数据'}
           </div>
         </Card>
         <Card className="p-4">
           <div className="text-2xs text-ink-3 mb-1.5">最弱维度</div>
-          <div className="text-2xl font-semibold text-ink-1 tracking-tight">系统设计</div>
+          <div className="text-2xl font-semibold text-ink-1 tracking-tight">
+            {worstDim?.name ?? '—'}
+          </div>
           <div className="text-2xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
             <AlertCircle className="h-2.5 w-2.5" />
-            75 分 · 急需提升
+            {worstDim ? `${worstDim.actual} 分 · 差距 ${worstDim.ideal - worstDim.actual} 分` : '暂无数据'}
           </div>
         </Card>
       </div>
@@ -121,17 +182,19 @@ export default function Profile() {
             description="蓝色 = 实际能力 · 灰色虚线 = 目标能力 · 点击维度查看详情"
             action={
               <Badge variant="brand" leftIcon={<Sparkles className="h-2.5 w-2.5" />}>
-                {abilityDimensions.length} 维度
+                {allDimensions.length} 维度
               </Badge>
             }
           />
-          <RadarChart
-            data={abilityDimensions}
-            activeKey={activeDim}
-            onSelect={setActiveDim}
-          />
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-4">
-            {abilityDimensions.map((d) => {
+          <div data-testid="radar-chart">
+            <RadarChart
+              data={allDimensions}
+              activeKey={activeDim}
+              onSelect={setActiveDim}
+            />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-4" data-testid="dimension-score-list">
+            {allDimensions.map((d) => {
               const gap = d.ideal - d.actual
               return (
                 <button
@@ -143,6 +206,9 @@ export default function Profile() {
                       ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10'
                       : 'border-surface-border dark:border-dark-surface-border hover:border-ink-muted/40',
                   )}
+                  data-testid={`dimension-score-${d.key}`}
+                  data-actual-score={d.actual}
+                  data-ideal-score={d.ideal}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-ink-1">{d.name}</span>
@@ -182,7 +248,8 @@ export default function Profile() {
         {/* 维度详情 */}
         <Card className="p-5">
           {(() => {
-            const d = abilityDimensions.find((x) => x.key === activeDim) || abilityDimensions[1]
+            const d = allDimensions.find((x) => x.key === activeDim) || allDimensions[0]
+            if (!d) return <p className="text-sm text-ink-3 py-8 text-center">暂无能力数据</p>
             const gap = d.ideal - d.actual
             return (
               <>
@@ -216,14 +283,13 @@ export default function Profile() {
                     <Lightbulb className="h-3 w-3 text-amber-500" />
                     提升建议
                   </div>
-                  <p className="text-xs text-ink-3 leading-relaxed">
-                    {d.key === 'tech' && '继续深入 React 18 内部机制，完成官方 RFC 阅读。'}
-                    {d.key === 'arch' && '完成 3 道 L4 级别系统设计题，重点关注容量预估和限流降级。'}
-                    {d.key === 'eng' && '保持优势，准备 3 个最具说服力的工程化案例。'}
-                    {d.key === 'comm' && '通过技术分享练习结构化表达，每月 1 次。'}
-                    {d.key === 'algo' && '保持 LeetCode 每周 10 题节奏，重点是动态规划。'}
-                    {d.key === 'biz' && '研究字节电商业务架构，建立业务方法论。'}
-                  </p>
+                  <ul className="suggestion-list text-xs text-ink-3 leading-relaxed space-y-1">
+                    <li>
+                      {gap > 0
+                        ? `当前差距 ${gap} 分，建议针对性练习提升该维度。`
+                        : '已达到目标，继续保持现有水平。'}
+                    </li>
+                  </ul>
                 </div>
               </>
             )
@@ -238,33 +304,10 @@ export default function Profile() {
           onChange={setTab}
           items={[
             { key: 'overview', label: '成长轨迹' },
-            { key: 'suggestions', label: '提升建议', count: improvementSuggestions.length },
+            { key: 'suggestions', label: '提升建议' },
             { key: 'milestones', label: '里程碑' },
           ]}
         />
-        {tab === 'overview' && (
-          <div className="flex items-center gap-1">
-            {[
-              { key: '1m', label: '1月' },
-              { key: '3m', label: '3月' },
-              { key: '6m', label: '6月' },
-              { key: 'all', label: '全部' },
-            ].map((r) => (
-              <button
-                key={r.key}
-                onClick={() => setTimeRange(r.key)}
-                className={cn(
-                  'px-2.5 h-7 rounded text-xs font-medium transition-colors',
-                  timeRange === r.key
-                    ? 'bg-surface-muted dark:bg-dark-surface-muted text-ink-1'
-                    : 'text-ink-3 hover:text-ink-1 hover:bg-surface-muted/60 dark:hover:bg-dark-surface-muted/40',
-                )}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {tab === 'overview' && (
@@ -273,77 +316,15 @@ export default function Profile() {
             title="能力成长轨迹"
             description="6 个维度在过去 6 个月的变化曲线"
           />
-          <GrowthChart data={growthTrajectory} />
+          <HistoryChart data={historyPoints} />
         </Card>
       )}
 
       {tab === 'suggestions' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
-          {improvementSuggestions.map((s) => (
-            <Card key={s.id} hover padding="md">
-              <div className="flex items-start gap-3 mb-3">
-                <div
-                  className={cn(
-                    'h-9 w-9 rounded-md flex items-center justify-center flex-shrink-0',
-                    s.priority === 'high'
-                      ? 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400'
-                      : s.priority === 'medium'
-                        ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                        : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                  )}
-                >
-                  {s.priority === 'high' ? (
-                    <AlertCircle className="h-4 w-4" />
-                  ) : s.priority === 'medium' ? (
-                    <Lightbulb className="h-4 w-4" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold text-ink-1">{s.title}</span>
-                    <Badge
-                      variant={
-                        s.priority === 'high'
-                          ? 'danger'
-                          : s.priority === 'medium'
-                            ? 'warning'
-                            : 'success'
-                      }
-                      className="!h-4"
-                    >
-                      {s.priority === 'high' ? '紧急' : s.priority === 'medium' ? '建议' : '保持'}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-ink-3 leading-relaxed mb-3">{s.description}</p>
-                  <div className="space-y-1.5">
-                    {s.actions.map((a, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start gap-2 p-2 rounded-md bg-surface-muted/60 dark:bg-dark-surface-muted/30 hover:bg-surface-muted dark:hover:bg-dark-surface-muted transition-colors"
-                      >
-                        <div className="h-4 w-4 rounded-full bg-brand-500/15 text-brand-600 dark:text-brand-300 flex items-center justify-center text-2xs font-semibold flex-shrink-0 mt-0.5">
-                          {i + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs text-ink-1 leading-snug">{a.label}</div>
-                          <div className="text-2xs text-ink-3 mt-0.5 flex items-center gap-1">
-                            <Clock className="h-2.5 w-2.5" />
-                            预计 {a.estimatedTime}
-                          </div>
-                        </div>
-                        <button className="text-ink-3 hover:text-ink-1 transition-colors" aria-label="开始">
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
+        <Card className="p-5 text-center text-sm text-ink-3">
+          <Lightbulb className="h-6 w-6 text-ink-muted mx-auto mb-2" />
+          提升建议将在完成更多模拟面试后由 AI 自动生成
+        </Card>
       )}
 
       {tab === 'milestones' && (
@@ -379,6 +360,7 @@ export default function Profile() {
           </div>
         </Card>
       )}
+      <OfflineBanner />
     </div>
   )
 }
@@ -389,7 +371,7 @@ function RadarChart({
   activeKey,
   onSelect,
 }: {
-  data: typeof abilityDimensions
+  data: ChartDim[]
   activeKey: string | null
   onSelect: (key: string | null) => void
 }) {
@@ -399,6 +381,34 @@ function RadarChart({
   const radius = size / 2 - 50
   const levels = 5 // 网格层级
   const max = 100
+
+  if (data.length === 0) {
+    return (
+      <div className="relative w-full flex items-center justify-center">
+        <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-md">
+          <text
+            x={cx}
+            y={cy - 8}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            className="fill-current text-sm text-ink-3"
+          >
+            暂无能力数据
+          </text>
+          <text
+            x={cx}
+            y={cy + 14}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            className="fill-current text-2xs text-ink-4"
+          >
+            完成模拟面试后生成能力画像
+          </text>
+        </svg>
+      </div>
+    )
+  }
+
   const angleStep = (Math.PI * 2) / data.length
   const startAngle = -Math.PI / 2 // 从顶部开始
 
@@ -544,129 +554,79 @@ function RadarChart({
 }
 
 // ============== 成长曲线图 ==============
-function GrowthChart({ data }: { data: typeof growthTrajectory }) {
-  const dimensions: { key: keyof typeof data[0]; name: string; color: string }[] = [
-    { key: 'tech', name: '技术深度', color: 'rgb(59, 130, 246)' },
-    { key: 'arch', name: '系统设计', color: 'rgb(168, 85, 247)' },
-    { key: 'eng', name: '工程实践', color: 'rgb(16, 185, 129)' },
-    { key: 'comm', name: '沟通表达', color: 'rgb(245, 158, 11)' },
-    { key: 'algo', name: '算法能力', color: 'rgb(236, 72, 153)' },
-    { key: 'biz', name: '业务理解', color: 'rgb(20, 184, 166)' },
-  ]
+function HistoryChart({ data }: { data: { snapshot_date: string; actual_score: number }[] }) {
+  // Group by date and compute average
+  const grouped = useMemo(() => {
+    const map = new Map<string, { total: number; count: number }>()
+    for (const p of data) {
+      const d = p.snapshot_date.slice(0, 7) // YYYY-MM
+      const cur = map.get(d) ?? { total: 0, count: 0 }
+      cur.total += p.actual_score
+      cur.count += 1
+      map.set(d, cur)
+    }
+    return Array.from(map.entries())
+      .map(([date, v]) => ({ date, value: Math.round(v.total / v.count) }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [data])
+
+  if (grouped.length < 2) {
+    return <div className="text-xs text-ink-3 text-center py-12">完成更多模拟面试后生成成长轨迹</div>
+  }
 
   const width = 800
   const height = 240
-  const padding = { top: 20, right: 100, bottom: 30, left: 40 }
-  const max = 100
-  const min = 40
-  const stepX = (width - padding.left - padding.right) / (data.length - 1)
-  const stepY = (height - padding.top - padding.bottom) / (max - min)
+  const padding = { top: 20, right: 40, bottom: 30, left: 40 }
+  const maxVal = 100
+  const minVal = Math.max(0, Math.min(...grouped.map((g) => g.value)) - 10)
+  const stepX = (width - padding.left - padding.right) / (grouped.length - 1)
+  const stepY = (height - padding.top - padding.bottom) / (maxVal - minVal)
+
+  const points = grouped.map((g, i) => {
+    const x = padding.left + i * stepX
+    const y = padding.top + (maxVal - g.value) * stepY
+    return [x, y, g.value] as const
+  })
+  const linePath = points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${x} ${y}`).join(' ')
+  const areaPath = `${linePath} L ${points[points.length - 1][0]} ${height - padding.bottom} L ${points[0][0]} ${height - padding.bottom} Z`
 
   return (
     <div className="w-full">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="none">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
         <defs>
-          {dimensions.map((d) => (
-            <linearGradient
-              key={d.key}
-              id={`grad-${d.key}`}
-              x1="0"
-              y1="0"
-              x2="0"
-              y2="1"
-            >
-              <stop offset="0%" stopColor={d.color} stopOpacity="0.15" />
-              <stop offset="100%" stopColor={d.color} stopOpacity="0" />
-            </linearGradient>
-          ))}
+          <linearGradient id="grad-history" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgb(59, 130, 246)" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="rgb(59, 130, 246)" stopOpacity="0" />
+          </linearGradient>
         </defs>
-
-        {/* Y 轴网格 */}
         {[0, 0.25, 0.5, 0.75, 1].map((p) => {
           const y = padding.top + (height - padding.top - padding.bottom) * p
-          const value = max - (max - min) * p
           return (
             <g key={p}>
-              <line
-                x1={padding.left}
-                x2={width - padding.right}
-                y1={y}
-                y2={y}
-                stroke="currentColor"
-                strokeOpacity="0.05"
-                strokeDasharray="2 3"
-              />
-              <text
-                x={padding.left - 6}
-                y={y}
-                textAnchor="end"
-                dominantBaseline="middle"
-                className="fill-current text-2xs text-ink-3"
-                style={{ fontSize: 9 }}
-              >
-                {Math.round(value)}
+              <line x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="currentColor" strokeOpacity="0.05" strokeDasharray="2 3" />
+              <text x={padding.left - 6} y={y} textAnchor="end" dominantBaseline="middle" className="fill-current text-2xs text-ink-3" style={{ fontSize: 9 }}>
+                {Math.round(maxVal - (maxVal - minVal) * p)}
               </text>
             </g>
           )
         })}
-
-        {/* X 轴标签 */}
-        {data.map((d, i) => {
+        {grouped.map((g, i) => {
           const x = padding.left + i * stepX
           return (
-            <text
-              key={i}
-              x={x}
-              y={height - padding.bottom + 16}
-              textAnchor="middle"
-              className="fill-current text-2xs text-ink-3"
-              style={{ fontSize: 10 }}
-            >
-              {d.date}
+            <text key={i} x={x} y={height - padding.bottom + 16} textAnchor="middle" className="fill-current text-2xs text-ink-3" style={{ fontSize: 10 }}>
+              {g.date}
             </text>
           )
         })}
-
-        {/* 数据线 */}
-        {dimensions.map((dim) => {
-          const points = data.map((d, i) => {
-            const x = padding.left + i * stepX
-            const value = d[dim.key] as number
-            const y = padding.top + (max - value) * stepY
-            return [x, y]
-          })
-          const linePath = points
-            .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`)
-            .join(' ')
-          const areaPath = `${linePath} L ${points[points.length - 1][0]} ${height - padding.bottom} L ${points[0][0]} ${height - padding.bottom} Z`
-          return (
-            <g key={dim.key}>
-              <path d={areaPath} fill={`url(#grad-${dim.key})`} />
-              <path
-                d={linePath}
-                fill="none"
-                stroke={dim.color}
-                strokeWidth="2"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-              {points.map(([x, y], i) => (
-                <circle key={i} cx={x} cy={y} r="2.5" fill="white" stroke={dim.color} strokeWidth="1.5" />
-              ))}
-            </g>
-          )
-        })}
-      </svg>
-
-      {/* 图例 */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2 justify-end pr-2">
-        {dimensions.map((d) => (
-          <div key={d.key} className="flex items-center gap-1.5 text-2xs text-ink-3">
-            <span className="h-1.5 w-3 rounded-full" style={{ background: d.color }} />
-            {d.name}
-          </div>
+        <path d={areaPath} fill="url(#grad-history)" />
+        <path d={linePath} fill="none" stroke="rgb(59, 130, 246)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {points.map(([x, y, v], i) => (
+          <g key={i}>
+            <circle cx={x} cy={y} r="3" fill="white" stroke="rgb(59, 130, 246)" strokeWidth="1.5" />
+            <text x={x} y={y - 8} textAnchor="middle" className="fill-current text-2xs text-ink-1" style={{ fontSize: 9 }}>{v}</text>
+          </g>
         ))}
-      </div>
+      </svg>
     </div>
   )
 }

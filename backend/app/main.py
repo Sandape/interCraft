@@ -1,0 +1,130 @@
+"""FastAPI app factory + lifespan."""
+from __future__ import annotations
+
+import platform
+import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+from app import __version__
+from app.core.config import get_settings
+from app.core.db import db_ping, dispose_engine
+from app.core.exceptions import install_exception_handlers
+from app.core.logging import configure_logging, get_logger
+from app.core.middleware import InternalIPMiddleware, MetricsMiddleware, RequestIDMiddleware
+from app.core.redis import close_redis, redis_ping
+
+# psycopg (langgraph-checkpoint-postgres) requires SelectorEventLoop on Windows.
+# uvicorn's default on Windows is ProactorEventLoop which psycopg rejects.
+# Set the policy unconditionally before any loop is created.
+if platform.system() == "Windows":
+    import asyncio
+
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+log = get_logger("app")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    configure_logging()
+    settings = get_settings()
+    log.info(
+        "app.start",
+        version=__version__,
+        env=settings.app_env,
+        log_level=settings.log_level,
+    )
+    # Soft-touch DB + Redis on boot (best-effort).
+    log.info("deps.probe", db=await db_ping(), redis=await redis_ping())
+
+    try:
+        yield
+    finally:
+        from app.agents.checkpointer import close_checkpointer
+
+        await close_checkpointer()
+        await close_redis()
+        await dispose_engine()
+        log.info("app.stop")
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    app = FastAPI(
+        title="InterCraft API",
+        version=__version__,
+        description="InterCraft — 面试工坊 backend",
+        lifespan=lifespan,
+        docs_url="/api/v1/docs",
+        redoc_url="/api/v1/redoc",
+        openapi_url="/api/v1/openapi.json",
+    )
+
+    # CORS — explicit list from settings.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins_list(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    )
+
+    app.add_middleware(MetricsMiddleware)
+    app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(InternalIPMiddleware)
+
+    install_exception_handlers(app)
+
+    @app.get("/healthz")
+    async def healthz() -> JSONResponse:
+        db_ok = await db_ping()
+        redis_ok = await redis_ping()
+        ok = db_ok and redis_ok
+        return JSONResponse(
+            status_code=200 if ok else 503,
+            content={
+                "status": "ok" if ok else "down",
+                "db": "ok" if db_ok else "down",
+                "redis": "ok" if redis_ok else "down",
+                "version": __version__,
+            },
+        )
+
+    @app.get("/metrics")
+    async def metrics() -> JSONResponse:
+        return JSONResponse(content=generate_latest().decode("utf-8"), media_type=CONTENT_TYPE_LATEST)
+
+    # Versioned router
+    from app.api.v1 import router as v1_router
+
+    app.include_router(v1_router, prefix=settings.api_v1_prefix)
+
+    # Internal router (no auth — guarded by InternalIPMiddleware)
+    from app.api.v1.internal import router as internal_router
+
+    app.include_router(internal_router, prefix=f"{settings.api_v1_prefix}/internal")
+
+    # Phase 3: WebSocket endpoints
+    from app.modules.locks.ws_handler import router as locks_ws_router
+    from app.api.v1.ws.interview import router as interview_ws_router
+
+    app.include_router(locks_ws_router, prefix=settings.api_v1_prefix)
+    app.include_router(interview_ws_router, prefix=settings.api_v1_prefix)
+
+    return app
+
+
+app = create_app()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import uvicorn
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

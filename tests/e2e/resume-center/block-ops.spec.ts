@@ -1,0 +1,76 @@
+/**
+ * Block operations — add / edit content / toggle collapse / reorder / delete.
+ * All against the real backend.
+ */
+import { test, expect, registerAndLogin, freshAccount } from './fixture'
+
+test.describe('Resume Center — Block operations', () => {
+  test('add a custom block via the type selector modal', async ({ page }) => {
+    const account = freshAccount('rc-add')
+    await registerAndLogin(page, account)
+
+    await page.goto('/resume')
+    await page.getByTestId('new-branch-button').click()
+    await page.getByTestId('new-branch-name').fill(`add-block-${Date.now()}`)
+    await page.getByTestId('create-branch-confirm').click()
+    await expect(page).toHaveURL(/\/resume\//)
+
+    // Initial block count
+    const initialBlocks = await page.getByTestId(/^block-/).count()
+
+    await page.getByTestId('add-block').click()
+    // Pick "summary" type
+    await page.getByRole('button', { name: '简介' }).click()
+    await page.getByPlaceholder('模块标题').fill('职业总结')
+    await page.getByRole('button', { name: '创建' }).click()
+
+    // Block count should increase by 1
+    await expect(page.getByTestId(/^block-/)).toHaveCount(initialBlocks + 1, { timeout: 5_000 })
+    await expect(page.getByText('职业总结').first()).toBeVisible()
+  })
+
+  test('collapse/expand toggle persists to backend', async ({ page }) => {
+    const account = freshAccount('rc-collapse')
+    await registerAndLogin(page, account)
+
+    await page.goto('/resume')
+    await page.getByTestId('new-branch-button').click()
+    await page.getByTestId('new-branch-name').fill(`collapse-${Date.now()}`)
+    await page.getByTestId('create-branch-confirm').click()
+    await expect(page).toHaveURL(/\/resume\//)
+
+    const firstBlock = page.getByTestId(/^block-/).first()
+    await expect(firstBlock).toBeVisible({ timeout: 5_000 })
+    const collapseBtn = firstBlock.getByRole('button', { name: '折叠' })
+    await collapseBtn.click()
+    await page.waitForTimeout(500)
+
+    // Reload, verify the chevron is still in "collapsed" state
+    await page.reload()
+    const reloaded = page.getByTestId(/^block-/).first()
+    await expect(reloaded).toBeVisible({ timeout: 5_000 })
+    await expect(reloaded.getByRole('button', { name: '展开' })).toBeVisible()
+  })
+
+  test('delete a block removes it from the list', async ({ page }) => {
+    const account = freshAccount('rc-delblk')
+    await registerAndLogin(page, account)
+
+    await page.goto('/resume')
+    await page.getByTestId('new-branch-button').click()
+    await page.getByTestId('new-branch-name').fill(`delblk-${Date.now()}`)
+    await page.getByTestId('create-branch-confirm').click()
+    await expect(page).toHaveURL(/\/resume\//)
+
+    const initial = await page.getByTestId(/^block-/).count()
+    if (initial === 0) {
+      test.skip(true, 'no blocks to delete (cloned branch should have at least 1)')
+      return
+    }
+    // Accept the JS confirm dialog if any
+    page.once('dialog', (d) => d.accept())
+    await page.getByTestId(/^block-/).first().getByRole('button', { name: '删除' }).click()
+
+    await expect(page.getByTestId(/^block-/)).toHaveCount(initial - 1, { timeout: 5_000 })
+  })
+})

@@ -15,156 +15,6 @@ export const currentUser = {
   subscription: 'Pro',
 }
 
-// ============== 简历中心 ==============
-export interface ResumeBranch {
-  id: string
-  name: string
-  company: string
-  position: string
-  status: 'draft' | 'optimizing' | 'ready' | 'submitted'
-  matchScore: number
-  lastEdited: string
-  versionCount: number
-  isMain?: boolean
-  isPinned?: boolean
-  parentId?: string
-}
-
-export const resumeBranches: ResumeBranch[] = [
-  {
-    id: 'core',
-    name: '核心简历',
-    company: '—',
-    position: '基础版本',
-    status: 'ready',
-    matchScore: 100,
-    lastEdited: '2026-06-08T10:00:00Z',
-    versionCount: 12,
-    isMain: true,
-    isPinned: true,
-  },
-  {
-    id: 'b-001',
-    name: '字节跳动 · 高级前端',
-    company: '字节跳动',
-    position: '高级前端工程师',
-    status: 'optimizing',
-    matchScore: 87,
-    lastEdited: '2026-06-11T15:23:00Z',
-    versionCount: 5,
-    parentId: 'core',
-    isPinned: true,
-  },
-  {
-    id: 'b-002',
-    name: '美团 · 高级前端',
-    company: '美团',
-    position: '高级前端工程师',
-    status: 'ready',
-    matchScore: 92,
-    lastEdited: '2026-06-10T09:14:00Z',
-    versionCount: 3,
-    parentId: 'core',
-  },
-  {
-    id: 'b-003',
-    name: '腾讯 · Web 前端',
-    company: '腾讯',
-    position: 'Web 前端开发',
-    status: 'ready',
-    matchScore: 85,
-    lastEdited: '2026-06-07T14:42:00Z',
-    versionCount: 4,
-    parentId: 'core',
-  },
-  {
-    id: 'b-004',
-    name: '小红书 · 资深前端',
-    company: '小红书',
-    position: '资深前端工程师',
-    status: 'draft',
-    matchScore: 78,
-    lastEdited: '2026-06-05T20:11:00Z',
-    versionCount: 2,
-    parentId: 'core',
-  },
-  {
-    id: 'b-005',
-    name: '蚂蚁集团 · 前端架构',
-    company: '蚂蚁集团',
-    position: '前端架构师',
-    status: 'submitted',
-    matchScore: 89,
-    lastEdited: '2026-06-02T11:30:00Z',
-    versionCount: 7,
-    parentId: 'core',
-  },
-]
-
-// 简历块（Notion 式）
-export interface ResumeBlock {
-  id: string
-  type: 'heading' | 'summary' | 'experience' | 'project' | 'skill' | 'education'
-  title: string
-  content: string
-  meta?: string
-  collapsed?: boolean
-}
-
-export const coreResumeBlocks: ResumeBlock[] = [
-  {
-    id: 'b-h-1',
-    type: 'heading',
-    title: '林浩然',
-    content: '高级前端工程师 · 3 年经验 · 北京',
-    meta: 'haoran.lin@example.com · 138****0001',
-  },
-  {
-    id: 'b-s-1',
-    type: 'summary',
-    title: '个人简介',
-    content:
-      '3 年大厂前端开发经验，专注于大型 SPA 性能优化与组件库架构设计。主导过从 0 到 1 的中后台系统搭建，熟悉 React 18 / TypeScript 工程化体系，对前端工程化、可观测性、微前端有深入理解。',
-  },
-  {
-    id: 'b-e-1',
-    type: 'experience',
-    title: '工作经历',
-    meta: '2023.03 - 至今 · 某互联网大厂 · 高级前端工程师',
-    content:
-      '• 主导中后台统一门户重构，将 12 个分散系统整合为单页面架构，首屏加载从 4.2s 降至 1.1s\n• 设计并落地 30+ 通用业务组件，被 4 个 BU 复用，节省 35% 开发工时\n• 推进团队 TypeScript 覆盖率从 42% 提升至 96%，建立 ESLint + Prettier 统一规范',
-  },
-  {
-    id: 'b-e-2',
-    type: 'experience',
-    title: '',
-    meta: '2021.07 - 2023.02 · 某 SaaS 创业公司 · 前端工程师',
-    content:
-      '• 独立负责 BI 看板产品前端实现，支持 200+ 客户使用\n• 封装可视化图表库 18 种，渲染性能优化 60%\n• 推动 Cypress 自动化测试覆盖核心链路，回归测试时间从 2 天缩短至 30 分钟',
-  },
-  {
-    id: 'b-p-1',
-    type: 'project',
-    title: '代表项目',
-    meta: 'EdgeKit · 内部微前端框架',
-    content:
-      '自研基于 Web Components + Module Federation 的微前端框架。支持独立部署、依赖共享、沙箱隔离，已在公司 6 个核心产品落地，体积较 qiankun 减少 40%。',
-  },
-  {
-    id: 'b-sk-1',
-    type: 'skill',
-    title: '技能清单',
-    content: 'React 18 · TypeScript · Vite · 微前端 · 可视化 · 性能优化 · Node.js · 设计系统',
-  },
-  {
-    id: 'b-ed-1',
-    type: 'education',
-    title: '教育背景',
-    meta: '2017.09 - 2021.06 · 北京邮电大学 · 计算机科学与技术 · 本科',
-    content: 'GPA 3.7/4.0 · 校级优秀毕业生 · 全国大学生互联网大赛二等奖',
-  },
-]
-
 // ============== 模拟面试 ==============
 export interface InterviewHistory {
   id: string
@@ -470,7 +320,6 @@ export const improvementSuggestions = [
 
 // ============== Dashboard ==============
 export const dashboardStats = {
-  resumeBranches: 5,
   activeBranches: 4,
   interviewsCompleted: 12,
   averageScore: 85.4,
@@ -531,6 +380,76 @@ export const recentActivities = [
     detail: '已继承核心简历内容',
     time: '5 天前',
   },
+]
+
+// ============== Phase 5: M16 Resume Optimize ==============
+export interface MockProposedPatch {
+  op: string
+  path: string
+  value: string
+}
+
+export const mockResumeOptimizePatches: MockProposedPatch[] = [
+  {
+    op: 'replace',
+    path: '/blocks/3',
+    value: '主导抖音电商中后台 Web 应用架构设计与开发，支撑日均百万级商家操作；落地微前端架构，实现多业务线独立交付，团队交付效率提升 40%',
+  },
+  {
+    op: 'add',
+    path: '/blocks/-',
+    value: '推进前端工程化体系建设：搭建 Vite + Vitest 测试框架，覆盖率从 60% 提升至 92%；设计 Monorepo 结构，统一构建与发布流程',
+  },
+  {
+    op: 'replace',
+    path: '/blocks/5',
+    value: '深入参与电商交易链路核心模块建设，主导下单流程重构，首屏渲染时间从 2.8s 降至 0.9s，转化率提升 15%',
+  },
+]
+
+export const mockResumeOptimizeSummary = '分析发现 3 处可优化点：项目描述过于笼统，缺少量化指标；缺少工程化建设经验描述；电商业务关联度可进一步加强。'
+
+// ============== Phase 5: M17 Error Coach ==============
+export const mockErrorCoachRounds = [
+  {
+    hint_level: 'small',
+    hint_content: '提示：想想 React 18 引入了哪些新特性？从 Scheduler 开始。',
+    user_answer: 'React 18 引入了并发模式，Scheduler 可以调度任务的优先级。',
+    score: 6,
+    correct: false,
+  },
+  {
+    hint_level: 'medium',
+    hint_content: '深入提示：Concurrent Mode 的核心是 "可中断渲染"。Fiber 架构如何支持这一点？Lane 模型是什么？',
+    user_answer: 'Fiber 架构将渲染拆分为多个小单元，每个单元执行完后检查是否有更高优先级的更新。Lane 模型用二进制位来表示优先级，可以同时处理多个优先级的更新。',
+    score: 9,
+    correct: true,
+  },
+  {
+    hint_level: 'detailed',
+    hint_content: '补充：考虑过渡效果（useTransition）、自动批处理（Automatic Batching）、Suspense 数据获取等实际应用。',
+    user_answer: 'useTransition 可以标记非紧急更新，让 UI 保持响应。Automatic Batching 将多个 setState 合并为一次渲染。Suspense 配合数据获取可以实现 Loading 状态声明式管理。',
+    score: 9,
+    correct: true,
+  },
+]
+
+// ============== Phase 5: M18 Ability Diagnose ==============
+export const mockDiagnoseResults = [
+  { dimension: '技术深度', current_score: 84, delta: 2, trend: 'up', suggestions: ['推荐深入学习 React Server Components 原理', '关注浏览器渲染流水线最新优化技术'] },
+  { dimension: '系统设计', current_score: 78, delta: 3, trend: 'up', suggestions: ['建议补充高并发系统设计实践经验', '学习分布式事务与最终一致性方案'] },
+  { dimension: '工程实践', current_score: 90, delta: 0, trend: 'stable', suggestions: ['继续保持当前工程化实践水平', '可探索 FinOps 方向的成本优化实践'] },
+  { dimension: '沟通表达', current_score: 74, delta: 2, trend: 'up', suggestions: ['建议多参与技术方案评审和跨团队宣讲', '练习用 STAR 原则组织技术回答'] },
+  { dimension: '算法能力', current_score: 86, delta: 0, trend: 'stable', suggestions: ['持续保持算法训练频率', '可关注图论和动态规划的高频面试题'] },
+  { dimension: '业务理解', current_score: 72, delta: 2, trend: 'up', suggestions: ['建议深入研究目标公司的业务模型与盈利模式', '培养用数据驱动决策的思维习惯'] },
+]
+
+// ============== Phase 5: M19 General Coach ==============
+export const mockGeneralCoachMessages = [
+  { role: 'user', content: '如何准备系统设计面试？' },
+  { role: 'assistant', content: '准备系统设计面试可以从以下几个方面入手：\n\n**1. 基础知识储备**\n- 掌握分布式系统核心概念（CAP、一致性哈希、分布式事务）\n- 熟悉常见中间件（Redis、Kafka、ZooKeeper）的适用场景\n\n**2. 方法论框架**\n- 使用 S.T.A.R. 方法组织回答\n- 先明确需求和数据规模，再设计方案\n- 讨论 trade-off 而非追求"完美方案"\n\n**3. 高频题目练习**\n- 短链系统、秒杀系统、Feed 流、IM 系统\n- 每个题目从 0 到 1 完整过一遍\n\n**4. 推荐资源**\n- 《数据密集型应用系统设计》\n- 《系统设计面试》Alex Xu\n- GitHub: system-design-primer', detected_intent: 'career_advice', confidence: 0.95 },
+  { role: 'user', content: '帮我优化简历中的项目描述' },
+  { role: 'assistant', content: '我检测到您需要简历优化帮助，建议您前往 **简历编辑器** 使用「AI 优化」功能，选择目标职位后自动分析差距并生成修改建议。\n\n点击顶部导航栏「简历」进入编辑页面，选择分支后点击「AI 优化」按钮即可开始。', detected_intent: 'resume_optimize', confidence: 0.88, redirect_to: '/resume' },
 ]
 
 // 招聘 JD 示例

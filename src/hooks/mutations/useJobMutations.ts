@@ -1,0 +1,42 @@
+/** Mutation hooks for jobs (US8). */
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import type { Job } from '../../repositories/JobRepository'
+import { getJobRepository } from '../../repositories/types'
+
+export function useCreateJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { company: string; position: string; jd_url?: string; branch_id?: string; note?: string }) =>
+      getJobRepository().create(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['jobStats'] })
+    },
+  })
+}
+
+export function useUpdateJobStatus() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, to, note }: { id: string; to: string; note?: string }) =>
+      getJobRepository().updateStatus(id, to, note),
+    onSuccess: (data: Job) => {
+      qc.setQueryData(['job', data.id], data)
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['jobStats'] })
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+    },
+  })
+}
+
+export function useDeleteJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => getJobRepository().delete(id),
+    onSuccess: (_data, id) => {
+      qc.removeQueries({ queryKey: ['job', id] })
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['jobStats'] })
+    },
+  })
+}

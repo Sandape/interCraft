@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
@@ -14,5 +15,29 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Proxy /api and /openapi.json to the FastAPI backend on 127.0.0.1.
+    // Using 127.0.0.1 (IPv4) avoids the Windows "localhost resolves to ::1 first"
+    // Happy-Eyeballs pitfall when uvicorn binds IPv4 only. This also removes the
+    // need for CORS configuration in the browser.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_TARGET || 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        ws: true,
+      },
+      '/openapi.json': {
+        target: process.env.VITE_API_TARGET || 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        rewrite: () => '/api/v1/openapi.json',
+      },
+    },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test-setup.ts'],
+    css: false,
+    include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/unit/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['node_modules', 'dist', 'tests/e2e/**'],
   },
 })

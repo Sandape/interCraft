@@ -1,0 +1,57 @@
+# docker-compose for local dev stack.
+# Note: in this environment Docker is not installed, so services are NOT
+# auto-started. Use `uv run` + the local Redis already on 6379.
+# Run `docker compose up -d` only after Docker is available.
+
+services:
+  # postgres:
+  #   image: postgres:15-alpine
+  #   environment:
+  #     POSTGRES_USER: intercraft
+  #     POSTGRES_PASSWORD: devpass
+  #     POSTGRES_DB: intercraft
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U intercraft"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 10
+
+  # redis is intentionally NOT started here — user already runs a local
+  # redis-server on localhost:6379 in this environment.
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      MASTER_KEY: ${MASTER_KEY}
+      BCRYPT_COST_ROUNDS: ${BCRYPT_COST_ROUNDS:-12}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    depends_on:
+      # - postgres
+      []
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      []
+    volumes:
+      - .:/app
+    command: arq app.workers.main.WorkerSettings
+
+# volumes:
+#   pgdata:

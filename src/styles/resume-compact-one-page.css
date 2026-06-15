@@ -1,0 +1,78 @@
+/* ── 紧凑一页 (Compact One-Page) Resume Style ── */
+/* 木及简历 inspired — single column, A4 page */
+
+.resume-style-compact {
+  --rs-bg: #ffffff;
+  --rs-text: #1a1a1a;
+  --rs-text-secondary: #555555;
+  --rs-accent: #2563eb;
+  --rs-border: #e5e7eb;
+  --rs-section-gap: 16px;
+
+  width: 210mm;
+  min-height: 297mm;
+  padding: 24mm 20mm 20mm 20mm;
+  margin: 0 auto;
+  background: var(--rs-bg);
+  color: var(--rs-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.resume-style-compact .resume-name {
+  font-size: 24pt;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 4px;
+  color: var(--rs-text);
+}
+
+.resume-style-compact .resume-contact {
+  text-align: center;
+  font-size: 9pt;
+  color: var(--rs-text-secondary);
+  margin-bottom: 12px;
+}
+
+.resume-style-compact .resume-section h2 {
+  font-size: 12pt;
+  font-weight: 600;
+  color: var(--rs-text);
+  border-bottom: 1px solid var(--rs-accent);
+  padding-bottom: 3px;
+  margin-top: var(--rs-section-gap);
+  margin-bottom: 6px;
+}
+
+.resume-style-compact .resume-section h3 {
+  font-size: 11pt;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.resume-style-compact .resume-section p,
+.resume-style-compact .resume-section li {
+  margin: 2px 0;
+  color: var(--rs-text-secondary);
+}
+
+.resume-style-compact .resume-section ul {
+  padding-left: 18px;
+  margin: 2px 0;
+}
+
+.resume-style-compact .resume-section .meta-line {
+  font-size: 9pt;
+  color: var(--rs-text-secondary);
+  margin-bottom: 4px;
+}
+
+@media print {
+  .resume-style-compact {
+    box-shadow: none;
+    margin: 0;
+    width: 100%;
+  }
+}

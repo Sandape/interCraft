@@ -1,21 +1,40 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Bell, Search, Command, HelpCircle, Plus } from 'lucide-react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { Avatar } from '@/components/ui/Avatar'
-import { currentUser } from '@/data/mockData'
 import { Button } from '@/components/ui/Button'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { useLogout } from '@/hooks/mutations/useLogout'
 
 export function Topbar({ onNewResume }: { onNewResume?: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const logout = useLogout()
+
+  const displayName = user?.display_name ?? user?.email.split('@')[0] ?? '未登录'
+  const title = user?.title ?? user?.target_role ?? ''
+  const initials = displayName.slice(0, 1).toUpperCase()
+
+  function handleLogout() {
+    setMenuOpen(false)
+    logout.mutate(undefined, {
+      onSuccess: () => navigate('/login', { replace: true }),
+    })
+  }
+
   return (
     <header className="h-14 border-b border-surface-border dark:border-dark-surface-border bg-surface/80 dark:bg-dark-surface/80 backdrop-blur-md flex items-center px-6 flex-shrink-0 sticky top-0 z-30">
       {/* Breadcrumb / Page context */}
       <div className="flex items-center gap-2 text-sm text-ink-3 dark:text-dark-ink-tertiary min-w-0">
         <span className="text-ink-1 dark:text-dark-ink-primary font-medium truncate">
-          {currentUser.name}
-          <span className="text-ink-3 dark:text-dark-ink-tertiary font-normal ml-1.5">
-            · {currentUser.title}
-          </span>
+          {displayName}
+          {title && (
+            <span className="text-ink-3 dark:text-dark-ink-tertiary font-normal ml-1.5">
+              · {title}
+            </span>
+          )}
         </span>
       </div>
 
@@ -65,19 +84,21 @@ export function Topbar({ onNewResume }: { onNewResume?: () => void }) {
             className="flex items-center gap-2 p-0.5 rounded hover:bg-surface-muted dark:hover:bg-dark-surface-muted transition-colors"
             aria-label="用户菜单"
           >
-            <Avatar name={currentUser.name} size="sm" />
+            <Avatar name={initials} size="sm" />
           </button>
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-full mt-1.5 w-60 z-50 surface-1 rounded-md border border-surface-border dark:border-dark-surface-border shadow-notion-md py-1.5 animate-fade-in">
                 <div className="px-3 py-2 border-b border-surface-border dark:border-dark-surface-border">
-                  <div className="text-sm font-medium text-ink-1">{currentUser.name}</div>
-                  <div className="text-xs text-ink-3 mt-0.5 truncate">{currentUser.email}</div>
-                  <div className="mt-2 inline-flex items-center gap-1 tag-brand">
-                    <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
-                    {currentUser.subscription} 会员
-                  </div>
+                  <div className="text-sm font-medium text-ink-1">{displayName}</div>
+                  <div className="text-xs text-ink-3 mt-0.5 truncate">{user?.email ?? ''}</div>
+                  {user?.subscription && (
+                    <div className="mt-2 inline-flex items-center gap-1 tag-brand">
+                      <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
+                      {user.subscription} 会员
+                    </div>
+                  )}
                 </div>
                 <div className="py-1">
                   <MenuItem>个人资料</MenuItem>
@@ -86,7 +107,9 @@ export function Topbar({ onNewResume }: { onNewResume?: () => void }) {
                   <MenuItem>数据导出</MenuItem>
                 </div>
                 <div className="border-t border-surface-border dark:border-dark-surface-border py-1">
-                  <MenuItem danger>退出登录</MenuItem>
+                  <MenuItem danger onClick={handleLogout} disabled={logout.isPending}>
+                    {logout.isPending ? '正在退出…' : '退出登录'}
+                  </MenuItem>
                 </div>
               </div>
             </>
@@ -97,11 +120,23 @@ export function Topbar({ onNewResume }: { onNewResume?: () => void }) {
   )
 }
 
-function MenuItem({ children, danger }: { children: React.ReactNode; danger?: boolean }) {
+function MenuItem({
+  children,
+  danger,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode
+  danger?: boolean
+  onClick?: () => void
+  disabled?: boolean
+}) {
   return (
     <button
+      onClick={onClick}
+      disabled={disabled}
       className={
-        'w-full text-left px-3 py-1.5 text-sm transition-colors ' +
+        'w-full text-left px-3 py-1.5 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ' +
         (danger
           ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'
           : 'text-ink-2 dark:text-dark-ink-secondary hover:bg-surface-muted dark:hover:bg-dark-surface-muted hover:text-ink-1 dark:hover:text-dark-ink-primary')

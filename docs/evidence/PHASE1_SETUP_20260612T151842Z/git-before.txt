@@ -1,0 +1,30 @@
+50a8ea55d029eedfa2bbe103e15ed4184dce93f2
+
+M .claude/settings.local.json
+M package-lock.json
+M package.json
+M src/App.tsx
+M src/components/layout/Topbar.tsx
+M src/pages/Login.tsx
+M src/pages/ResumeEditor.tsx
+M src/pages/ResumeList.tsx
+M vite.config.ts
+?? .claude/skills/
+?? .env.example
+?? .github/
+?? .gitignore
+?? .specify/
+?? CLAUDE.md
+?? Makefile
+?? backend/
+?? docs/
+?? scripts/
+?? skills-lock.json
+?? specs/
+?? src/api/
+?? src/hooks/
+?? src/pages/Register.tsx
+?? src/repositories/
+?? src/stores/
+?? src/test-setup.ts
+?? tests/

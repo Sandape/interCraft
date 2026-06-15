@@ -17,7 +17,7 @@ import {
   Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { resumeBranches } from '@/data/mockData'
+import { useResumeBranches } from '@/hooks/queries/useResumeBranches'
 
 interface SidebarItem {
   to: string
@@ -27,16 +27,9 @@ interface SidebarItem {
   exact?: boolean
 }
 
-const primaryNav: SidebarItem[] = [
-  { to: '/dashboard', label: '工作台', icon: <LayoutDashboard className="h-4 w-4" /> },
-  { to: '/resume', label: '简历中心', icon: <FileText className="h-4 w-4" />, badge: 5 },
-  { to: '/interview', label: '模拟面试', icon: <MessageSquareText className="h-4 w-4" /> },
-  { to: '/profile', label: '个人画像', icon: <Radar className="h-4 w-4" /> },
-]
-
 const secondaryNav: SidebarItem[] = [
   { to: '/jobs', label: '求职追踪', icon: <Briefcase className="h-4 w-4" /> },
-  { to: '/resources', label: '学习资源', icon: <BookOpen className="h-4 w-4" /> },
+  { to: '/error-book', label: '错题本', icon: <BookOpen className="h-4 w-4" /> },
   { to: '/settings', label: '设置', icon: <Settings className="h-4 w-4" /> },
   { to: '/help', label: '帮助中心', icon: <HelpCircle className="h-4 w-4" /> },
 ]
@@ -46,6 +39,15 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   const [resumesOpen, setResumesOpen] = useState(true)
   const activeResumeOnRoute = location.pathname.startsWith('/resume')
   const onResume = activeResumeOnRoute
+
+  const { data: branches = [] } = useResumeBranches()
+
+  const primaryNav: SidebarItem[] = [
+    { to: '/dashboard', label: '工作台', icon: <LayoutDashboard className="h-4 w-4" /> },
+    { to: '/resume', label: '简历中心', icon: <FileText className="h-4 w-4" />, badge: branches.length },
+    { to: '/interview', label: '模拟面试', icon: <MessageSquareText className="h-4 w-4" /> },
+    { to: '/profile', label: '个人画像', icon: <Radar className="h-4 w-4" /> },
+  ]
 
   return (
     <aside
@@ -150,7 +152,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
             </button>
             {resumesOpen && (
               <div className="space-y-0.5">
-                {resumeBranches.map((b) => {
+                {branches.map((b) => {
                   const isActive = location.pathname === `/resume/${b.id}`
                   return (
                     <NavLink
@@ -166,7 +168,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                       <span
                         className={cn(
                           'h-1.5 w-1.5 rounded-full flex-shrink-0',
-                          b.isMain
+                          b.is_main
                             ? 'bg-brand-500'
                             : b.status === 'ready'
                               ? 'bg-emerald-500'
@@ -174,7 +176,9 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                                 ? 'bg-amber-500'
                                 : b.status === 'submitted'
                                   ? 'bg-violet-500'
-                                  : 'bg-ink-muted',
+                                  : b.status === 'archived'
+                                    ? 'bg-stone-400'
+                                    : 'bg-ink-muted',
                         )}
                       />
                       <span className="truncate flex-1">{b.name}</span>

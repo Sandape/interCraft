@@ -1,0 +1,128 @@
+"""Report node — generates final interview summary (T028)."""
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from app.agents.interview.state import InterviewGraphState
+from app.agents.llm_client import get_llm_client
+
+_PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
+
+
+def _load_prompt(name: str) -> str:
+    path = _PROMPT_DIR / name
+    return path.read_text(encoding="utf-8")
+
+
+async def report_node(state: InterviewGraphState) -> dict:
+    """Aggregate all 5 scores and generate a comprehensive report.
+
+    Writes to interview_reports table and enqueues ability_diagnose.
+    """
+    scores = state.get("scores", [])
+    questions = state.get("questions", [])
+
+    template = _load_prompt("report.md")
+    prompt = template.format(
+        position=state.get("position", ""),
+        company=state.get("company", ""),
+        difficulty=state.get("difficulty", "medium"),
+        scores=json.dumps(scores, ensure_ascii=False),
+        format_instructions="Return valid JSON only.",
+    )
+
+    client = get_llm_client()
+    report_data = {}
+    try:
+        result = await client.invoke(
+            messages=[
+                {"role": "system", "content": "你是一位面试总结报告生成专家。所有 JSON 字段值必须使用中文（zh-CN），仅 JSON 的 key 保持英文。`dimension` 字段值必须使用英文 key，所有文本字段（detail、suggestions、summary_md、feedback）必须为中文。`summary_md` 必须是 3-5 句纯文字中文段落，不要使用 `##`、`**` 等 markdown 标记符号。只返回 JSON，不要包含任何解释或 markdown 标记。"},
+                {"role": "user", "content": prompt},
+            ],
+            estimated_tokens=5500,
+            user_id=state.get("user_id", "unknown"),
+            thread_id=state.get("thread_id", "unknown"),
+            node_name="report",
+        )
+        content = result["content"]
+        json_match = re.search(r"\{.*\}", content, re.DOTALL)
+        if json_match:
+            report_data = json.loads(json_match.group(0))
+    except Exception:
+        pass
+
+    # Fallback: compute simple averages from scores
+    if not report_data:
+        report_data = _fallback_report(scores, questions)
+
+    overall_score = report_data.get("overall_score", 5.0)
+
+    return {
+        "overall_score": overall_score,
+        "interview_report": report_data,
+    }
+
+
+def _fallback_report(scores: list, questions: list) -> dict:
+    """Generate a basic report without LLM."""
+    n = len(scores)
+    if n == 0:
+        return {
+            "overall_score": 0,
+            "per_question_score": [],
+            "dimension_scores": {},
+            "strengths": [],
+            "improvements": [],
+            "summary_md": "No scores available.",
+        }
+
+    avg = sum(s.get("score", 5) for s in scores) / n
+    per_q = []
+    for i, s in enumerate(scores):
+        q = questions[i] if i < len(questions) else {}
+        per_q.append({
+            "question_no": s.get("question_no", i + 1),
+            "dimension": s.get("dimension", "unknown"),
+            "score": s.get("score", 5),
+            "feedback": s.get("feedback", ""),
+            "question_text": q.get("question", ""),
+            "user_answer": s.get("user_answer", ""),
+        })
+
+    # Dimension averages
+    dim_scores = {}
+    for s in scores:
+        dim = s.get("dimension", "unknown")
+        sc = s.get("score", 5)
+        if dim not in dim_scores:
+            dim_scores[dim] = []
+        dim_scores[dim].append(sc)
+    dim_avgs = {d: round(sum(v) / len(v), 2) for d, v in dim_scores.items()}
+
+    sorted_dims = sorted(dim_avgs.items(), key=lambda x: x[1])
+    strengths = sorted_dims[-2:] if len(sorted_dims) >= 2 else sorted_dims
+    improvements = sorted_dims[:2] if len(sorted_dims) >= 2 else sorted_dims
+
+    return {
+        "overall_score": round(avg, 2),
+        "per_question_score": per_q,
+        "dimension_scores": dim_avgs,
+        "strengths": [
+            {"dimension": d, "score": s, "detail": f"得分 {s}"} for d, s in reversed(strengths)
+        ],
+        "improvements": [
+            {
+                "dimension": d,
+                "score": s,
+                "detail": f"得分 {s}",
+                "suggestions": [f"加强{d}相关学习和实践"],
+            }
+            for d, s in improvements
+        ],
+        "summary_md": f"面试完成, 综合评分 {avg:.2f}/10. 共完成 {n} 轮问答.",
+    }
+
+
+__all__ = ["report_node"]

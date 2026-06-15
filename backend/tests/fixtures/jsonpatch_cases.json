@@ -1,0 +1,32 @@
+[
+  {
+    "name": "rename_branch",
+    "doc": {"branch": {"name": "core"}, "blocks": []},
+    "patch": [{"op": "replace", "path": "/branch/name", "value": "字节跳动"}],
+    "expected": {"branch": {"name": "字节跳动"}, "blocks": []}
+  },
+  {
+    "name": "add_block_at_end",
+    "doc": {"branch": {"name": "core"}, "blocks": []},
+    "patch": [{"op": "add", "path": "/blocks/-", "value": {"id": "b1", "type": "heading", "title": "x", "content_md": "", "meta": null, "order_index": "a0"}}],
+    "expected": {"branch": {"name": "core"}, "blocks": [{"id": "b1", "type": "heading", "title": "x", "content_md": "", "meta": null, "order_index": "a0"}]}
+  },
+  {
+    "name": "remove_block_0",
+    "doc": {"branch": {"name": "core"}, "blocks": [{"id": "1"}, {"id": "2"}]},
+    "patch": [{"op": "remove", "path": "/blocks/0"}],
+    "expected": {"branch": {"name": "core"}, "blocks": [{"id": "2"}]}
+  },
+  {
+    "name": "replace_block_title",
+    "doc": {"branch": {"name": "core"}, "blocks": [{"id": "1", "title": "old"}]},
+    "patch": [{"op": "replace", "path": "/blocks/0/title", "value": "new"}],
+    "expected": {"branch": {"name": "core"}, "blocks": [{"id": "1", "title": "new"}]}
+  },
+  {
+    "name": "set_status",
+    "doc": {"branch": {"name": "core", "status": "draft"}, "blocks": []},
+    "patch": [{"op": "replace", "path": "/branch/status", "value": "ready"}],
+    "expected": {"branch": {"name": "core", "status": "ready"}, "blocks": []}
+  }
+]

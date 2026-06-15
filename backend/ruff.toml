@@ -1,0 +1,13 @@
+# Ruff config — kept in a standalone file per T006 spec; mirrors the
+# [tool.ruff] section in pyproject.toml so both stay in sync.
+
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
+ignore = ["E501", "B008"]
+
+[lint.per-file-ignores]
+"tests/*" = ["B011", "N801"]
+"**/tests/*" = ["B011", "N801"]

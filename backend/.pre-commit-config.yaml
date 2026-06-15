@@ -1,0 +1,46 @@
+# .pre-commit-config.yaml — runs on `git commit` when installed via
+# `pre-commit install`. Hooks are local (no remote downloads needed) to keep
+# the dev loop self-contained.
+#
+# Install: pip install pre-commit && pre-commit install
+# Run all: pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint)
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        files: ^backend/
+
+      - id: ruff-format
+        name: ruff (format)
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        files: ^backend/
+
+      - id: mypy
+        name: mypy (type check)
+        entry: uv run mypy app
+        language: system
+        types_or: [python, pyi]
+        files: ^backend/app/
+        pass_filenames: false
+
+      - id: tsc
+        name: tsc (TypeScript type check)
+        entry: npx tsc --noEmit
+        language: system
+        types_or: [ts, tsx]
+        files: ^src/
+
+      - id: vitest
+        name: vitest (frontend unit)
+        entry: npm test -- --run
+        language: system
+        types_or: [ts, tsx]
+        files: ^src/
+        pass_filenames: false
+        stages: [manual]   # slow; run via `pre-commit run vitest --hook-stage manual`
