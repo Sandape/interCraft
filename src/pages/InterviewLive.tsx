@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Send,
@@ -21,6 +21,10 @@ import {
   Briefcase,
   Building2,
   Play,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  MapPin,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -32,6 +36,8 @@ import { zhCN } from '@/lib/i18n/zh-CN'
 import { useInterviewWS, type WSEvent } from '@/hooks/useInterviewWS'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { interviewSessionRepo } from '@/repositories/interviewSessionRepo'
+import { useResumeBranches } from '@/hooks/queries/useResumeBranches'
+import { useJob } from '@/hooks/queries/useJobs'
 import { getAccessToken } from '@/api/token-storage'
 import { ErrorBanner } from '@/components/interview/ErrorBanner'
 import { StreamingText } from '@/components/interview/StreamingText'
@@ -73,10 +79,16 @@ function uniqueBy<T>(items: T[], keyOf: (item: T) => string): T[] {
 export default function InterviewLive() {
   const token = getAccessToken()
   const { id: routeSessionId } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const currentUser = useAuthStore((s) => s.user)
   const userAvatarUrl = useAvatarBlob(currentUser?.avatar_url ?? null) ?? undefined
   const userDisplayName =
     currentUser?.display_name || currentUser?.email.split('@')[0] || 'You'
+
+  // 019 — ?job_id + ?branch_id prefill (US3, FR-012)
+  const urlJobId = searchParams.get('job_id')
+  const urlBranchId = searchParams.get('branch_id')
+  const { data: sourceJob } = useJob(urlJobId ?? '')
 
   // ---- phase state ----
   const [phase, setPhase] = useState<'setup' | 'connecting' | 'live' | 'completed' | 'resume_error'>(
@@ -84,9 +96,21 @@ export default function InterviewLive() {
   )
   const [position, setPosition] = useState('')
   const [company, setCompany] = useState('')
+  const [branchId, setBranchId] = useState<string>('')
   const [sessionId, setSessionId] = useState<string | null>(routeSessionId || null)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [resumedNotice, setResumedNotice] = useState(false)
+  const [jobId, setJobId] = useState<string | null>(urlJobId)
+  const [requirementsOpen, setRequirementsOpen] = useState(false)
+
+  // 019 — prefill from source job (position / company / branch / base_location)
+  useEffect(() => {
+    if (!sourceJob) return
+    if (position === '') setPosition(sourceJob.position || '')
+    if (company === '') setCompany(sourceJob.company || '')
+    if (branchId === '' && urlBranchId) setBranchId(urlBranchId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceJob?.id])
 
   // ---- interview state ----
   const [input, setInput] = useState('')
@@ -107,6 +131,9 @@ export default function InterviewLive() {
 
   // ---- WebSocket ----
   const ws = useInterviewWS(token || '')
+
+  // ---- resume branches (setup picker) ----
+  const { data: branches = [] } = useResumeBranches()
 
   // ---- accumulate WS events into interview state ----
   const lastProcessedRef = useRef(0)
@@ -187,7 +214,9 @@ export default function InterviewLive() {
       const created = await interviewSessionRepo.create({
         position: position.trim(),
         company: company.trim(),
+        branch_id: branchId || undefined,
         mode: 'text',
+        job_id: jobId || undefined,
       })
       const sid = created.data.id
 
@@ -404,6 +433,23 @@ export default function InterviewLive() {
           </div>
 
           <div className="space-y-4">
+            {sourceJob && (
+              <div
+                data-testid="intake-prefill-card"
+                className="rounded-md border border-brand-200 dark:border-brand-500/30 bg-brand-50/50 dark:bg-brand-500/10 px-3 py-2 flex items-center gap-2"
+              >
+                <Briefcase className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300 flex-shrink-0" />
+                <div className="text-xs text-ink-2 dark:text-dark-ink-secondary min-w-0">
+                  <span className="font-medium">来源岗位：</span>
+                  <span className="truncate">{sourceJob.company} · {sourceJob.position}</span>
+                  {sourceJob.base_location && (
+                    <span className="text-ink-3 ml-1 inline-flex items-center gap-0.5">
+                      <MapPin className="h-2.5 w-2.5" />{sourceJob.base_location}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-ink-1 mb-1.5">
                 <Briefcase className="h-3.5 w-3.5 inline mr-1.5" />
@@ -416,6 +462,7 @@ export default function InterviewLive() {
                 placeholder="例如：高级前端工程师"
                 className="w-full px-3 py-2 text-sm rounded-md bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border text-ink-1 placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                 disabled={phase === 'connecting'}
+                data-testid="setup-position-input"
               />
             </div>
             <div>
@@ -430,7 +477,65 @@ export default function InterviewLive() {
                 placeholder="例如：字节跳动"
                 className="w-full px-3 py-2 text-sm rounded-md bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border text-ink-1 placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                 disabled={phase === 'connecting'}
+                data-testid="setup-company-input"
               />
+            </div>
+            {sourceJob?.requirements_md && sourceJob.requirements_md.length >= 50 && (
+              <div
+                data-testid="intake-requirements-card"
+                className="rounded-md border border-surface-border dark:border-dark-surface-border overflow-hidden"
+              >
+                <button
+                  type="button"
+                  onClick={() => setRequirementsOpen((v) => !v)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-ink-2 hover:bg-surface-muted dark:hover:bg-dark-surface-muted transition-colors"
+                  aria-expanded={requirementsOpen}
+                >
+                  <span>岗位招聘需求（{sourceJob.requirements_md.length} 字）</span>
+                  {requirementsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+                {requirementsOpen && (
+                  <div className="px-3 py-2 text-2xs text-ink-3 leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap border-t border-surface-border dark:border-dark-surface-border">
+                    {sourceJob.requirements_md}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div data-testid="setup-resume-picker">
+              <label className="block text-sm font-medium text-ink-1 mb-1.5">
+                <FileText className="h-3.5 w-3.5 inline mr-1.5" />
+                {zhCN.interview.setup.resumeLabel}
+              </label>
+              <select
+                disabled={branches.length === 0 || phase === 'connecting'}
+                value={branchId}
+                onChange={(e) => setBranchId(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-md bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border text-ink-1 disabled:text-ink-muted disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              >
+                <option value="">
+                  {branches.length === 0
+                    ? zhCN.interview.setup.noResume
+                    : zhCN.interview.setup.resumePlaceholder}
+                </option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                    {b.is_main ? '（主分支）' : ''}
+                  </option>
+                ))}
+              </select>
+              {branches.length === 0 && (
+                <div className="text-xs text-ink-3 mt-1.5">
+                  {zhCN.interview.setup.createResumeCta}:{' '}
+                  <Link
+                    to="/resume/new"
+                    className="text-brand-600 dark:text-brand-300 hover:underline"
+                  >
+                    /resume/new
+                  </Link>
+                </div>
+              )}
             </div>
 
             {setupError && (

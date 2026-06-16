@@ -70,6 +70,7 @@ export const interviewSessionRepo = {
     position: string
     company: string
     branch_id?: string
+    job_id?: string
     mode?: string
   }): Promise<{ data: InterviewSession }> {
     return request('POST', BASE, data)
