@@ -28,6 +28,7 @@ import { Progress } from '@/components/ui/Progress'
 import { Avatar } from '@/components/ui/Avatar'
 import { useAvatarBlob } from '@/hooks/queries/useAvatarBlob'
 import { cn } from '@/lib/utils'
+import { zhCN } from '@/lib/i18n/zh-CN'
 import { useInterviewWS, type WSEvent } from '@/hooks/useInterviewWS'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { interviewSessionRepo } from '@/repositories/interviewSessionRepo'
@@ -546,7 +547,7 @@ export default function InterviewLive() {
               data-testid="resume-summary"
               className="max-w-3xl rounded-md border border-brand-200 bg-brand-50/70 px-3 py-2 text-xs text-brand-800 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200"
             >
-              Restored {userAnswers.length} answers, {questions.length} questions, {scores.length} scores.
+              {`${zhCN.interview.restore}（${userAnswers.length} 道回答 · ${questions.length} 道题 · ${scores.length} 项评分）`}
             </div>
           )}
 
