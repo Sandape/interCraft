@@ -25,12 +25,25 @@ function removeCachedQuestion(old: ErrorQuestionList | undefined, id: string) {
   }
 }
 
+function prependCachedQuestion(old: ErrorQuestionList | undefined, next: ErrorQuestion) {
+  if (!old) return old
+  if (old.data.some((item) => item.id === next.id)) return old
+  return {
+    ...old,
+    data: [next, ...old.data],
+  }
+}
+
 export function useCreateErrorQuestion() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: { question_text: string; dimension?: string; answer_text?: string }) =>
       getErrorQuestionRepository().create(input),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      qc.setQueriesData<ErrorQuestionList>(
+        { queryKey: ['errorQuestions'] },
+        (old) => prependCachedQuestion(old, data),
+      )
       qc.invalidateQueries({ queryKey: ['errorQuestions'] })
     },
   })
