@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"[Console]::Beep(880,100);[Console]::Beep(880,100);[Console]::Beep(880,100);[Console]::Beep(880,100)\""
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"[Console]::Beep(880,100);[Console]::Beep(880,100);[Console]::Beep(880,100);[Console]::Beep(880,100)\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"[Console]::Beep(880,100);[Console]::Beep(880,100);[Console]::Beep(880,100);[Console]::Beep(880,100)\""
+          }
+        ]
+      }
+    ]
+  }
+}

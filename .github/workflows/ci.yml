@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend-unit:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        run: pip install uv
+      - name: Sync deps
+        working-directory: backend
+        run: uv sync --extra dev
+      - name: Run unit tests
+        working-directory: backend
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: ci-only-dummy-32bytes-xxxxxxxxxxxxxxxxxxxxxx
+          MASTER_KEY: $(python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())")
+        run: uv run pytest tests/unit -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
