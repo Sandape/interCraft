@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from uuid import UUID
+from decimal import Decimal
+from uuid import UUID, uuid4
 
+import structlog
 from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.interview.graph import get_interview_graph
 from app.modules.interviews.repository import InterviewSessionRepository
 from app.modules.interviews.schemas import InterviewSessionCreate
 from app.repositories.interview_report_repo import InterviewReportRepo
+
+logger = structlog.get_logger(__name__)
 
 
 class InterviewSessionService:
@@ -177,6 +182,11 @@ class InterviewSessionService:
                     session_id=id,
                 ))
 
+            # Synchronously upsert per-dimension scores so /ability-profile
+            # reflects the new scores immediately. The async arq job below
+            # still runs for LLM-generated insights and history snapshots.
+            await self._sync_ability_dimensions(id, user_id)
+
             # Enqueue ability diagnosis so the dashboard reflects interview scores.
             # Best-effort — failure here must not fail the API request.
             try:
@@ -201,6 +211,82 @@ class InterviewSessionService:
         deleted = await self.repo.soft_delete(id, user_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Interview session not found")
+
+    async def _sync_ability_dimensions(self, session_id: UUID, user_id: UUID) -> None:
+        """Synchronously upsert per-dimension scores from the interview report
+        into `ability_dimensions` so `/ability-profile` reflects the new scores
+        immediately after interview completion — no waiting on the async ARQ
+        `ability_diagnose` worker.
+
+        Mirrors `app.agents.nodes.ability_diagnose.update_dimensions` but is
+        synchronous and LLM-free. Failures are logged and swallowed: an ability
+        sync failure MUST NOT fail the interview completion request.
+        """
+        try:
+            report = await InterviewReportRepo(self.session).get_by_session_id(session_id)
+            if report is None:
+                logger.warning(
+                    "interview.ability_sync.no_report",
+                    session_id=str(session_id),
+                    user_id=str(user_id),
+                )
+                return
+
+            dimension_scores = report.dimension_scores or {}
+            if not dimension_scores:
+                logger.warning(
+                    "interview.ability_sync.empty_dimensions",
+                    session_id=str(session_id),
+                    user_id=str(user_id),
+                )
+                return
+
+            await self.session.execute(
+                text("SELECT set_config('app.user_id', :uid, true)"),
+                {"uid": str(user_id)},
+            )
+
+            upsert_dim = text(
+                """INSERT INTO ability_dimensions
+                (id, user_id, dimension_key, actual_score, ideal_score,
+                 sub_scores, is_active, source, last_updated_at,
+                 created_at, updated_at)
+                VALUES (:id, :uid, :dim, :score, 10, '{}'::jsonb,
+                        true, 'interview', :now, :now, :now)
+                ON CONFLICT (user_id, dimension_key) DO UPDATE
+                SET actual_score = EXCLUDED.actual_score,
+                    source = 'interview',
+                    last_updated_at = EXCLUDED.last_updated_at,
+                    updated_at = EXCLUDED.updated_at"""
+            )
+
+            now = datetime.now(UTC)
+            for dim_key, score in dimension_scores.items():
+                await self.session.execute(
+                    upsert_dim,
+                    {
+                        "id": uuid4(),
+                        "uid": user_id,
+                        "dim": dim_key,
+                        "score": Decimal(str(score)),
+                        "now": now,
+                    },
+                )
+
+            await self.session.commit()
+            logger.info(
+                "interview.ability_sync.completed",
+                session_id=str(session_id),
+                user_id=str(user_id),
+                dimensions=list(dimension_scores.keys()),
+            )
+        except Exception:
+            logger.error(
+                "interview.ability_sync.failed",
+                session_id=str(session_id),
+                user_id=str(user_id),
+                exc_info=True,
+            )
 
     async def resume(self, id: UUID, user_id: UUID) -> dict:
         session = await self.repo.get(id, user_id)
