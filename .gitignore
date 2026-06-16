@@ -28,6 +28,8 @@ pnpm-debug.log*
 # Build
 .vite
 *.tsbuildinfo
+vite.config.js
+vite.config.d.ts
 
 # Backend venv (uv default)
 backend/.venv
@@ -45,12 +47,16 @@ src/api/schema.d.ts.map
 playwright-report
 test-results
 .playwright
+.playwright-mcp
 
 # Local env overrides
 .env.local
 
 # Backend runtime data (Feature 013 — avatar storage)
 backend/.data/
+
+# Local runtime / debug artifacts
+.tmp/
 
 # Playwright
 /playwright-report/
