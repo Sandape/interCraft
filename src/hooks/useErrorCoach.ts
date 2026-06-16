@@ -1,6 +1,15 @@
-/** useErrorCoach — React hook for M17 Error Coach flow. */
+/** useErrorCoach — M17 Error Coach flow with React Query polling.
+
+  After start() creates a thread, we poll GET .../state every 1.5 s
+  until status reaches a terminal value (completed / error / aborted),
+  then polling auto-stops.
+*/
+
 import { useCallback, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { errorCoachRepo, type MessageResponse } from '../repositories/errorCoachRepo'
+import { coachErrorToMessage } from '../lib/apiErrorToMessage'
+import type { StateResponse } from '../repositories/errorCoachRepo'
 
 export interface ErrorCoachState {
   loading: boolean
@@ -14,89 +23,95 @@ export interface ErrorCoachState {
   score: number | null
 }
 
+function threadQueryKey(threadId: string | null) {
+  return ['errorCoach', 'state', threadId] as const
+}
+
 export function useErrorCoach() {
-  const [state, setState] = useState<ErrorCoachState>({
-    loading: false,
-    error: null,
-    threadId: null,
-    status: null,
-    correctCount: 0,
-    attemptCount: 0,
-    hintLevel: null,
-    hintContent: null,
-    score: null,
+  const [threadId, setThreadId] = useState<string | null>(null)
+  const [manualError, setManualError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+
+  const isTerminal = (s: string | null | undefined) =>
+    s === 'completed' || s === 'error' || s === 'aborted'
+
+  // Poll state while a non-terminal thread exists
+  const stateQuery = useQuery({
+    queryKey: threadQueryKey(threadId),
+    queryFn: () => errorCoachRepo.getState(threadId!),
+    enabled: !!threadId,
+    refetchInterval: (query) => {
+      const s = (query.state.data as StateResponse | undefined)?.status
+      if (!s || isTerminal(s)) return false
+      return 1500
+    },
+    staleTime: 0,
   })
 
   const start = useCallback(async (errorQuestionId: string) => {
-    setState(prev => ({ ...prev, loading: true, error: null }))
+    setManualError(null)
     try {
       const res = await errorCoachRepo.start({ error_question_id: errorQuestionId })
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        threadId: res.thread_id,
-        status: res.status,
-      }))
+      setThreadId(res.thread_id)
+      return res
     } catch (err) {
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: err instanceof Error ? err.message : 'Failed to start',
-      }))
+      setManualError(coachErrorToMessage(err))
+      throw err
     }
   }, [])
 
   const submitAnswer = useCallback(async (content: string): Promise<MessageResponse | null> => {
-    const { threadId } = state
     if (!threadId) return null
-    setState(prev => ({ ...prev, loading: true }))
     try {
       const res = await errorCoachRepo.sendMessage(threadId, content)
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        status: res.status,
-        correctCount: res.correct_count ?? prev.correctCount,
-        attemptCount: res.correct_count ?? prev.attemptCount,
-        hintLevel: res.hint_level,
-        hintContent: res.hint_content,
-        score: res.score,
-      }))
+      // Invalidate so polling immediately picks up new state
+      queryClient.invalidateQueries({ queryKey: threadQueryKey(threadId) })
       return res
     } catch (err) {
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: err instanceof Error ? err.message : 'Failed to submit',
-      }))
+      setManualError(coachErrorToMessage(err))
       return null
     }
-  }, [state.threadId])
+  }, [threadId, queryClient])
 
   const abort = useCallback(async () => {
-    const { threadId } = state
     if (!threadId) return
     try {
       await errorCoachRepo.abort(threadId)
-      setState(prev => ({ ...prev, status: 'aborted' }))
+      queryClient.setQueryData(threadQueryKey(threadId), {
+        thread_id: threadId,
+        status: 'aborted',
+        correct_count: stateQuery.data?.correct_count ?? 0,
+        attempt_count: stateQuery.data?.attempt_count ?? 0,
+        current_hint_level: null,
+      })
     } catch {
       // Swallow abort errors
     }
-  }, [state.threadId])
+  }, [threadId, stateQuery.data, queryClient])
 
   const reset = useCallback(() => {
-    setState({
-      loading: false,
-      error: null,
-      threadId: null,
-      status: null,
-      correctCount: 0,
-      attemptCount: 0,
-      hintLevel: null,
-      hintContent: null,
-      score: null,
-    })
+    setThreadId(null)
+    setManualError(null)
   }, [])
 
-  return { ...state, start, submitAnswer, abort, reset }
+  const loading = !!threadId && stateQuery.isFetching && !isTerminal(stateQuery.data?.status)
+  const error = manualError
+    ?? (stateQuery.error ? coachErrorToMessage(stateQuery.error) : null)
+    ?? null
+
+  return {
+    loading,
+    error,
+    threadId,
+    status: stateQuery.data?.status ?? null,
+    correctCount: stateQuery.data?.correct_count ?? 0,
+    attemptCount: stateQuery.data?.attempt_count ?? 0,
+    hintLevel: stateQuery.data?.current_hint_level ?? null,
+    hintContent: null, // only populated from sendMessage response, not from state
+    score: null, // only populated from sendMessage response
+    start,
+    submitAnswer,
+    abort,
+    reset,
+  }
 }

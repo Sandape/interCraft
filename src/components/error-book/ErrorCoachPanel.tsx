@@ -1,9 +1,10 @@
 /** ErrorCoachPanel — M17 error question reinforcement dialog. */
 import { useState, useCallback } from 'react'
-import { X, Send, Loader2, CheckCircle, AlertTriangle } from 'lucide-react'
+import { X, Send, Loader2, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { useErrorCoach } from '@/hooks/useErrorCoach'
+import { zhCN } from '@/lib/i18n/zh-CN'
 
 interface ErrorCoachPanelProps {
   errorQuestionId: string
@@ -84,8 +85,9 @@ export default function ErrorCoachPanel({ errorQuestionId, questionText, open, o
 
         {/* Loading */}
         {loading && !isComplete && (
-          <div className="flex items-center justify-center py-4" data-testid="coach-loading">
+          <div className="flex items-center justify-center gap-2 py-4" data-testid="coach-loading">
             <Loader2 className="h-5 w-5 animate-spin text-brand-500" />
+            <span className="text-sm text-ink-3">{zhCN.errorCoach.starting}</span>
           </div>
         )}
 
@@ -144,7 +146,18 @@ export default function ErrorCoachPanel({ errorQuestionId, questionText, open, o
 
         {/* Error */}
         {error && (
-          <p className="text-xs text-danger-500">{error}</p>
+          <div className="p-3 rounded-md bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-center" data-testid="coach-error">
+            <p className="text-xs text-danger-500 mb-2">{error}</p>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleStart}
+              leftIcon={<RefreshCw className="h-3 w-3" />}
+              data-testid="coach-retry-button"
+            >
+              重试
+            </Button>
+          </div>
         )}
       </div>
     </Modal>
