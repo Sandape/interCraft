@@ -46,9 +46,10 @@ user-provided online Postgres.
 
 ## More docs
 
-- [Backend README](backend/README.md) — module map, CLI, health endpoints
-- [Specs index](specs/001-intercraft-product-spec/) — design artifacts
-- [Phase 1 verification evidence](docs/evidence/) — last run's SCORECARD
+- [Documentation index](docs/README.md) - requirements, testing, evidence, and architecture map
+- [Specs index](specs/README.md) - canonical requirements status and active feature entry
+- [Backend README](backend/README.md) - module map, CLI, health endpoints
+- [Evidence guide](docs/evidence/README.md) - verification logs, screenshots, and scorecards
 
 ## License
 

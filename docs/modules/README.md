@@ -1,5 +1,12 @@
 # InterCraft 模块化需求文档索引
 
+> Status: `legacy`
+>
+> 本目录保留为历史模块化需求拆解资料。新的实现和需求判断请先看
+> [../../specs/README.md](../../specs/README.md)。旧模块文档到新 spec 的映射见
+> [../requirements/legacy-map.md](../requirements/legacy-map.md)。
+> 若本目录内容与 `specs/` 冲突, 以 `specs/` 为准。
+
 > 23 个模块的需求文档总入口。每份模块对应 `PERSISTENCE_REQUIREMENTS.md` 中的若干章节,可独立开发。
 
 ---

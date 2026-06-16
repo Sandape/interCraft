@@ -1,81 +1,68 @@
-<!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan:
+# InterCraft Agent Context
 
-**Phase 1 (P0 baseline — done)**:
-- Plan: specs/001-intercraft-product-spec/plan.md
-- Research: specs/001-intercraft-product-spec/research.md
-- Data model: specs/001-intercraft-product-spec/data-model.md
-- Quickstart: specs/001-intercraft-product-spec/quickstart.md
+This file is the always-loaded routing layer for AI coding agents. Keep it short
+and point agents to the canonical source for the current task.
 
-**Phase 2 (P1 entities — in progress)**:
-- Plan: specs/001-intercraft-product-spec/phase-2.md
-- Research: specs/001-intercraft-product-spec/research-phase-2.md
-- Data model: specs/001-intercraft-product-spec/data-model-phase-2.md
-- Quickstart: specs/001-intercraft-product-spec/quickstart-phase-2.md
+## Canonical Navigation
 
-**API contracts (Phase 1 + Phase 2)**:
-- Index: specs/001-intercraft-product-spec/contracts/README.md
-- Phase 1: health / auth / users / sessions / resumes / blocks / versions
-- Phase 2: error-questions / abilities / tasks / activities / jobs / interview-sessions
+1. Current active SpecKit feature: read `.specify/feature.json`.
+2. Requirements index: read `specs/README.md`.
+3. Active feature context: read that feature's `README.md`, then only the
+   relevant `spec.md`, `contracts/`, `tasks.md`, and `requirements-status.md`.
+4. Test guidance: read `docs/testing/README.md`.
+5. Source layout: read `docs/architecture/source-map.md`.
+6. Historical requirements: use `docs/modules/*`,
+   `docs/PERSISTENCE_REQUIREMENTS.md`, `docs/DEVELOPMENT_ROADMAP.md`, and
+   `docs/ANALYSIS_REPORT.md` only as legacy context. They do not override
+   `specs/`.
 
-**Phase 3 (P1 sync & offline — done)**:
-- Plan: specs/001-intercraft-product-spec/phase-3.md
-- Research: specs/001-intercraft-product-spec/research-phase-3.md
-- Data model: specs/001-intercraft-product-spec/data-model-phase-3.md
-- Quickstart: specs/001-intercraft-product-spec/quickstart-phase-3.md
+## Project Shape
 
-**API contracts (Phase 1 + Phase 2 + Phase 3)**:
-- Index: specs/001-intercraft-product-spec/contracts/README.md
-- Phase 1: health / auth / users / sessions / resumes / blocks / versions
-- Phase 2: error-questions / abilities / tasks / activities / jobs / interview-sessions
-- Phase 3: locks / outbox
+- Frontend: `src/` (React 18, Vite, TypeScript, TanStack Query, Zustand).
+- Backend: `backend/app/` (FastAPI, SQLAlchemy 2.0, Alembic, Redis/ARQ).
+- Canonical E2E tests: `tests/e2e/`.
+- Legacy E2E migration source: `e2e/`.
+- Generated or manual evidence: `docs/evidence/` and feature-specific evidence
+  folders.
 
-**Phase 4 (P1 Interview Agent — in progress)**:
-- Plan: specs/003-phase4-interview-agent/plan.md
-- Research: specs/003-phase4-interview-agent/research.md
-- Data model: specs/003-phase4-interview-agent/data-model.md
-- Quickstart: specs/003-phase4-interview-agent/quickstart.md
-- Contracts: ws-events / interview-sessions-phase4 / llm-client
+If an old spec or plan mentions `frontend/src`, interpret that as the current
+frontend root `src/` unless the source map says otherwise.
 
-**Phase 5 (P1 Agent 子图扩展 — planned)**:
-- Plan: specs/004-phase5-agent-subgraphs/plan.md
-- Research: specs/004-phase5-agent-subgraphs/research.md
-- Data model: specs/004-phase5-agent-subgraphs/data-model.md
-- Quickstart: specs/004-phase5-agent-subgraphs/quickstart.md
-- Contracts: agents-api / ability-diagnose
+## Commands
 
-**Feature 002 — Resume Editor Enhancement (planned)**:
-- Plan: specs/002-resume-editor-enhancement/plan.md
-- Research: specs/002-resume-editor-enhancement/research.md
-- Data model: specs/002-resume-editor-enhancement/data-model.md
-- Quickstart: specs/002-resume-editor-enhancement/quickstart.md
+| Purpose | Command |
+|---|---|
+| Frontend dev server | `npm run dev` |
+| Frontend unit tests | `npm run test` |
+| Frontend type check | `npm run typecheck` |
+| Frontend build | `npm run build` |
+| Canonical E2E tests | `npm run e2e` |
+| List canonical E2E tests | `npm run e2e -- --list` |
+| Backend tests | `cd backend && uv run pytest -q` |
+| Backend migrations | `cd backend && uv run alembic upgrade head` |
 
-**API contracts (Feature 002)**:
-- PDF rendering service: specs/002-resume-editor-enhancement/contracts/pdf-service.md
+## Requirement Status Rules
 
-**Feature 007 — Interview Resume Guardrails (done)**:
-- Plan: specs/007-interview-resume-guardrails/plan.md
-- Research: specs/007-interview-resume-guardrails/research.md
-- Data model: specs/007-interview-resume-guardrails/data-model.md
-- Quickstart: specs/007-interview-resume-guardrails/quickstart.md
-- Contracts: resume-ui
-**Feature 010 - Topbar Utility Actions (in progress)**:
-- Plan: specs/010-topbar-utility-actions/plan.md
-- Research: specs/010-topbar-utility-actions/research.md
-- Data model: specs/010-topbar-utility-actions/data-model.md
-- Quickstart: specs/010-topbar-utility-actions/quickstart.md
-- Contracts: topbar-utility-ui
-**Feature 012 - Resume Export Gateway (in progress)**:
-- Plan: specs/012-resume-export-gateway/plan.md
-- Research: specs/012-resume-export-gateway/research.md
-- Data model: specs/012-resume-export-gateway/data-model.md
-- Quickstart: specs/012-resume-export-gateway/quickstart.md
-- Contracts: resume-export-api
-**Feature 016 - Error Book Completion (in progress)**:
-- Plan: specs/016-error-book-completion/plan.md
-- Research: specs/016-error-book-completion/research.md
-- Data model: specs/016-error-book-completion/data-model.md
-- Quickstart: specs/016-error-book-completion/quickstart.md
-- Contracts: error-book-api / error-book-ui
-<!-- SPECKIT END -->
+- Feature-level status is tracked in `specs/README.md`.
+- Requirement-level status is tracked in feature `requirements-status.md` files
+  for active or important features.
+- Mark a requirement `done` only when implementation and verification evidence
+  are both present.
+- Use `in_progress` when code exists but validation is still pending.
+- Use `legacy` or `superseded` for historical documents that are no longer
+  implementation sources.
+
+## Working Rules
+
+- Do not move `specs/*` directories just to separate done and unfinished work;
+  SpecKit depends on stable paths.
+- Do not delete legacy docs or evidence during cleanup unless a separate task
+  proves they are duplicated and unreferenced.
+- Treat the current dirty worktree as user/ongoing work. Do not revert changes
+  you did not make.
+- Use the current codebase as the source of path truth. Older generated plans
+  may contain stale paths.
+- PowerShell may display UTF-8 Chinese as mojibake. If Chinese docs look
+  corrupted in terminal output, re-read with Node or another UTF-8-safe reader
+  before deciding the file is damaged.
+
