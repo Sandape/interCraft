@@ -1,43 +1,9 @@
-import { Sparkles, CheckCircle2, Wand2, AlertCircle, History, RotateCcw, Eye } from 'lucide-react'
+import { Sparkles, History, RotateCcw, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { cn, timeAgo } from '@/lib/utils'
 import type { ResumeBranch, ResumeVersionSummary } from '@/api/types'
 import { RESUME_STYLES, getStyleById } from '@/lib/resume-styles'
-
-// ── Mock AI summary ──────────────────────────────────────
-
-interface AiDiffStat {
-  tone: 'success' | 'accent' | 'warning'
-  icon: React.ReactNode
-  label: string
-  value: string
-  detail: string
-}
-
-const MOCK_AI_SUMMARY: AiDiffStat[] = [
-  {
-    tone: 'success',
-    icon: <CheckCircle2 className="h-3 w-3" />,
-    label: '新增数据点',
-    value: '3',
-    detail: 'LCP 1.4s, 2.1k star, 76% 复用',
-  },
-  {
-    tone: 'accent',
-    icon: <Wand2 className="h-3 w-3" />,
-    label: '改写表达',
-    value: '5',
-    detail: '突出"主导"、"推动"动词',
-  },
-  {
-    tone: 'warning',
-    icon: <AlertCircle className="h-3 w-3" />,
-    label: '待补强',
-    value: '1',
-    detail: 'AI 辅助研发案例',
-  },
-]
 
 // ── Style thumbnail mini ──────────────────────────────────
 
@@ -109,11 +75,7 @@ export default function EditorSidebar({
   onSaveVersion,
   className,
 }: EditorSidebarProps) {
-  const toneMap: Record<string, string> = {
-    success: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/20',
-    accent: 'text-brand-700 dark:text-brand-300 bg-brand-50 dark:bg-brand-500/15',
-    warning: 'text-amber-600 bg-amber-50 dark:bg-amber-500/20',
-  }
+  const aiVersionCount = versions.filter((v) => v.trigger === 'ai').length
 
   return (
     <aside
@@ -131,46 +93,36 @@ export default function EditorSidebar({
           <h4 className="text-xs font-semibold text-ink-1">AI 优化摘要</h4>
         </div>
 
-        <div className="space-y-2">
-          {MOCK_AI_SUMMARY.map((item, i) => (
-            <div key={i} className="flex items-start gap-2">
-              <div
-                className={cn(
-                  'w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-px',
-                  toneMap[item.tone],
-                )}
-              >
-                {item.icon}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-xs font-semibold font-mono tabular-nums text-ink-1">
-                    {item.value}
-                  </span>
-                  <span className="text-2xs text-ink-3">{item.label}</span>
-                </div>
-                <div className="text-2xs text-ink-3 truncate">{item.detail}</div>
-              </div>
+        {aiVersionCount === 0 ? (
+          <p className="text-2xs text-ink-3 py-2">
+            暂无 AI 优化记录。在编辑器中点击「AI 优化」开始。
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-baseline gap-1">
+              <span className="text-xs font-semibold font-mono tabular-nums text-ink-1">
+                {aiVersionCount}
+              </span>
+              <span className="text-2xs text-ink-3">次 AI 优化</span>
             </div>
-          ))}
-        </div>
-
-        <div className="mt-3">
-          <div className="flex items-center justify-between text-2xs text-ink-3 mb-1">
-            <span>匹配度提升</span>
-            <span className="font-mono tabular-nums text-ink-1 font-medium">+14</span>
+            {branch.match_score != null && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-2xs text-ink-3 mb-1">
+                  <span>匹配度</span>
+                  <span className="font-mono tabular-nums text-ink-1 font-medium">
+                    {branch.match_score}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-surface-muted dark:bg-dark-surface-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand-400 to-brand-600 rounded-full transition-all"
+                    style={{ width: `${Math.max(0, Math.min(100, branch.match_score))}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
-          <div className="h-1.5 bg-surface-muted dark:bg-dark-surface-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-brand-400 to-brand-600 rounded-full transition-all"
-              style={{ width: `${branch.match_score ?? 86}%` }}
-            />
-          </div>
-          <div className="mt-1 flex items-center justify-between text-2xs text-ink-3 font-mono tabular-nums">
-            <span>原始 72</span>
-            <span>当前 {branch.match_score ?? 86}</span>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* ── 目标 JD ── */}

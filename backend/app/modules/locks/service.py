@@ -56,35 +56,6 @@ class LockService:
         resource_id = str(input.resource_id)
         key = _key(resource_type, resource_id)
 
-        # Check if already locked
-        existing = await redis_get(key)
-        if existing:
-            if existing.get("user_id") == user_id:
-                lock_acquire_attempts_total.labels(result="conflict").inc()
-                raise AppError(
-                    code="lock.already_held_by_you",
-                    message="你已在另一设备上编辑该资源",
-                    http_status=409,
-                    details={
-                        "lock_id": existing.get("lock_id"),
-                        "device_id": existing.get("device_id"),
-                        "acquired_at": existing.get("acquired_at"),
-                    },
-                )
-            lock_acquire_attempts_total.labels(result="conflict").inc()
-            raise AppError(
-                code="lock.resource_locked",
-                message="该资源正被其他用户编辑中",
-                http_status=409,
-                details={
-                    "locked_by": {
-                        "user_id": existing.get("user_id"),
-                        "user_name": existing.get("user_name", ""),
-                        "acquired_at": existing.get("acquired_at"),
-                    }
-                },
-            )
-
         now = _now()
         lock_id = str(new_uuid_v7())
         lock_data = {
@@ -100,13 +71,51 @@ class LockService:
             "expires_at": (now + timedelta(minutes=5)).isoformat(),
         }
 
+        # Atomic SET NX — the only authoritative check. No TOCTOU race.
         ok = await redis_acquire(resource_type, resource_id, lock_data)
         if not ok:
+            # Lock is held. Distinguish "same user" (idempotent) vs "other user" (conflict).
+            existing = await redis_get(key)
+            if existing and existing.get("user_id") == user_id:
+                # Idempotent: React StrictMode double-mount, page refresh in same
+                # session, or recovery after WS disconnect. Reuse the existing
+                # lock_id so the client can continue with the same heartbeat.
+                lock_acquire_attempts_total.labels(result="already_held").inc()
+                logger.info(
+                    "lock.acquire.idempotent",
+                    user_id=user_id,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    lock_id=existing.get("lock_id"),
+                )
+                return LockStatus(
+                    locked=True,
+                    lock_id=existing.get("lock_id"),
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    user_id=user_id,
+                    user_name=user_name or existing.get("user_name", ""),
+                    device_id=device_id,
+                    acquired_at=datetime.fromisoformat(existing["acquired_at"])
+                    if existing.get("acquired_at")
+                    else now,
+                    expires_at=datetime.fromisoformat(existing["expires_at"])
+                    if existing.get("expires_at")
+                    else now + timedelta(minutes=5),
+                )
+            # Different user holds the lock — true conflict.
             lock_acquire_attempts_total.labels(result="conflict").inc()
             raise AppError(
                 code="lock.resource_locked",
                 message="该资源正被其他用户编辑中",
                 http_status=409,
+                details={
+                    "locked_by": {
+                        "user_id": existing.get("user_id") if existing else "",
+                        "user_name": existing.get("user_name", "") if existing else "",
+                        "acquired_at": existing.get("acquired_at") if existing else None,
+                    }
+                },
             )
 
         lock_acquire_attempts_total.labels(result="ok").inc()
