@@ -9,7 +9,13 @@ export interface Job {
   branch_id: string | null
   status: string
   status_history: { from_status: string; to_status: string; note?: string; changed_at: string }[]
-  note: string | null
+  notes_md: string | null
+  // 019 — extended fields
+  base_location: string
+  requirements_md: string | null
+  employment_type: string
+  salary_range_text: string | null
+  headcount: number | null
   created_at: string
   updated_at: string
 }
@@ -30,7 +36,7 @@ const BASE = '/api/v1/jobs'
 
 export abstract class JobRepository {
   abstract list(params?: { status?: string; branch_id?: string; limit?: number }): Promise<{ data: Job[]; next_cursor: string | null; has_more: boolean }>
-  abstract create(input: { company: string; position: string; jd_url?: string; branch_id?: string; note?: string }): Promise<Job>
+  abstract create(input: { company: string; position: string; jd_url?: string; branch_id?: string; notes_md?: string | null }): Promise<Job>
   abstract get(id: string): Promise<Job>
   abstract patch(id: string, patch: Record<string, unknown>): Promise<Job>
   abstract updateStatus(id: string, to: string, note?: string): Promise<Job>
@@ -48,7 +54,7 @@ export class HttpJobRepository extends JobRepository {
     return request('GET', `${BASE}${qs ? `?${qs}` : ''}`)
   }
 
-  async create(input: { company: string; position: string; jd_url?: string; branch_id?: string; note?: string }): Promise<Job> {
+  async create(input: { company: string; position: string; jd_url?: string; branch_id?: string; notes_md?: string | null }): Promise<Job> {
     return request('POST', BASE, input)
   }
 
@@ -84,16 +90,32 @@ export class MockJobRepository extends JobRepository {
     return { data: this.store, next_cursor: null, has_more: false }
   }
 
-  async create(input: { company: string; position: string }): Promise<Job> {
+  async create(input: {
+    company: string
+    position: string
+    jd_url?: string
+    branch_id?: string
+    notes_md?: string | null
+    base_location?: string | null
+    requirements_md?: string | null
+    employment_type?: string
+    salary_range_text?: string | null
+    headcount?: number | null
+  }): Promise<Job> {
     const job: Job = {
       id: `job-${Date.now()}`,
       company: input.company,
       position: input.position,
-      jd_url: null,
-      branch_id: null,
+      jd_url: input.jd_url ?? null,
+      branch_id: input.branch_id ?? null,
       status: 'applied',
       status_history: [{ from_status: '', to_status: 'applied', changed_at: new Date().toISOString() }],
-      note: null,
+      notes_md: input.notes_md ?? null,
+      base_location: input.base_location ?? '',
+      requirements_md: input.requirements_md ?? null,
+      employment_type: input.employment_type ?? 'unspecified',
+      salary_range_text: input.salary_range_text ?? null,
+      headcount: input.headcount ?? null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }

@@ -243,7 +243,7 @@ export default function Jobs() {
                         {j.created_at ? new Date(j.created_at).toLocaleDateString('zh-CN') : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="text-xs text-ink-3 line-clamp-1 max-w-[200px]">{j.note || '—'}</span>
+                        <span className="text-xs text-ink-3 line-clamp-1 max-w-[200px]">{j.notes_md || '—'}</span>
                       </td>
                       <td className="px-4 py-3">
                         <StatusPopover
@@ -324,16 +324,31 @@ function CreateJobModal({
   isPending,
 }: {
   onClose: () => void
-  onCreate: (input: { company: string; position: string; note?: string }) => void
+  onCreate: (input: {
+    company: string
+    position: string
+    notes_md?: string | null
+    base_location?: string | null
+    requirements_md?: string | null
+    employment_type?: string
+    salary_range_text?: string | null
+    headcount?: number | null
+  }) => void
   isPending: boolean
 }) {
   const [company, setCompany] = useState('')
   const [position, setPosition] = useState('')
-  const [note, setNote] = useState('')
+  const [notesMd, setNotesMd] = useState('')
+  // 019 — extended fields
+  const [baseLocation, setBaseLocation] = useState('')
+  const [requirementsMd, setRequirementsMd] = useState('')
+  const [employmentType, setEmploymentType] = useState('unspecified')
+  const [salaryRange, setSalaryRange] = useState('')
+  const [headcount, setHeadcount] = useState<string>('')
 
   return (
     <Modal open title="添加职位" onClose={onClose}>
-      <div className="space-y-3">
+      <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
         <div>
           <label className="block text-xs font-medium text-ink-2 mb-1">公司 *</label>
           <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="如：字节跳动" />
@@ -342,23 +357,151 @@ function CreateJobModal({
           <label className="block text-xs font-medium text-ink-2 mb-1">岗位 *</label>
           <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="如：高级前端工程师" />
         </div>
+        {/* 019 — extended fields */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">Base 地</label>
+            <Input
+              value={baseLocation}
+              onChange={(e) => setBaseLocation(e.target.value)}
+              placeholder="如：北京"
+              maxLength={50}
+              data-testid="job-create-base-location"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">岗位类型</label>
+            <select
+              value={employmentType}
+              onChange={(e) => setEmploymentType(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 border border-surface-border dark:border-dark-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              data-testid="job-create-employment-type"
+            >
+              <option value="unspecified">未指定</option>
+              <option value="internship">实习</option>
+              <option value="campus">校招</option>
+              <option value="experienced">社招</option>
+              <option value="contract">合同/外包</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-ink-2 mb-1">
+            招聘需求 (Markdown) · {requirementsMd.length}/5000
+          </label>
+          <textarea
+            value={requirementsMd}
+            onChange={(e) => setRequirementsMd(e.target.value)}
+            placeholder="## 要求&#10;- 3 年 React 经验&#10;- TypeScript 熟练"
+            rows={4}
+            maxLength={5000}
+            data-testid="job-create-requirements"
+            className="w-full px-3 py-2 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border border-surface-border dark:border-dark-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500/30 resize-none font-mono"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">薪资范围</label>
+            <Input
+              value={salaryRange}
+              onChange={(e) => setSalaryRange(e.target.value)}
+              placeholder="如：30-50K · 16薪"
+              maxLength={100}
+              data-testid="job-create-salary"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1">招聘人数</label>
+            <Input
+              value={headcount}
+              onChange={(e) => setHeadcount(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="如：5"
+              inputMode="numeric"
+              data-testid="job-create-headcount"
+            />
+          </div>
+        </div>
         <div>
           <label className="block text-xs font-medium text-ink-2 mb-1">备注</label>
           <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
+            value={notesMd}
+            onChange={(e) => setNotesMd(e.target.value)}
             placeholder="投递渠道、薪资范围等"
-            rows={3}
+            rows={2}
             className="w-full px-3 py-2 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border border-surface-border dark:border-dark-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500/30 resize-none"
           />
         </div>
       </div>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>取消</Button>
-        <Button variant="primary" onClick={() => onCreate({ company: company.trim(), position: position.trim(), note: note.trim() || undefined })} loading={isPending} disabled={!company.trim() || !position.trim()}>
+        <Button
+          variant="primary"
+          data-testid="job-create-submit"
+          onClick={() =>
+            onCreate({
+              company: company.trim(),
+              position: position.trim(),
+              notes_md: notesMd.trim() || null,
+              base_location: baseLocation.trim() || null,
+              requirements_md: requirementsMd.trim() || null,
+              employment_type: employmentType,
+              salary_range_text: salaryRange.trim() || null,
+              headcount: headcount ? Number(headcount) : null,
+            })
+          }
+          loading={isPending}
+          disabled={!company.trim() || !position.trim()}
+        >
           添加
         </Button>
       </div>
     </Modal>
+  )
+}
+
+/** 019 — basic info card that shows the 5 extended job fields (FR-003). */
+export function JobsDetailBasicInfo({ job }: { job: Job }) {
+  const employmentTypeLabel: Record<string, string> = {
+    unspecified: '未指定',
+    internship: '实习',
+    campus: '校招',
+    experienced: '社招',
+    contract: '合同/外包',
+  }
+  return (
+    <div className="space-y-2 text-sm" data-testid="job-detail-basic-info">
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xs text-ink-3 w-20 flex-shrink-0">Base 地</span>
+        <span className="text-ink-1" data-testid="job-detail-base-location">
+          {job.base_location || '未填写'}
+        </span>
+      </div>
+      <details className="rounded-md bg-surface-muted/60 dark:bg-dark-surface-muted/40 p-2" data-testid="job-detail-requirements">
+        <summary className="text-2xs text-ink-3 cursor-pointer select-none">
+          招聘需求 {job.requirements_md ? `(${job.requirements_md.length} 字)` : ''}
+        </summary>
+        <pre className="mt-2 text-xs text-ink-2 whitespace-pre-wrap font-sans">
+          {job.requirements_md || '未填写'}
+        </pre>
+      </details>
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xs text-ink-3 w-20 flex-shrink-0">岗位类型</span>
+        <span className="text-ink-1" data-testid="job-detail-employment-type">
+          {employmentTypeLabel[job.employment_type] ?? job.employment_type}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xs text-ink-3 w-20 flex-shrink-0">薪资范围</span>
+        <span className="text-ink-1" data-testid="job-detail-salary">
+          {job.salary_range_text || '未填写'}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xs text-ink-3 w-20 flex-shrink-0">招聘人数</span>
+        <span className="text-ink-1" data-testid="job-detail-headcount">
+          {job.headcount ?? '未填写'}
+        </span>
+      </div>
+    </div>
   )
 }
