@@ -16,6 +16,7 @@ export interface PublicUser {
   target_role: string | null
   bio: string | null
   subscription: Subscription
+  avatar_url: string | null
   created_at: string
   updated_at: string
 }

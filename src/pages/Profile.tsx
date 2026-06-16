@@ -15,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/Card'
+import { Avatar } from '@/components/ui/Avatar'
 import AbilityUpdateStatus from '@/components/profile/AbilityUpdateStatus'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { Button } from '@/components/ui/Button'
@@ -107,13 +108,22 @@ export default function Profile() {
     <div className="px-8 py-6 max-w-7xl mx-auto">
       {/* 页头 */}
       <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">个人能力画像</h1>
-          <p className="text-sm text-ink-3 mt-1">
-            对比理想与真实能力，量化差距，AI 生成针对性提升路径
-          </p>
-          <div className="mt-2">
-            <AbilityUpdateStatus userId={currentUser?.id ?? null} />
+        <div className="flex items-start gap-3 min-w-0">
+          <span data-testid="profile-page-avatar" className="mt-1 flex-shrink-0 inline-block">
+            <Avatar
+              name={currentUser?.display_name || currentUser?.email.split('@')[0] || 'User'}
+              size="lg"
+              src={currentUser?.avatar_url ?? undefined}
+            />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">个人能力画像</h1>
+            <p className="text-sm text-ink-3 mt-1">
+              对比理想与真实能力，量化差距，AI 生成针对性提升路径
+            </p>
+            <div className="mt-2">
+              <AbilityUpdateStatus userId={currentUser?.id ?? null} />
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">

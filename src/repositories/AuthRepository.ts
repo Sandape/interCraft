@@ -68,6 +68,7 @@ const MOCK_USER: PublicUser = {
   target_role: '高级前端工程师',
   bio: null,
   subscription: 'free',
+  avatar_url: null,
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-12T00:00:00Z',
 }

@@ -46,7 +46,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
     { to: '/dashboard', label: '工作台', icon: <LayoutDashboard className="h-4 w-4" /> },
     { to: '/resume', label: '简历中心', icon: <FileText className="h-4 w-4" />, badge: branches.length },
     { to: '/interview', label: '模拟面试', icon: <MessageSquareText className="h-4 w-4" /> },
-    { to: '/profile', label: '个人画像', icon: <Radar className="h-4 w-4" /> },
+    { to: '/ability-profile', label: '个人画像', icon: <Radar className="h-4 w-4" /> },
   ]
 
   return (

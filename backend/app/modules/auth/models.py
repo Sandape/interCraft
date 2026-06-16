@@ -60,10 +60,32 @@ class User(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     allow_concurrent_sessions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Feature 013 — User Avatar. Nullable FK to the active avatar row. SET NULL
+    # on avatar deletion so a removed avatar does not leave a dangling pointer.
+    avatar_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("user_avatars.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+    )
 
     # Relationships
     credentials: Mapped[UserCredential | None] = relationship(
         "UserCredential", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    avatar: Mapped["UserAvatar | None"] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "UserAvatar",
+        primaryjoin="User.avatar_id == UserAvatar.id",
+        foreign_keys=[avatar_id],
+        lazy="joined",
+    )
+    avatars: Mapped[list["UserAvatar"]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "UserAvatar",
+        primaryjoin="User.id == UserAvatar.user_id",
+        foreign_keys="UserAvatar.user_id",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        lazy="noload",
     )
     sessions: Mapped[list[AuthSession]] = relationship(
         "AuthSession", back_populates="user", cascade="all, delete-orphan"

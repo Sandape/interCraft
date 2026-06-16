@@ -26,8 +26,10 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Progress } from '@/components/ui/Progress'
 import { Avatar } from '@/components/ui/Avatar'
+import { useAvatarBlob } from '@/hooks/queries/useAvatarBlob'
 import { cn } from '@/lib/utils'
 import { useInterviewWS, type WSEvent } from '@/hooks/useInterviewWS'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { interviewSessionRepo } from '@/repositories/interviewSessionRepo'
 import { getAccessToken } from '@/api/token-storage'
 import { ErrorBanner } from '@/components/interview/ErrorBanner'
@@ -57,9 +59,23 @@ interface ReportData {
   report_id: string
 }
 
+function uniqueBy<T>(items: T[], keyOf: (item: T) => string): T[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const key = keyOf(item)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export default function InterviewLive() {
   const token = getAccessToken()
   const { id: routeSessionId } = useParams<{ id: string }>()
+  const currentUser = useAuthStore((s) => s.user)
+  const userAvatarUrl = useAvatarBlob(currentUser?.avatar_url ?? null) ?? undefined
+  const userDisplayName =
+    currentUser?.display_name || currentUser?.email.split('@')[0] || 'You'
 
   // ---- phase state ----
   const [phase, setPhase] = useState<'setup' | 'connecting' | 'live' | 'completed' | 'resume_error'>(
@@ -222,7 +238,7 @@ export default function InterviewLive() {
         setCompany(sess.company || '')
 
         setQuestions(
-          restoredQuestions.map((q: any) => ({
+          uniqueBy(restoredQuestions, (q: any) => q?.question || '').map((q: any) => ({
             question: q.question || '',
             dimension: q.dimension || '',
             expected_points: q.expected_points || [],
@@ -231,7 +247,7 @@ export default function InterviewLive() {
         )
 
         setScores(
-          restoredScores.map((s: any) => ({
+          uniqueBy(restoredScores, (s: any) => String(s?.question_no || s?.sequence_no || '')).map((s: any) => ({
             question_no: s.question_no || s.sequence_no || 0,
             score: s.score || 0,
             dimension: s.dimension || '',
@@ -330,7 +346,10 @@ export default function InterviewLive() {
   // ---- resume_error phase: backend failed to restore, keep session id visible ----
   if (phase === 'resume_error') {
     return (
-      <div className="h-full flex items-center justify-center bg-surface-subtle dark:bg-dark-surface-subtle">
+      <div
+        className="h-full flex items-center justify-center bg-surface-subtle dark:bg-dark-surface-subtle"
+        data-testid="resume-error-state"
+      >
         <div className="w-full max-w-md mx-auto p-6 text-center">
           <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-amber-900 to-amber-600 dark:from-amber-500 dark:to-amber-300 flex items-center justify-center mx-auto mb-3 shadow-notion">
             <AlertCircle className="h-6 w-6 text-white" />
@@ -352,12 +371,14 @@ export default function InterviewLive() {
               className="w-full"
               onClick={handleRetryResume}
               disabled={resumeRetrying}
+              data-testid="resume-retry"
               leftIcon={<Loader2 className={cn('h-4 w-4', resumeRetrying && 'animate-spin')} />}
             >
               重试
             </Button>
             <Link
               to="/interview"
+              data-testid="resume-return-list"
               className="block w-full text-center px-4 py-2 rounded-md text-sm text-ink-3 hover:text-ink-1 hover:bg-surface-muted transition-colors"
             >
               返回面试列表
@@ -388,6 +409,7 @@ export default function InterviewLive() {
                 目标岗位
               </label>
               <input
+                name="position"
                 value={position}
                 onChange={(e) => setPosition(e.target.value)}
                 placeholder="例如：高级前端工程师"
@@ -401,6 +423,7 @@ export default function InterviewLive() {
                 目标公司
               </label>
               <input
+                name="company"
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
                 placeholder="例如：字节跳动"
@@ -518,6 +541,15 @@ export default function InterviewLive() {
 
         {/* 消息流 */}
         <div ref={messagesRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+          {resumedNotice && phase === 'live' && (
+            <div
+              data-testid="resume-summary"
+              className="max-w-3xl rounded-md border border-brand-200 bg-brand-50/70 px-3 py-2 text-xs text-brand-800 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200"
+            >
+              Restored {userAnswers.length} answers, {questions.length} questions, {scores.length} scores.
+            </div>
+          )}
+
           {/* 开场 */}
           <div className="flex gap-3 max-w-3xl">
             <Avatar name={INTERVIEWER_NAME} size="md" />
@@ -546,10 +578,12 @@ export default function InterviewLive() {
                       你 · 候选人
                     </div>
                     <div className="inline-block px-4 py-3 rounded-lg rounded-tr-sm bg-brand-500 text-white text-sm leading-relaxed max-w-xl">
-                      {ans.content}
+                      <div data-testid={`restored-answer-${idx}`}>
+                        {ans.content}
+                      </div>
                     </div>
                   </div>
-                  <Avatar name="You" size="md" />
+                  <Avatar name={userDisplayName} size="md" src={userAvatarUrl} />
                 </div>
 
                 {/* 反馈卡片 */}
@@ -665,7 +699,7 @@ export default function InterviewLive() {
 
           {/* 完成报告 */}
           {phase === 'completed' && report && (
-            <div className="flex gap-3 max-w-3xl">
+            <div className="flex gap-3 max-w-3xl" data-testid="interview-completed-state">
               <Avatar name={INTERVIEWER_NAME} size="md" />
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-ink-3 mb-1.5">{INTERVIEWER_NAME} · 面试完成</div>
@@ -748,6 +782,7 @@ export default function InterviewLive() {
               </button>
               <div className="flex-1 relative">
                 <textarea
+                  data-testid="answer-input"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -774,6 +809,7 @@ export default function InterviewLive() {
                   leftIcon={<Send className="h-3.5 w-3.5" />}
                   onClick={submitAnswer}
                   disabled={!input.trim() || aiThinking}
+                  data-testid="submit-answer"
                 >
                   发送
                 </Button>

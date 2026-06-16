@@ -420,7 +420,7 @@ export default function Dashboard() {
             />
           </div>
           <Link
-            to="/profile"
+            to="/ability-profile"
             className="block mt-3 pt-3 border-t border-surface-border dark:border-dark-surface-border text-xs text-brand-600 dark:text-brand-300 hover:underline text-center"
           >
             查看完整画像 →
@@ -434,7 +434,7 @@ export default function Dashboard() {
           title="能力概览"
           description="6 个核心维度的实际得分"
           action={
-            <Link to="/profile" className="text-xs text-brand-600 dark:text-brand-300 hover:underline">
+            <Link to="/ability-profile" className="text-xs text-brand-600 dark:text-brand-300 hover:underline">
               查看详情 →
             </Link>
           }

@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { useAvatarBlob } from '@/hooks/queries/useAvatarBlob'
 
 interface AvatarProps {
   name: string
@@ -38,6 +39,13 @@ function getInitials(name: string) {
 
 export function Avatar({ name, size = 'md', src, className }: AvatarProps) {
   const colors = colorPairs[hash(name) % colorPairs.length]
+  // Same-origin http(s) URLs (e.g. signed CDN URLs) load directly in <img>.
+  // /api/v1/users/me/avatar/<id> requires a bearer token, so it must be
+  // fetched through the hook and rendered as a same-origin blob URL.
+  const isAuthUrl = typeof src === 'string' && src.includes('/api/v1/users/me/avatar/')
+  const blobUrl = useAvatarBlob(isAuthUrl ? src ?? null : null)
+  const resolvedSrc = isAuthUrl ? blobUrl : src
+
   return (
     <div
       className={cn(
@@ -48,8 +56,8 @@ export function Avatar({ name, size = 'md', src, className }: AvatarProps) {
       )}
       aria-label={name}
     >
-      {src ? (
-        <img src={src} alt={name} className="h-full w-full object-cover" />
+      {resolvedSrc ? (
+        <img src={resolvedSrc} alt={name} className="h-full w-full object-cover" />
       ) : (
         <span>{getInitials(name)}</span>
       )}

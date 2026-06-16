@@ -143,7 +143,11 @@ test.describe('User avatar (Feature 013)', () => {
     await expect(dialog).toBeVisible()
     const dialogImg = dialog.locator('img')
     await expect(dialogImg).toBeVisible()
-    await expect(dialogImg).toHaveAttribute('src', /\/api\/v1\/users\/me\/avatar\//)
+    // The Avatar component now runs the auth-required URL through useAvatarBlob,
+    // so the rendered <img> src is a same-origin blob: URL.
+    const dialogSrc = await dialogImg.getAttribute('src')
+    expect(dialogSrc).toBeTruthy()
+    expect(dialogSrc!.startsWith('blob:http')).toBe(true)
     await page.screenshot({ path: path.join(SCREENSHOTS, '08-share-dialog.png') })
   })
 

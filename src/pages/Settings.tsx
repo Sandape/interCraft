@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   User,
   CreditCard,
@@ -22,8 +23,20 @@ import SecurityTab from '@/components/settings/SecurityTab'
 import ExportTab from '@/components/settings/ExportTab'
 import { cn } from '@/lib/utils'
 
+const SETTINGS_TABS = ['profile', 'devices', 'subscription', 'security', 'export', 'notifications', 'privacy'] as const
+type SettingsTab = typeof SETTINGS_TABS[number]
+
+function normalizeSettingsTab(value: string | null): SettingsTab {
+  return SETTINGS_TABS.includes(value as SettingsTab) ? (value as SettingsTab) : 'profile'
+}
+
 export default function Settings() {
-  const [tab, setTab] = useState('profile')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = normalizeSettingsTab(searchParams.get('tab'))
+
+  function setTab(next: SettingsTab) {
+    setSearchParams({ tab: next })
+  }
 
   return (
     <div className="px-8 py-6 max-w-6xl mx-auto">
@@ -37,26 +50,26 @@ export default function Settings() {
         <div className="lg:col-span-1">
           <Card padding="sm">
             <nav className="space-y-0.5">
-              <NavItem icon={<User className="h-4 w-4" />} label="个人资料" active={tab === 'profile'} onClick={() => setTab('profile')} />
-              <NavItem icon={<Smartphone className="h-4 w-4" />} label="设备管理" active={tab === 'devices'} onClick={() => setTab('devices')} />
-              <NavItem icon={<CreditCard className="h-4 w-4" />} label="订阅与用量" active={tab === 'subscription'} onClick={() => setTab('subscription')} />
-              <NavItem icon={<Lock className="h-4 w-4" />} label="账号安全" active={tab === 'security'} onClick={() => setTab('security')} />
-              <NavItem icon={<Download className="h-4 w-4" />} label="数据导出" active={tab === 'export'} onClick={() => setTab('export')} />
-              <NavItem icon={<Bell className="h-4 w-4" />} label="通知设置" active={tab === 'notifications'} onClick={() => setTab('notifications')} />
-              <NavItem icon={<FileText className="h-4 w-4" />} label="数据隐私" active={tab === 'privacy'} onClick={() => setTab('privacy')} />
+              <NavItem testId="settings-nav-profile" icon={<User className="h-4 w-4" />} label="个人资料" active={tab === 'profile'} onClick={() => setTab('profile')} />
+              <NavItem testId="settings-nav-devices" icon={<Smartphone className="h-4 w-4" />} label="设备管理" active={tab === 'devices'} onClick={() => setTab('devices')} />
+              <NavItem testId="settings-nav-subscription" icon={<CreditCard className="h-4 w-4" />} label="订阅与用量" active={tab === 'subscription'} onClick={() => setTab('subscription')} />
+              <NavItem testId="settings-nav-security" icon={<Lock className="h-4 w-4" />} label="账号安全" active={tab === 'security'} onClick={() => setTab('security')} />
+              <NavItem testId="settings-nav-export" icon={<Download className="h-4 w-4" />} label="数据导出" active={tab === 'export'} onClick={() => setTab('export')} />
+              <NavItem testId="settings-nav-notifications" icon={<Bell className="h-4 w-4" />} label="通知设置" active={tab === 'notifications'} onClick={() => setTab('notifications')} />
+              <NavItem testId="settings-nav-privacy" icon={<FileText className="h-4 w-4" />} label="数据隐私" active={tab === 'privacy'} onClick={() => setTab('privacy')} />
             </nav>
           </Card>
         </div>
 
         {/* 右侧内容 */}
         <div className="lg:col-span-3 space-y-4">
-          {tab === 'profile' && <ProfileTab />}
-          {tab === 'devices' && <DevicesTab />}
-          {tab === 'subscription' && <SubscriptionTab />}
-          {tab === 'security' && <SecurityTab />}
-          {tab === 'export' && <ExportTab />}
-          {tab === 'notifications' && <NotificationsTab />}
-          {tab === 'privacy' && <PrivacyTab />}
+          {tab === 'profile' && <div data-testid="settings-panel-profile"><ProfileTab /></div>}
+          {tab === 'devices' && <div data-testid="settings-panel-devices"><DevicesTab /></div>}
+          {tab === 'subscription' && <div data-testid="settings-panel-subscription"><SubscriptionTab /></div>}
+          {tab === 'security' && <div data-testid="settings-panel-security"><SecurityTab /></div>}
+          {tab === 'export' && <div data-testid="settings-panel-export"><ExportTab /></div>}
+          {tab === 'notifications' && <div data-testid="settings-panel-notifications"><NotificationsTab /></div>}
+          {tab === 'privacy' && <div data-testid="settings-panel-privacy"><PrivacyTab /></div>}
         </div>
       </div>
     </div>
@@ -111,14 +124,18 @@ function NavItem({
   label,
   active,
   onClick,
+  testId,
 }: {
   icon: React.ReactNode
   label: string
   active?: boolean
   onClick?: () => void
+  testId?: string
 }) {
   return (
     <button
+      type="button"
+      data-testid={testId}
       onClick={onClick}
       className={cn(
         'w-full flex items-center gap-2.5 px-2.5 h-8 rounded text-sm transition-colors',

@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     # ---- Crypto versioning ----
     crypto_key_version: int = 1
 
+    # ---- Avatar (Feature 013) ----
+    avatar_storage_dir: str = "backend/.data/avatars"
+    avatar_max_bytes: int = 2_097_152  # 2 MB
+    avatar_max_dimension: int = 2048
+
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 

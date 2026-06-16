@@ -29,6 +29,9 @@ from app.modules.sessions.service import SessionService
 
 
 def _user_to_public(user: User) -> PublicUser:
+    avatar_url: str | None = None
+    if getattr(user, "avatar_id", None) is not None:
+        avatar_url = f"/api/v1/users/me/avatar/{user.avatar_id}"
     return PublicUser(
         id=str(user.id),
         email=user.email,
@@ -38,6 +41,7 @@ def _user_to_public(user: User) -> PublicUser:
         target_role=user.target_role,
         bio=user.bio,
         subscription=user.subscription or "free",
+        avatar_url=avatar_url,
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
