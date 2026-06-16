@@ -1,5 +1,9 @@
 /**
- * Register page — reuses Login form via the `?mode=register` query flag.
- * Kept as a thin alias for direct deep-links.
+ * Register page — deep-link to the auth form in register mode.
+ * Reuses the Login component with `initialMode="register"`.
  */
-export { default } from './Login'
+import Login from './Login'
+
+export default function Register() {
+  return <Login initialMode="register" />
+}

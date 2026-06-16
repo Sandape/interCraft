@@ -12,10 +12,12 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { cn } from '@/lib/utils'
 import { AuthError, ValidationError } from '@/api/errors'
 
-export default function Login() {
+export default function Login({ initialMode: initialModeProp }: { initialMode?: 'login' | 'register' } = {}) {
   const [search] = useSearchParams()
-  const initialMode = search.get('mode') === 'register' ? 'register' : 'login'
-  const [mode, setMode] = useState<'login' | 'register'>(initialMode)
+  const urlMode = search.get('mode') === 'register' ? 'register' : null
+  const [mode, setMode] = useState<'login' | 'register'>(
+    urlMode ?? initialModeProp ?? 'login',
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
