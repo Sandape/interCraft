@@ -21,6 +21,7 @@ from app.modules.versions.api import router as versions_router
 from app.modules.account.router import router as account_router
 from app.modules.audit.router import router as audit_router
 from app.modules.content.router import router as content_router
+from app.api.v1.export import router as export_router
 
 router = APIRouter()
 router.include_router(auth_router, prefix="/auth", tags=["auth"])
@@ -37,12 +38,21 @@ router.include_router(interviews_router, tags=["interview-sessions"])
 # Phase 3
 router.include_router(locks_router, tags=["locks"])
 router.include_router(outbox_router, tags=["outbox"])
+# Feature 006 — Personal Ability Profile
+from app.modules.ability_profile.api import router as ability_profile_router
+
+router.include_router(ability_profile_router)
 # Phase 6 — account (lifecycle, export, import, notification, devices, security)
 router.include_router(account_router)
 # Phase 6 — audit (user + admin)
 router.include_router(audit_router)
 # Phase 6 — content (resources, help, search)
 router.include_router(content_router)
+# Feature 012 - Resume export gateway
+router.include_router(export_router, tags=["export"])
+# Feature 013 - User Avatar
+from app.modules.avatars import router as avatars_router
+router.include_router(avatars_router, tags=["avatars"])
 # WS endpoints are mounted at app level (not included here)
 
 # Phase 5 — Agent subgraph endpoints
@@ -53,5 +63,10 @@ from app.api.v1.agents_general_coach import router as general_coach_router
 router.include_router(resume_optimize_router)
 router.include_router(error_coach_router)
 router.include_router(general_coach_router)
+
+# Phase 7 — Global search command palette
+from app.modules.search import router as search_router
+
+router.include_router(search_router, tags=["search"])
 
 __all__ = ["router"]
