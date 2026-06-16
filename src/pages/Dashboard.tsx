@@ -25,6 +25,7 @@ import { useAbilities, useDimensionsMeta } from '@/hooks/queries/useAbilities'
 import { useTasks } from '@/hooks/queries/useTasks'
 import { useActivities } from '@/hooks/queries/useActivities'
 import { useInterviewSessions } from '@/hooks/queries/useInterviewSessions'
+import { useDashboardSuggestions } from '@/hooks/useDashboardSuggestions'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { timeAgo } from '@/lib/utils'
 
@@ -42,6 +43,7 @@ export default function Dashboard() {
   const tasks = (tasksData as any)?.data ?? []
   const activities = (activitiesData as any)?.items ?? []
   const sessions = (interviewSessionsData as any)?.data ?? []
+  const suggestions = useDashboardSuggestions()
 
   // ---- derived stats ----
   const completedSessions = useMemo(
@@ -158,19 +160,25 @@ export default function Dashboard() {
                 <h3 className="text-sm font-semibold text-ink-1">AI 智能建议</h3>
                 <Badge variant="brand">实时</Badge>
               </div>
-              <p className="text-sm text-ink-2 leading-relaxed">
-                检测到「系统设计」维度本周模拟面试中失分 3 次，建议今天先完成
-                <span className="text-ink-1 font-medium"> 1 套 L4 系统设计专项题库</span>
-                。结合你正在优化的「字节跳动」简历分支，预计可将面试综合分提升
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium"> 4-6 分</span>。
-              </p>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <Button size="sm" variant="primary" rightIcon={<ArrowRight className="h-3 w-3" />}>
-                  立即开始练习
-                </Button>
-                <Button size="sm" variant="ghost">
-                  查看能力报告
-                </Button>
+              <div className="space-y-3">
+                {suggestions.blocks.length === 0 ? (
+                  <p className="text-sm text-ink-3 py-2">暂无建议</p>
+                ) : (
+                  suggestions.blocks.map((b) => (
+                    <div key={b.id} className="text-sm text-ink-2 leading-relaxed">
+                      <div className="font-medium text-ink-1">{b.title}</div>
+                      <p className="mt-0.5">{b.body}</p>
+                      {b.cta && (
+                        <Link
+                          to={b.cta.href}
+                          className="inline-flex items-center gap-1 mt-1.5 text-xs text-brand-600 dark:text-brand-300 hover:underline"
+                        >
+                          {b.cta.label} <ArrowRight className="h-3 w-3" />
+                        </Link>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -396,29 +404,32 @@ export default function Dashboard() {
         <Card>
           <CardHeader
             title="提升建议"
-            description="基于能力画像生成"
+            description="基于已有数据生成"
             action={<Lightbulb className="h-3.5 w-3.5 text-ink-3" />}
           />
-          <div className="space-y-2.5">
-            <SuggestionItem
-              title="系统设计强化"
-              impact="+13 分"
-              time="2 周"
-              priority="high"
-            />
-            <SuggestionItem
-              title="业务理解补充"
-              impact="+15 分"
-              time="1 周"
-              priority="high"
-            />
-            <SuggestionItem
-              title="错题本复习"
-              impact="+5 分"
-              time="3 天"
-              priority="medium"
-            />
-          </div>
+          {suggestions.blocks.length > 0 ? (
+            <div className="space-y-2.5">
+              {suggestions.blocks.map((b) => (
+                <div key={b.id} className="flex items-start gap-2.5 group -mx-1.5 px-1.5 py-1.5 rounded hover:bg-surface-muted/60 dark:hover:bg-dark-surface-muted/40 transition-colors">
+                  <div className="h-1.5 w-1.5 rounded-full bg-brand-500 flex-shrink-0 mt-1.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-ink-1 font-medium truncate">{b.title}</div>
+                    <div className="text-2xs text-ink-3 mt-0.5 line-clamp-2">{b.body}</div>
+                    {b.cta && (
+                      <Link
+                        to={b.cta.href}
+                        className="text-2xs text-brand-600 dark:text-brand-300 hover:underline mt-0.5 inline-block"
+                      >
+                        {b.cta.label}
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-ink-3 py-3 text-center">暂无建议</p>
+          )}
           <Link
             to="/ability-profile"
             className="block mt-3 pt-3 border-t border-surface-border dark:border-dark-surface-border text-xs text-brand-600 dark:text-brand-300 hover:underline text-center"
@@ -572,37 +583,6 @@ function MiniStat({
         <span className={`text-xl font-semibold tabular-nums ${colorMap[tone]}`}>{value}</span>
         <span className="text-2xs text-ink-3 truncate">{company}</span>
       </div>
-    </div>
-  )
-}
-
-function SuggestionItem({
-  title,
-  impact,
-  time,
-  priority,
-}: {
-  title: string
-  impact: string
-  time: string
-  priority: 'high' | 'medium' | 'low'
-}) {
-  return (
-    <div className="flex items-center gap-2.5 group cursor-pointer -mx-1.5 px-1.5 py-1.5 rounded hover:bg-surface-muted/60 dark:hover:bg-dark-surface-muted/40 transition-colors">
-      <div
-        className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${
-          priority === 'high' ? 'bg-red-500' : priority === 'medium' ? 'bg-amber-500' : 'bg-emerald-500'
-        }`}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs text-ink-1 truncate">{title}</div>
-        <div className="text-2xs text-ink-3 mt-0.5 flex items-center gap-1.5">
-          <span>预计提升 {impact}</span>
-          <span>·</span>
-          <span>{time}</span>
-        </div>
-      </div>
-      <ChevronRight className="h-3.5 w-3.5 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity" />
     </div>
   )
 }
