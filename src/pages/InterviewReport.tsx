@@ -184,8 +184,10 @@ export default function InterviewReport() {
                 />
               </svg>
               <div className="absolute inset-0 flex items-center justify-center flex-col">
-                <div className="text-2xl font-semibold text-ink-1 tabular-nums">{displayScore}</div>
-                <div className="text-2xs text-ink-3">综合评分</div>
+                <div className="text-2xl font-semibold text-ink-1 tabular-nums">
+                  {displayScore} <span className="text-sm text-ink-3">/ 10</span>
+                </div>
+                <div className="text-2xs text-ink-3">综合评分 · 满分 10</div>
               </div>
             </div>
             <div className="flex-1 min-w-0">

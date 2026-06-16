@@ -131,7 +131,7 @@ export default function Dashboard() {
           icon={<Radar className="h-4 w-4" />}
           label="综合能力"
           value={overallAbility}
-          suffix="分"
+          suffix="/ 10"
           change={abilityGrowth}
           changeLabel={overallAbility > 0 ? `${abilities.length} 个维度` : '完成面试后生成'}
         />

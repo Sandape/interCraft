@@ -706,18 +706,18 @@ export default function InterviewLive() {
                 <div className="p-4 rounded-lg rounded-tl-sm bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border space-y-3">
                   <div className="flex items-center gap-3">
                     <div className="text-3xl font-semibold text-ink-1 tabular-nums">
-                      {report.overall_score}
+                      {report.overall_score} <span className="text-base text-ink-3">/ 10</span>
                     </div>
                     <div>
                       <div className="text-sm font-medium text-ink-1">综合评分</div>
-                      <div className="text-2xs text-ink-3">满分 100</div>
+                      <div className="text-2xs text-ink-3">满分 10</div>
                     </div>
                     <Badge
                       variant={
-                        report.overall_score >= 85 ? 'success' : report.overall_score >= 70 ? 'brand' : 'warning'
+                        report.overall_score >= 8.5 ? 'success' : report.overall_score >= 7 ? 'brand' : 'warning'
                       }
                     >
-                      {report.overall_score >= 85 ? '优秀' : report.overall_score >= 70 ? '良好' : '继续努力'}
+                      {report.overall_score >= 8.5 ? '优秀' : report.overall_score >= 7 ? '良好' : '继续努力'}
                     </Badge>
                   </div>
                   <div className="flex gap-2">
