@@ -15,6 +15,7 @@ import {
   ArrowRight,
   PlayCircle,
   Trash2,
+  X,
 } from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -31,6 +32,7 @@ export default function InterviewList() {
   const [tab, setTab] = useState('history')
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const { data: sessionsResp, isLoading: sessionsLoading } = useInterviewSessions()
   const { data: errorsResp, isLoading: errorsLoading } = useErrorQuestions()
@@ -38,10 +40,15 @@ export default function InterviewList() {
 
   const sessions = sessionsResp?.data || []
   const errorQuestions = errorsResp?.data || []
+  const normalizedSearch = search.trim().toLowerCase()
+  const hasSearchQuery = normalizedSearch.length > 0
 
   const filtered = sessions.filter((s) => {
-    const q = search.toLowerCase()
-    return (s.company || '').toLowerCase().includes(q) || (s.position || '').toLowerCase().includes(q)
+    if (!hasSearchQuery) return true
+    return (
+      (s.company || '').toLowerCase().includes(normalizedSearch) ||
+      (s.position || '').toLowerCase().includes(normalizedSearch)
+    )
   })
 
   const avgScore = sessions.length > 0
@@ -215,6 +222,7 @@ export default function InterviewList() {
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-muted pointer-events-none" />
             <input
+              data-testid="interview-search-input"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索公司或岗位…"
@@ -229,17 +237,49 @@ export default function InterviewList() {
         <div className="space-y-2">
           {filtered.length === 0 ? (
             <Card>
-              <div className="text-center py-8 text-sm text-ink-3">
-                {sessions.length === 0
-                  ? '还没有面试记录，开始你的第一场模拟面试吧'
-                  : '没有匹配的面试记录'}
-              </div>
+              {sessions.length === 0 ? (
+                <div
+                  className="text-center py-8 text-sm text-ink-3"
+                  data-testid="interview-history-empty"
+                >
+                  还没有面试记录，开始你的第一场模拟面试吧
+                </div>
+              ) : (
+                <div
+                  className="text-center py-8"
+                  data-testid="interview-search-empty"
+                >
+                  <div className="text-sm font-medium text-ink-1">没有匹配的面试记录</div>
+                  <div className="mt-1 text-xs text-ink-3">
+                    未找到与
+                    <span className="mx-1 font-medium text-ink-1" data-testid="interview-search-empty-query">
+                      {search.trim()}
+                    </span>
+                    匹配的结果
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="clear-interview-search"
+                    onClick={() => setSearch('')}
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-surface-border px-3 py-1.5 text-xs font-medium text-ink-2 hover:bg-surface-muted hover:text-ink-1 dark:border-dark-surface-border dark:hover:bg-dark-surface-muted"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    清空搜索
+                  </button>
+                </div>
+              )}
             </Card>
           ) : (
             filtered.map((s) => {
               const displayScore = s.overall_score || s.score || 0
               return (
-                <Card key={s.id} hover padding="md">
+                <Card
+                  key={s.id}
+                  hover
+                  padding="md"
+                  data-testid="session-card"
+                  data-session-id={s.id}
+                >
                   <div className="flex items-center gap-4">
                     {/* 分数徽章 */}
                     <div
@@ -315,6 +355,7 @@ export default function InterviewList() {
                         onClick={(e) => {
                           e.preventDefault()
                           e.stopPropagation()
+                          setDeleteError(null)
                           setDeleteTarget({
                             id: s.id,
                             label: `${s.company || '未知公司'} · ${s.position || '未知岗位'}`,
@@ -388,7 +429,10 @@ export default function InterviewList() {
           aria-modal="true"
           data-testid="delete-confirm-dialog"
           onClick={(e) => {
-            if (e.target === e.currentTarget && !deleteMutation.isPending) setDeleteTarget(null)
+            if (e.target === e.currentTarget && !deleteMutation.isPending) {
+              setDeleteError(null)
+              setDeleteTarget(null)
+            }
           }}
         >
           <div className="w-full max-w-sm rounded-lg bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border shadow-xl p-5">
@@ -403,11 +447,23 @@ export default function InterviewList() {
                 </p>
               </div>
             </div>
+            {deleteError && (
+              <div
+                data-testid="delete-error-message"
+                className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-600 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400"
+              >
+                {deleteError}
+              </div>
+            )}
             <div className="flex justify-end gap-2 mt-4">
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setDeleteTarget(null)}
+                data-testid="cancel-delete-btn"
+                onClick={() => {
+                  setDeleteError(null)
+                  setDeleteTarget(null)
+                }}
                 disabled={deleteMutation.isPending}
               >
                 取消
@@ -418,10 +474,15 @@ export default function InterviewList() {
                 data-testid="confirm-delete-btn"
                 onClick={async () => {
                   try {
+                    setDeleteError(null)
                     await deleteMutation.mutateAsync(deleteTarget.id)
+                    setDeleteError(null)
                     setDeleteTarget(null)
-                  } catch {
-                    // keep dialog open on error; the mutation hook will retry next click
+                  } catch (err) {
+                    const message = err instanceof Error && err.message
+                      ? err.message
+                      : 'Delete failed. Please retry.'
+                    setDeleteError(message)
                   }
                 }}
                 disabled={deleteMutation.isPending}

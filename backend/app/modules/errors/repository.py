@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.errors.models import ErrorQuestion
@@ -85,6 +85,24 @@ class ErrorQuestionRepository:
             return None
         instance.status = "fresh"
         instance.frequency = 3
+        await self.session.flush()
+        await self.session.refresh(instance)
+        return instance
+
+    async def recall(self, id: UUID, user_id: UUID) -> ErrorQuestion | None:
+        instance = await self.get(id, user_id)
+        if instance is None:
+            return None
+
+        next_frequency = max(instance.frequency - 1, 0)
+        instance.frequency = next_frequency
+        if next_frequency == 0:
+            instance.status = "mastered"
+        elif next_frequency < 3:
+            instance.status = "practicing"
+        else:
+            instance.status = "fresh"
+        instance.last_practiced_at = datetime.now(timezone.utc)
         await self.session.flush()
         await self.session.refresh(instance)
         return instance

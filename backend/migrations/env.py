@@ -26,6 +26,8 @@ from app.modules.versions.models import ResumeVersion  # noqa: E402,F401
 from app.modules.account.models import ExportTask  # noqa: E402,F401
 from app.modules.audit.models import AuditLog  # noqa: E402,F401
 from app.modules.content.models import Resource, HelpFAQ, SubscriptionPlan  # noqa: E402,F401
+from app.modules.ability_profile.models import ProfileShareLink, ProfileView, ExportLog  # noqa: E402,F401
+from app.modules.avatars.models import UserAvatar  # noqa: E402,F401
 
 config = context.config
 if config.config_file_name is not None:

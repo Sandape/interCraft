@@ -1,51 +1,54 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Plus,
   Search,
   Briefcase,
-  MoreHorizontal,
   Building2,
   TrendingUp,
   CheckCircle2,
   XCircle,
-  Trash2,
   Loader2,
 } from 'lucide-react'
-import { Card, CardHeader } from '@/components/ui/Card'
+import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Tabs } from '@/components/ui/Tabs'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { JobStatusBadge } from '@/components/jobs/StatusBadge'
+import { StatusPopover } from '@/components/jobs/StatusPopover'
 import { useJobs, useJobStats } from '@/hooks/queries/useJobs'
+import { useJobTransitions } from '@/hooks/queries/useJobTransitions'
 import { OfflineBanner } from '@/components/lock/OfflineBanner'
 import { useCreateJob, useUpdateJobStatus, useDeleteJob } from '@/hooks/mutations/useJobMutations'
 import type { Job } from '@/repositories/JobRepository'
 
-const STATUS_TABS = [
-  { key: 'all', label: '全部' },
-  { key: 'applied', label: '已投递' },
-  { key: 'screening', label: '筛选' },
-  { key: 'interview', label: '面试' },
-  { key: 'offer', label: 'Offer' },
-  { key: 'rejected', label: '已拒绝' },
-]
+const STATUS_LABELS: Record<string, string> = {
+  applied: '已投递',
+  test: '笔试',
+  oa: 'OA',
+  hr: 'HR 面',
+  offer: 'Offer',
+  rejected: '已拒绝',
+  withdrawn: '已撤回',
+}
 
-const NEXT_STATUS: Record<string, string> = {
-  applied: 'screening',
-  screening: 'interview',
-  interview: 'offer',
+interface RowMutationState {
+  pending: boolean
+  error: string | null
+  lastTo: string | null
 }
 
 export default function Jobs() {
   const [tab, setTab] = useState('all')
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [rowState, setRowState] = useState<Record<string, RowMutationState>>({})
 
   const status = tab === 'all' ? undefined : tab
   const { data: jobsData, isLoading } = useJobs({ status })
   const { data: statsData } = useJobStats()
+  const { data: transitions, isStale: transitionsStale, refetch: refetchTransitions } =
+    useJobTransitions()
   const createJob = useCreateJob()
   const updateStatus = useUpdateJobStatus()
   const deleteJob = useDeleteJob()
@@ -54,12 +57,46 @@ export default function Jobs() {
   const stats = statsData?.counts ?? {}
   const total = statsData?.total ?? jobs.length
 
-  const counts = {
-    all: total,
-    active: (stats.applied ?? 0) + (stats.screening ?? 0) + (stats.interview ?? 0),
-    offer: stats.offer ?? 0,
-    rejected: stats.rejected ?? 0,
-    withdrawn: stats.withdrawn ?? 0,
+  const tabs = useMemo(() => {
+    const list: { key: string; label: string; count: number }[] = [
+      { key: 'all', label: '全部', count: total },
+    ]
+    for (const s of transitions.statuses) {
+      list.push({ key: s, label: STATUS_LABELS[s] ?? s, count: stats[s] ?? 0 })
+    }
+    return list
+  }, [transitions.statuses, stats, total])
+
+  const setRow = (id: string, patch: Partial<RowMutationState>) => {
+    setRowState((prev) => ({
+      ...prev,
+      [id]: { ...{ pending: false, error: null as string | null, lastTo: null as string | null }, ...prev[id], ...patch },
+    }))
+  }
+
+  const handleUpdate = (jobId: string, to: string) => {
+    setRow(jobId, { pending: true, error: null, lastTo: to })
+    updateStatus.mutate(
+      { id: jobId, to },
+      {
+        onSuccess: () => setRow(jobId, { pending: false, error: null, lastTo: null }),
+        onError: (e: unknown) =>
+          setRow(jobId, { pending: false, error: extractError(e), lastTo: to }),
+      },
+    )
+  }
+
+  const handleRetry = (jobId: string, to: string) => handleUpdate(jobId, to)
+
+  const handleDelete = (jobId: string) => {
+    setRow(jobId, { pending: true, error: null, lastTo: null })
+    deleteJob.mutate(jobId, {
+      onSuccess: () => setRowState((prev) => {
+        const { [jobId]: _, ...rest } = prev
+        return rest
+      }),
+      onError: (e: unknown) => setRow(jobId, { pending: false, error: extractError(e) }),
+    })
   }
 
   const filtered = jobs.filter((j) => {
@@ -81,20 +118,68 @@ export default function Jobs() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <KanbanStat label="总申请" value={String(counts.all)} icon={<Briefcase className="h-4 w-4" />} />
-        <KanbanStat label="进行中" value={String(counts.active)} icon={<TrendingUp className="h-4 w-4" />} tone="brand" />
-        <KanbanStat label="Offer" value={String(counts.offer)} icon={<CheckCircle2 className="h-4 w-4" />} tone="success" />
-        <KanbanStat label="已拒绝" value={String(counts.rejected + counts.withdrawn)} icon={<XCircle className="h-4 w-4" />} tone="danger" />
+      {transitionsStale && (
+        <div
+          data-testid="transitions-stale-banner"
+          className="mb-4 rounded-md border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 flex items-center justify-between"
+        >
+          <span>状态数据可能已过期，部分状态不可用</span>
+          <button
+            type="button"
+            onClick={() => refetchTransitions()}
+            className="text-amber-700 dark:text-amber-200 hover:underline"
+          >
+            重试
+          </button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+        <KanbanStat label="总申请" value={String(total)} icon={<Briefcase className="h-4 w-4" />} />
+        <KanbanStat
+          label="进行中"
+          value={String((stats.applied ?? 0) + (stats.test ?? 0) + (stats.oa ?? 0) + (stats.hr ?? 0))}
+          icon={<TrendingUp className="h-4 w-4" />}
+          tone="brand"
+        />
+        <KanbanStat
+          label="Offer"
+          value={String(stats.offer ?? 0)}
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          tone="success"
+        />
+        <KanbanStat
+          label="已拒绝"
+          value={String(stats.rejected ?? 0)}
+          icon={<XCircle className="h-4 w-4" />}
+          tone="danger"
+        />
+        <KanbanStat
+          label="已撤回"
+          value={String(stats.withdrawn ?? 0)}
+          icon={<XCircle className="h-4 w-4" />}
+          tone="default"
+        />
       </div>
 
       <div className="flex items-center justify-between gap-3 mb-4">
         <Tabs
           value={tab}
           onChange={setTab}
-          items={STATUS_TABS.map((t) => ({
+          getTabId={(k) => `status-tab-${k}`}
+          items={tabs.map((t) => ({
             key: t.key,
-            label: t.label,
+            label: (
+              <span className="inline-flex items-center gap-1.5">
+                <span>{t.label}</span>
+                <span
+                  data-testid={`status-tab-count-${t.key}`}
+                  className="text-2xs text-ink-3 tabular-nums"
+                >
+                  {t.count}
+                </span>
+              </span>
+            ),
           }))}
         />
         <div className="relative">
@@ -132,18 +217,52 @@ export default function Jobs() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((j) => (
-                  <JobRow
-                    key={j.id}
-                    job={j}
-                    onAdvance={() => {
-                      const next = NEXT_STATUS[j.status]
-                      if (next) updateStatus.mutate({ id: j.id, to: next })
-                    }}
-                    onReject={() => updateStatus.mutate({ id: j.id, to: 'rejected' })}
-                    onDelete={() => deleteJob.mutate(j.id)}
-                  />
-                ))}
+                {filtered.map((j) => {
+                  const rs = rowState[j.id] ?? { pending: false, error: null, lastTo: null }
+                  return (
+                    <tr
+                      key={j.id}
+                      data-testid={`job-row-${j.id}`}
+                      className="border-b border-surface-border dark:border-dark-surface-border last:border-0 hover:bg-surface-muted/40 dark:hover:bg-dark-surface-muted/30 transition-colors group"
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="h-8 w-8 rounded-md bg-surface-muted dark:bg-dark-surface-muted flex items-center justify-center text-ink-2 dark:text-dark-ink-secondary flex-shrink-0">
+                            <Building2 className="h-3.5 w-3.5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-medium text-ink-1">{j.company}</div>
+                            <div className="text-2xs text-ink-3 mt-0.5">{j.position}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <JobStatusBadge status={j.status} testId={`status-badge-${j.id}`} />
+                      </td>
+                      <td className="px-4 py-3 text-xs text-ink-2">
+                        {j.created_at ? new Date(j.created_at).toLocaleDateString('zh-CN') : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs text-ink-3 line-clamp-1 max-w-[200px]">{j.note || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusPopover
+                          jobId={j.id}
+                          company={j.company}
+                          position={j.position}
+                          currentStatus={j.status}
+                          isPending={rs.pending}
+                          error={rs.error}
+                          lastAttemptedTo={rs.lastTo}
+                          onUpdate={(to) => handleUpdate(j.id, to)}
+                          onRetry={(to) => handleRetry(j.id, to)}
+                          onDelete={() => handleDelete(j.id)}
+                          labels={STATUS_LABELS}
+                        />
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -162,48 +281,40 @@ export default function Jobs() {
   )
 }
 
-function JobRow({ job, onAdvance, onReject, onDelete }: { job: Job; onAdvance: () => void; onReject: () => void; onDelete: () => void }) {
-  const next = NEXT_STATUS[job.status]
+function extractError(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) {
+    return String((e as { message: unknown }).message)
+  }
+  return '更新失败'
+}
+
+function KanbanStat({
+  label,
+  value,
+  icon,
+  tone = 'default',
+}: {
+  label: string
+  value: string
+  icon: React.ReactNode
+  tone?: 'default' | 'brand' | 'success' | 'danger'
+}) {
+  const toneClass = {
+    default: 'bg-surface-muted dark:bg-dark-surface-muted text-ink-2 dark:text-dark-ink-secondary',
+    brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-300',
+    success: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    danger: 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400',
+  }
   return (
-    <tr className="border-b border-surface-border dark:border-dark-surface-border last:border-0 hover:bg-surface-muted/40 dark:hover:bg-dark-surface-muted/30 transition-colors group">
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-md bg-surface-muted dark:bg-dark-surface-muted flex items-center justify-center text-ink-2 dark:text-dark-ink-secondary flex-shrink-0">
-            <Building2 className="h-3.5 w-3.5" />
-          </div>
-          <div className="min-w-0">
-            <div className="font-medium text-ink-1">{job.company}</div>
-            <div className="text-2xs text-ink-3 mt-0.5">{job.position}</div>
-          </div>
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <JobStatusBadge status={job.status} />
-      </td>
-      <td className="px-4 py-3 text-xs text-ink-2">
-        {job.created_at ? new Date(job.created_at).toLocaleDateString('zh-CN') : '—'}
-      </td>
-      <td className="px-4 py-3">
-        <span className="text-xs text-ink-3 line-clamp-1 max-w-[200px]">{job.note || '—'}</span>
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-          {next && (
-            <button onClick={onAdvance} className="p-1 rounded text-ink-3 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10" title={`推进到 ${next}`}>
-              <TrendingUp className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {job.status !== 'rejected' && (
-            <button onClick={onReject} className="p-1 rounded text-ink-3 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10" title="标记为已拒绝">
-              <XCircle className="h-3.5 w-3.5" />
-            </button>
-          )}
-          <button onClick={onDelete} className="p-1 rounded text-ink-3 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10" title="删除">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </td>
-    </tr>
+    <Card className="p-4 flex items-center gap-3">
+      <div className={`h-9 w-9 rounded-md flex items-center justify-center ${toneClass[tone]}`}>
+        {icon}
+      </div>
+      <div>
+        <div className="text-2xl font-semibold text-ink-1 tabular-nums tracking-tight">{value}</div>
+        <div className="text-2xs text-ink-3">{label}</div>
+      </div>
+    </Card>
   )
 }
 
@@ -249,35 +360,5 @@ function CreateJobModal({
         </Button>
       </div>
     </Modal>
-  )
-}
-
-function KanbanStat({
-  label,
-  value,
-  icon,
-  tone = 'default',
-}: {
-  label: string
-  value: string
-  icon: React.ReactNode
-  tone?: 'default' | 'brand' | 'success' | 'danger'
-}) {
-  const toneClass = {
-    default: 'bg-surface-muted dark:bg-dark-surface-muted text-ink-2 dark:text-dark-ink-secondary',
-    brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-300',
-    success: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    danger: 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400',
-  }
-  return (
-    <Card className="p-4 flex items-center gap-3">
-      <div className={`h-9 w-9 rounded-md flex items-center justify-center ${toneClass[tone]}`}>
-        {icon}
-      </div>
-      <div>
-        <div className="text-2xl font-semibold text-ink-1 tabular-nums tracking-tight">{value}</div>
-        <div className="text-2xs text-ink-3">{label}</div>
-      </div>
-    </Card>
   )
 }

@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id, db_session_user_dep
 from app.core.db import get_db_session
+from app.domain.enums import JOB_TRANSITIONS
 from app.modules.jobs.schemas import (
     CreateJobInput, JobListOut, JobOut, JobStatsOut, JobTimelineOut,
-    PatchJobInput, UpdateJobStatusInput,
+    PatchJobInput, TransitionEdge, TransitionsOut, UpdateJobStatusInput,
 )
 from app.modules.jobs.service import JobService
 
@@ -19,6 +20,23 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 async def _get_service(session: AsyncSession = Depends(db_session_user_dep)) -> JobService:
     return JobService(session)
+
+
+@router.get("/transitions", response_model=TransitionsOut)
+async def job_transitions(
+    user_id: UUID = Depends(get_current_user_id),
+) -> TransitionsOut:
+    """Expose the canonical JOB_TRANSITIONS graph as a flat list of edges.
+
+    Registered BEFORE the `/{id}` route so the literal path matches first.
+    The response is a static read of the in-process enum; safe to cache.
+    """
+    statuses = list(JOB_TRANSITIONS.keys())
+    transitions: list[TransitionEdge] = []
+    for from_, tos in JOB_TRANSITIONS.items():
+        for to in sorted(tos):
+            transitions.append(TransitionEdge(**{"from": from_, "to": to}))
+    return TransitionsOut(statuses=statuses, transitions=transitions)
 
 
 @router.get("", response_model=JobListOut)

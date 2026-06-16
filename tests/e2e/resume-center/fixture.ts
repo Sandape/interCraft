@@ -52,7 +52,7 @@ const SEED_BLOCKS = [
 
 export async function seedMainBranch(page: Page, account: Account): Promise<string> {
   const result = await page.evaluate(async ({ email, password }) => {
-    const BASE = 'http://localhost:8000/api/v1'
+    const BASE = `${window.location.origin}/api/v1`
 
     // Retry login with backoff for rate limiting
     let token = ''

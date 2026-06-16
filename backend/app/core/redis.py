@@ -1,4 +1,4 @@
-"""Redis async client (singleton) + pub/sub helpers."""
+"""Redis async client (singleton) + pub/sub helpers + ARQ enqueue helper."""
 from __future__ import annotations
 
 import asyncio
@@ -8,10 +8,13 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import redis.asyncio as redis
+from arq.connections import RedisSettings, create_pool
 
 from app.core.config import get_settings
 
 _client: redis.Redis | None = None
+_arq_pool: Any = None
+_arq_pool_lock = asyncio.Lock()
 
 
 def get_redis() -> redis.Redis:
@@ -29,12 +32,45 @@ def get_redis() -> redis.Redis:
     return _client
 
 
+async def get_arq_pool():
+    """Return the process-wide ARQ Redis pool (lazy, connection-pooled).
+
+    Plain `redis.asyncio.Redis` does NOT have `enqueue_job`; only the
+    `arq.connections.ArqRedis` returned by `create_pool` does. Without this
+    helper every `enqueue_job(...)` call was silently raising AttributeError
+    and being swallowed by try/except at the call sites — see the bug fix
+    history: pdf_export / ability_diagnose never reached the worker.
+    """
+    global _arq_pool
+    if _arq_pool is None:
+        settings = get_settings()
+        async with _arq_pool_lock:
+            if _arq_pool is None:
+                _arq_pool = await create_pool(
+                    RedisSettings.from_dsn(settings.redis_url)
+                )
+    return _arq_pool
+
+
+async def enqueue_job(name: str, **kwargs: Any) -> Any:
+    """Enqueue an ARQ job by registered function name + kwargs.
+
+    The kwargs become the ARQ function's parameters at execution time.
+    """
+    pool = await get_arq_pool()
+    return await pool.enqueue_job(name, **kwargs)
+
+
 async def close_redis() -> None:
-    global _client
+    global _client, _arq_pool
     if _client is not None:
         with contextlib.suppress(Exception):
             await _client.aclose()
         _client = None
+    if _arq_pool is not None:
+        with contextlib.suppress(Exception):
+            await _arq_pool.aclose()
+        _arq_pool = None
 
 
 async def redis_ping() -> bool:
@@ -93,4 +129,12 @@ async def subscribe(channel: str) -> AsyncGenerator[dict[str, Any], None]:
             await pubsub.close()
 
 
-__all__ = ["close_redis", "get_redis", "publish", "redis_ping", "subscribe"]
+__all__ = [
+    "close_redis",
+    "enqueue_job",
+    "get_arq_pool",
+    "get_redis",
+    "publish",
+    "redis_ping",
+    "subscribe",
+]

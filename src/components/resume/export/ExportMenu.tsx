@@ -93,6 +93,7 @@ export default function ExportMenu({
             {/* Markdown export (client-side, always available) */}
             <button
               onClick={() => handleExport('markdown')}
+              data-testid="export-markdown-option"
               disabled={exporting !== null}
               className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 hover:bg-surface-muted dark:hover:bg-dark-surface-muted transition-colors disabled:opacity-50"
             >
@@ -117,6 +118,7 @@ export default function ExportMenu({
               <button
                 key={f.format}
                 onClick={() => handleExport(f.format)}
+                data-testid={`export-${f.format}-option`}
                 disabled={exporting !== null}
                 className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 hover:bg-surface-muted dark:hover:bg-dark-surface-muted transition-colors disabled:opacity-50"
               >
@@ -136,7 +138,11 @@ export default function ExportMenu({
         )}
 
         {error && (
-          <div className="px-3 py-2 border-t border-surface-border dark:border-dark-surface-border text-2xs text-red-500">
+          <div
+            className="px-3 py-2 border-t border-surface-border dark:border-dark-surface-border text-2xs text-red-500"
+            data-testid="export-error-message"
+            role="status"
+          >
             {error}
           </div>
         )}

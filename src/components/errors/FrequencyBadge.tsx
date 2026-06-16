@@ -1,10 +1,12 @@
 import { Badge } from '@/components/ui/Badge'
 
 export function FrequencyBadge({ frequency }: { frequency: number }) {
-  const variant = frequency >= 4 ? 'danger' : frequency >= 2 ? 'warning' : 'default'
+  const variant = frequency >= 3 ? 'danger' : frequency >= 1 ? 'warning' : 'success'
+  const label = frequency >= 3 ? '高频' : frequency >= 1 ? '复习中' : '已清零'
+
   return (
     <Badge variant={variant}>
-      {frequency >= 4 ? '高频' : frequency >= 2 ? '中频' : '低频'} · {frequency}次
+      {label} · {frequency} 次
     </Badge>
   )
 }

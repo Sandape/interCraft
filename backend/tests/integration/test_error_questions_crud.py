@@ -106,6 +106,77 @@ class TestErrorQuestionsFSM:
         assert r.status_code == 200
         assert r.json()["status"] in ("fresh", "f3")
 
+    async def test_recall_reduces_frequency_and_marks_practice_time(self, client, user_a_headers) -> None:
+        r = await client.post("/api/v1/error-questions", headers=user_a_headers, json={
+            "question_text": "Recall once", "dimension": "algorithm",
+        })
+        eq_id = r.json()["id"]
+
+        r = await client.post(f"/api/v1/error-questions/{eq_id}/recall", headers=user_a_headers)
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "practicing"
+        assert body["frequency"] == 2
+        assert body["last_practiced_at"] is not None
+
+    async def test_recall_to_mastered_then_reset(self, client, user_a_headers) -> None:
+        r = await client.post("/api/v1/error-questions", headers=user_a_headers, json={
+            "question_text": "Recall to mastered", "dimension": "architecture",
+        })
+        eq_id = r.json()["id"]
+
+        await client.post(f"/api/v1/error-questions/{eq_id}/recall", headers=user_a_headers)
+        await client.post(f"/api/v1/error-questions/{eq_id}/recall", headers=user_a_headers)
+        r = await client.post(f"/api/v1/error-questions/{eq_id}/recall", headers=user_a_headers)
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "mastered"
+        assert body["frequency"] == 0
+
+        r = await client.post(f"/api/v1/error-questions/{eq_id}/reset", headers=user_a_headers)
+        assert r.status_code == 200
+        assert r.json()["status"] == "fresh"
+        assert r.json()["frequency"] == 3
+
+    async def test_recall_mastered_conflict(self, client, user_a_headers) -> None:
+        r = await client.post("/api/v1/error-questions", headers=user_a_headers, json={
+            "question_text": "Already mastered", "dimension": "business",
+        })
+        eq_id = r.json()["id"]
+        await client.patch(f"/api/v1/error-questions/{eq_id}", headers=user_a_headers, json={
+            "status": "practicing",
+        })
+        await client.patch(f"/api/v1/error-questions/{eq_id}", headers=user_a_headers, json={
+            "status": "mastered",
+        })
+
+        r = await client.post(f"/api/v1/error-questions/{eq_id}/recall", headers=user_a_headers)
+
+        assert r.status_code == 409
+
+    async def test_reset_non_mastered_conflict(self, client, user_a_headers) -> None:
+        r = await client.post("/api/v1/error-questions", headers=user_a_headers, json={
+            "question_text": "Reset too early", "dimension": "communication",
+        })
+        eq_id = r.json()["id"]
+
+        r = await client.post(f"/api/v1/error-questions/{eq_id}/reset", headers=user_a_headers)
+
+        assert r.status_code == 409
+
+    async def test_recall_deleted_question_404(self, client, user_a_headers) -> None:
+        r = await client.post("/api/v1/error-questions", headers=user_a_headers, json={
+            "question_text": "Deleted recall", "dimension": "engineering_practice",
+        })
+        eq_id = r.json()["id"]
+        await client.delete(f"/api/v1/error-questions/{eq_id}", headers=user_a_headers)
+
+        r = await client.post(f"/api/v1/error-questions/{eq_id}/recall", headers=user_a_headers)
+
+        assert r.status_code == 404
+
 
 @pytest.mark.integration
 class TestErrorQuestionsRLS:
@@ -115,4 +186,14 @@ class TestErrorQuestionsRLS:
         })
         eq_id = r.json()["id"]
         r = await client.get(f"/api/v1/error-questions/{eq_id}", headers=user_a_headers)
+        assert r.status_code == 404
+
+    async def test_user_a_cannot_recall_user_b_error(self, client, user_a_headers, user_b_headers) -> None:
+        r = await client.post("/api/v1/error-questions", headers=user_b_headers, json={
+            "question_text": "B's recall-only error", "dimension": "algorithm",
+        })
+        eq_id = r.json()["id"]
+
+        r = await client.post(f"/api/v1/error-questions/{eq_id}/recall", headers=user_a_headers)
+
         assert r.status_code == 404

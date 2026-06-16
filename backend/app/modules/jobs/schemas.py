@@ -67,7 +67,20 @@ class JobTimelineOut(BaseModel):
     status_history: list[dict]
 
 
+class TransitionEdge(BaseModel):
+    from_: str = Field(alias="from")
+    to: str
+
+    model_config = {"populate_by_name": True}
+
+
+class TransitionsOut(BaseModel):
+    statuses: list[str]
+    transitions: list[TransitionEdge]
+
+
 __all__ = [
     "CreateJobInput", "JobListOut", "JobOut", "JobStatsOut",
     "JobTimelineOut", "PatchJobInput", "UpdateJobStatusInput",
+    "TransitionEdge", "TransitionsOut",
 ]

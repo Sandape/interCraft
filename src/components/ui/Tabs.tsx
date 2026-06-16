@@ -13,9 +13,10 @@ interface TabsProps {
   onChange: (key: string) => void
   className?: string
   size?: 'sm' | 'md'
+  getTabId?: (key: string) => string | undefined
 }
 
-export function Tabs({ items, value, onChange, className, size = 'md' }: TabsProps) {
+export function Tabs({ items, value, onChange, className, size = 'md', getTabId }: TabsProps) {
   return (
     <div className={cn('flex items-center gap-0.5', className)} role="tablist">
       {items.map((item) => {
@@ -26,6 +27,7 @@ export function Tabs({ items, value, onChange, className, size = 'md' }: TabsPro
             onClick={() => onChange(item.key)}
             role="tab"
             aria-selected={active}
+            data-testid={getTabId?.(item.key)}
             className={cn(
               'inline-flex items-center gap-1.5 rounded font-medium transition-all duration-200',
               size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3 text-sm',

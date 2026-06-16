@@ -9,10 +9,8 @@ import { useLogout } from '@/hooks/mutations/useLogout'
 import { useAvatarBlob } from '@/hooks/queries/useAvatarBlob'
 
 export function Topbar({
-  onNewResume,
   onOpenSearch,
 }: {
-  onNewResume?: () => void
   onOpenSearch?: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -103,8 +101,14 @@ export function Topbar({
 
       {/* 右侧操作 */}
       <div className="flex items-center gap-1">
-        <Button size="sm" variant="primary" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={onNewResume}>
-          新建简历分支
+        <Button
+          size="sm"
+          variant="primary"
+          leftIcon={<Plus className="h-3.5 w-3.5" />}
+          onClick={() => navigate('/resume?new=true')}
+          aria-label="新建简历分支"
+        >
+          <span className="hidden sm:inline">新建简历分支</span>
         </Button>
 
         <button

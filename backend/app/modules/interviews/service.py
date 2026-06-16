@@ -177,6 +177,21 @@ class InterviewSessionService:
                     session_id=id,
                 ))
 
+            # Enqueue ability diagnosis so the dashboard reflects interview scores.
+            # Best-effort — failure here must not fail the API request.
+            try:
+                from app.core.redis import enqueue_job
+                await enqueue_job(
+                    "ability_diagnose",
+                    user_id=str(user_id),
+                    session_id=str(id),
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "ability_diagnose.enqueue_failed", exc_info=True
+                )
+
         return result
 
     async def delete(self, id: UUID, user_id: UUID) -> None:

@@ -22,6 +22,9 @@ import InterviewReport from '@/pages/InterviewReport'
 import Settings from '@/pages/Settings'
 import GeneralCoach from '@/pages/GeneralCoach'
 import Help from '@/pages/Help'
+import AbilityProfile from '@/pages/AbilityProfile'
+import AbilityProfileDetail from '@/pages/AbilityProfileDetail'
+import SharedAbilityProfile from '@/pages/SharedAbilityProfile'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,6 +76,7 @@ function AppRoutes() {
           </PublicOnly>
         }
       />
+      <Route path="/shared/:shareToken" element={<SharedAbilityProfile />} />
       <Route
         path="/*"
         element={
@@ -88,6 +92,8 @@ function AppRoutes() {
                 <Route path="/interview/:id/live" element={<InterviewLive />} />
                 <Route path="/interview/:id/report" element={<InterviewReport />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/ability-profile" element={<AbilityProfile />} />
+                <Route path="/ability-profile/:abilityKey" element={<AbilityProfileDetail />} />
                 <Route path="/jobs" element={<Jobs />} />
                 <Route path="/error-book" element={<ErrorBook />} />
                 <Route path="/settings" element={<Settings />} />

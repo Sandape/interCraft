@@ -93,6 +93,7 @@ export default function UnifiedToolbar({
           size="sm"
           leftIcon={<Download className="h-3.5 w-3.5" />}
           onClick={onExport}
+          data-testid="open-export-menu"
           className="flex-shrink-0"
         >
           <span className="hidden sm:inline">导出</span>

@@ -5,13 +5,16 @@ import { errorBook as mockErrors } from '../data/mockData'
 export interface ErrorQuestion {
   id: string
   source_session_id: string | null
-  dimension: string
+  dimension: string | null
   question_text: string
   answer_text: string | null
+  reference_answer_md: string | null
   status: string
   frequency: number
-  score: number
+  score: number | null
+  tags: string[] | null
   archived_at: string | null
+  last_practiced_at: string | null
   created_at: string
   updated_at: string
 }
@@ -23,12 +26,13 @@ export abstract class ErrorQuestionRepository {
     dimension?: string; status?: string; frequency_min?: number; limit?: number
   }): Promise<{ data: ErrorQuestion[]; next_cursor: string | null; has_more: boolean }>
   abstract create(input: {
-    question_text: string; dimension?: string; answer_text?: string
+    question_text: string; dimension?: string; answer_text?: string; reference_answer_md?: string; score?: number; tags?: string[]
   }): Promise<ErrorQuestion>
   abstract get(id: string): Promise<ErrorQuestion>
   abstract patch(id: string, patch: Record<string, unknown>): Promise<ErrorQuestion>
   abstract archive(id: string): Promise<void>
   abstract reset(id: string): Promise<ErrorQuestion>
+  abstract recall(id: string): Promise<ErrorQuestion>
 }
 
 export class HttpErrorQuestionRepository extends ErrorQuestionRepository {
@@ -45,7 +49,7 @@ export class HttpErrorQuestionRepository extends ErrorQuestionRepository {
   }
 
   async create(input: {
-    question_text: string; dimension?: string; answer_text?: string
+    question_text: string; dimension?: string; answer_text?: string; reference_answer_md?: string; score?: number; tags?: string[]
   }): Promise<ErrorQuestion> {
     return request('POST', BASE, input)
   }
@@ -65,6 +69,10 @@ export class HttpErrorQuestionRepository extends ErrorQuestionRepository {
   async reset(id: string): Promise<ErrorQuestion> {
     return request('POST', `${BASE}/${id}/reset`)
   }
+
+  async recall(id: string): Promise<ErrorQuestion> {
+    return request('POST', `${BASE}/${id}/recall`)
+  }
 }
 
 export class MockErrorQuestionRepository extends ErrorQuestionRepository {
@@ -74,10 +82,13 @@ export class MockErrorQuestionRepository extends ErrorQuestionRepository {
     dimension: m.category || 'algorithm',
     question_text: m.question || '',
     answer_text: m.hint || '',
+    reference_answer_md: null,
     status: m.frequency >= 3 ? 'fresh' : m.frequency >= 1 ? 'practicing' : 'mastered',
     frequency: m.frequency || 3,
     score: 0,
+    tags: null,
     archived_at: null,
+    last_practiced_at: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }))
@@ -93,20 +104,24 @@ export class MockErrorQuestionRepository extends ErrorQuestionRepository {
   }
 
   async create(input: {
-    question_text: string; dimension?: string
+    question_text: string; dimension?: string; answer_text?: string; reference_answer_md?: string; score?: number; tags?: string[]
   }): Promise<ErrorQuestion> {
+    const now = new Date().toISOString()
     const eq: ErrorQuestion = {
       id: `eq-${Date.now()}`,
       source_session_id: null,
       dimension: input.dimension || 'algorithm',
       question_text: input.question_text,
-      answer_text: '',
+      answer_text: input.answer_text || null,
+      reference_answer_md: input.reference_answer_md || null,
       status: 'fresh',
       frequency: 3,
-      score: 0,
+      score: input.score ?? null,
+      tags: input.tags ?? null,
       archived_at: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      last_practiced_at: null,
+      created_at: now,
+      updated_at: now,
     }
     this.store.unshift(eq)
     return eq
@@ -124,9 +139,24 @@ export class MockErrorQuestionRepository extends ErrorQuestionRepository {
     return eq
   }
 
-  async archive(_id: string): Promise<void> { }
+  async archive(id: string): Promise<void> {
+    this.store = this.store.filter((e) => e.id !== id)
+  }
 
   async reset(id: string): Promise<ErrorQuestion> {
     return this.patch(id, { status: 'fresh', frequency: 3 })
+  }
+
+  async recall(id: string): Promise<ErrorQuestion> {
+    const eq = await this.get(id)
+    if (eq.frequency <= 0 || eq.status === 'mastered') {
+      throw new Error('error question already mastered')
+    }
+    const frequency = Math.max(eq.frequency - 1, 0)
+    return this.patch(id, {
+      frequency,
+      status: frequency === 0 ? 'mastered' : frequency < 3 ? 'practicing' : 'fresh',
+      last_practiced_at: new Date().toISOString(),
+    })
   }
 }

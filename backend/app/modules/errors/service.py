@@ -20,7 +20,7 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
 }
 
 # frequency constraints per status
-STATUS_FREQUENCY: dict[str, int | tuple[int, int]] = {
+STATUS_FREQUENCY: dict[str, int | tuple[int, int] | None] = {
     "fresh": 3,
     "practicing": (1, 2),
     "mastered": 0,
@@ -153,6 +153,25 @@ class ErrorService:
                 detail="Only 'mastered' questions can be reset to 'fresh'",
             )
         return await self.repo.reset(id, user_id)
+
+    async def recall(self, id: UUID, user_id: UUID) -> ErrorQuestion:
+        current = await self.get(id, user_id)
+        if current.frequency <= 0 or current.status == "mastered":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": {
+                        "code": "already_mastered",
+                        "message": "This error question is already mastered.",
+                        "details": {"id": str(id), "status": current.status},
+                    }
+                },
+            )
+
+        instance = await self.repo.recall(id, user_id)
+        if instance is None:
+            raise HTTPException(status_code=404, detail="Error question not found")
+        return instance
 
 
 def _validate_frequency_status(status: str, frequency: int) -> None:

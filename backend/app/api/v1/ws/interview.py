@@ -197,6 +197,18 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
             except Exception as persist_err:
                 logger.error("ws.report_persist_error", error=str(persist_err), session_id=session_id)
 
+            # Enqueue ability diagnosis so the dashboard reflects interview scores.
+            # Best-effort — failure here must not break the WS response.
+            try:
+                from app.core.redis import enqueue_job
+                await enqueue_job(
+                    "ability_diagnose",
+                    user_id=str(user_id),
+                    session_id=str(session_id),
+                )
+            except Exception:
+                logger.warning("ability_diagnose.enqueue_failed", exc_info=True)
+
             await websocket.send_text(
                 serialize_event(
                     make_node_completed(

@@ -62,11 +62,11 @@ async def _query_historical_dimensions(user_id: str) -> list[dict]:
     async with factory() as session:
         result = await session.execute(
             text(
-                """SELECT dimension, actual, recorded_at
+                """SELECT dimension_key, actual_score, snapshot_date
                 FROM ability_dimensions_history
                 WHERE user_id = :uid
-                AND recorded_at > now() - interval '90 days'
-                ORDER BY recorded_at DESC"""
+                AND snapshot_date > current_date - interval '90 days'
+                ORDER BY snapshot_date DESC"""
             ),
             {"uid": UUID(user_id) if user_id else UUID(int=0)},
         )

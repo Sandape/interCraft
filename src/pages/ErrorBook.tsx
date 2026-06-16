@@ -1,40 +1,40 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  Plus,
-  Search,
   BookOpen,
-  Trash2,
-  RotateCcw,
+  CheckCircle2,
   ChevronRight,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
   X,
   Zap,
 } from 'lucide-react'
 import ErrorCoachPanel from '@/components/error-book/ErrorCoachPanel'
-import { Card, CardHeader } from '@/components/ui/Card'
+import { Card } from '@/components/ui/Card'
 import { OfflineBanner } from '@/components/lock/OfflineBanner'
-import { outboxRepo } from '@/lib/outbox/OutboxRepository'
 import { Button } from '@/components/ui/Button'
 import { Tabs } from '@/components/ui/Tabs'
 import { Modal } from '@/components/ui/Modal'
-import { Input } from '@/components/ui/Input'
 import { StatusBadge } from '@/components/errors/StatusBadge'
 import { FrequencyBadge } from '@/components/errors/FrequencyBadge'
-import { useErrorQuestions, useErrorQuestion } from '@/hooks/queries/useErrorQuestions'
+import { useErrorQuestions } from '@/hooks/queries/useErrorQuestions'
 import {
-  useCreateErrorQuestion,
-  useUpdateErrorQuestion,
   useArchiveErrorQuestion,
+  useCreateErrorQuestion,
+  useRecallErrorQuestion,
   useResetErrorQuestion,
 } from '@/hooks/mutations/useErrorQuestionMutations'
 import type { ErrorQuestion } from '@/repositories/ErrorQuestionRepository'
+import { cn } from '@/lib/utils'
 
 const DIMENSIONS = [
-  'tech_depth',
-  'architecture',
-  'engineering_practice',
-  'communication',
-  'algorithm',
-  'business',
+  { value: 'tech_depth', label: '技术深度' },
+  { value: 'architecture', label: '系统设计' },
+  { value: 'engineering_practice', label: '工程实践' },
+  { value: 'communication', label: '沟通表达' },
+  { value: 'algorithm', label: '算法' },
+  { value: 'business', label: '业务理解' },
 ]
 
 const STATUS_TABS = [
@@ -44,72 +44,179 @@ const STATUS_TABS = [
   { key: 'mastered', label: '已掌握' },
 ]
 
-const NEXT_STATUS: Record<string, string> = {
-  fresh: 'practicing',
-  practicing: 'mastered',
+function dimensionLabel(value: string | null) {
+  return DIMENSIONS.find((d) => d.value === value)?.label ?? '未分类'
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : '操作失败，请稍后重试'
+}
+
+function formatDate(value: string | null) {
+  if (!value) return '尚未练习'
+  return new Date(value).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export default function ErrorBook() {
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [dimensionFilter, setDimensionFilter] = useState<string>('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [dimensionFilter, setDimensionFilter] = useState('')
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const [coachQuestionId, setCoachQuestionId] = useState<string | null>(null)
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set())
 
-  const status = statusFilter === 'all' ? undefined : statusFilter
-  const dim = dimensionFilter || undefined
+  const queryParams = {
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    dimension: dimensionFilter || undefined,
+    limit: 50,
+  }
 
-  const { data, isLoading } = useErrorQuestions({ status, dimension: dim })
+  const { data, error, isLoading } = useErrorQuestions(queryParams)
   const createMutation = useCreateErrorQuestion()
   const archiveMutation = useArchiveErrorQuestion()
+  const recallMutation = useRecallErrorQuestion()
   const resetMutation = useResetErrorQuestion()
 
-  const filtered = (data?.data ?? []).filter((eq) => {
-    if (search && !eq.question_text.toLowerCase().includes(search.toLowerCase())) return false
-    return true
-  })
+  const items = useMemo(
+    () => (data?.data ?? []).filter((item) => !hiddenIds.has(item.id)),
+    [data?.data, hiddenIds],
+  )
+  const filtered = useMemo(() => {
+    const keyword = search.trim().toLowerCase()
+    if (!keyword) return items
+    return items.filter((eq) => {
+      const haystack = [
+        eq.question_text,
+        eq.answer_text ?? '',
+        eq.reference_answer_md ?? '',
+        dimensionLabel(eq.dimension),
+      ].join(' ').toLowerCase()
+      return haystack.includes(keyword)
+    })
+  }, [items, search])
 
-  const selected = selectedId ? filtered.find((e) => e.id === selectedId) : null
+  const selected = selectedId ? items.find((eq) => eq.id === selectedId) ?? null : null
 
-  // Phase 5 M17: Error Coach
-  const [coachOpen, setCoachOpen] = useState(false)
-  const [coachQuestionId, setCoachQuestionId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!selectedId) return
+    if (!items.some((eq) => eq.id === selectedId)) {
+      setSelectedId(null)
+    }
+  }, [items, selectedId])
+
+  const handleCreate = (input: { question_text: string; dimension?: string; answer_text?: string }) => {
+    setFeedback(null)
+    createMutation.mutate(input, {
+      onSuccess: (created) => {
+        setShowCreate(false)
+        setSelectedId(created.id)
+        setFeedback('错题已添加')
+      },
+    })
+  }
+
+  const handleRecall = (id: string) => {
+    setFeedback(null)
+    recallMutation.mutate(id, {
+      onSuccess: () => setFeedback('已记录一次答对'),
+      onError: (err) => setFeedback(errorMessage(err)),
+    })
+  }
+
+  const handleReset = (id: string) => {
+    setFeedback(null)
+    resetMutation.mutate(id, {
+      onSuccess: () => setFeedback('已重置为未掌握'),
+      onError: (err) => setFeedback(errorMessage(err)),
+    })
+  }
+
+  const handleArchive = (id: string) => {
+    setFeedback(null)
+    setHiddenIds((current) => new Set(current).add(id))
+    if (selectedId === id) setSelectedId(null)
+    archiveMutation.mutate(id, {
+      onSuccess: () => {
+        setFeedback('错题已删除')
+      },
+      onError: (err) => {
+        setHiddenIds((current) => {
+          const next = new Set(current)
+          next.delete(id)
+          return next
+        })
+        setFeedback(errorMessage(err))
+      },
+    })
+  }
+
+  const listError = error ? errorMessage(error) : null
+  const emptyCopy = search.trim() || statusFilter !== 'all' || dimensionFilter
+    ? '没有匹配当前条件的错题'
+    : '还没有错题记录'
 
   return (
-    <div className="px-8 py-6 max-w-7xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-6">
+    <div className="px-4 py-5 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">错题本</h1>
           <p className="text-sm text-ink-3 mt-1">
-            记录与复习面试中答错的问题，系统化提升薄弱环节
+            记录、复习并消灭面试中的薄弱问题。
           </p>
         </div>
-        <Button variant="primary" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowCreate(true)}>
+        <Button
+          variant="primary"
+          leftIcon={<Plus className="h-3.5 w-3.5" />}
+          onClick={() => {
+            setFeedback(null)
+            setShowCreate(true)
+          }}
+        >
           添加错题
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 左侧列表 */}
+      {(feedback || listError) && (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-surface-border bg-surface-muted px-3 py-2 text-sm text-ink-2 dark:border-dark-surface-border dark:bg-dark-surface-muted"
+        >
+          {feedback ?? listError}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <Tabs
               value={statusFilter}
-              onChange={setStatusFilter}
-              items={STATUS_TABS.map((t) => ({
-                key: t.key,
-                label: t.label,
-              }))}
+              onChange={(value) => {
+                setStatusFilter(value)
+                setSelectedId(null)
+              }}
+              items={STATUS_TABS}
             />
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[180px_minmax(180px,240px)]">
+              <label className="sr-only" htmlFor="error-dimension-filter">能力维度</label>
               <select
+                id="error-dimension-filter"
                 value={dimensionFilter}
-                onChange={(e) => setDimensionFilter(e.target.value)}
-                className="h-8 px-2 text-xs rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 border-0 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                onChange={(e) => {
+                  setDimensionFilter(e.target.value)
+                  setSelectedId(null)
+                }}
+                className="h-9 px-3 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 border border-surface-border dark:border-dark-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500/30"
               >
                 <option value="">全部维度</option>
                 {DIMENSIONS.map((d) => (
-                  <option key={d} value={d}>{d}</option>
+                  <option key={d.value} value={d.value}>{d.label}</option>
                 ))}
               </select>
               <div className="relative">
@@ -117,52 +224,49 @@ export default function ErrorBook() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="搜索题目…"
-                  className="h-8 pl-8 pr-3 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border-0 focus:outline-none focus:ring-2 focus:ring-brand-500/30 w-48"
+                  placeholder="搜索题目..."
+                  className="h-9 w-full pl-8 pr-3 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border border-surface-border dark:border-dark-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                 />
               </div>
             </div>
           </div>
 
           {isLoading ? (
-            <div className="text-sm text-ink-3 py-12 text-center">加载中…</div>
+            <Card className="py-12 text-center text-sm text-ink-3" aria-busy="true">
+              加载中...
+            </Card>
           ) : filtered.length === 0 ? (
             <Card className="py-12 text-center">
               <BookOpen className="h-8 w-8 text-ink-muted mx-auto mb-3" />
-              <div className="text-sm text-ink-2">还没有错题记录</div>
-              <div className="text-xs text-ink-3 mt-1">点击「添加错题」开始记录</div>
+              <div className="text-sm text-ink-2">{emptyCopy}</div>
+              <div className="text-xs text-ink-3 mt-1">
+                {items.length === 0 ? '点击“添加错题”开始记录。' : '调整筛选或搜索关键词后再试。'}
+              </div>
             </Card>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2" role="list" aria-label="错题列表">
               {filtered.map((eq) => (
                 <ErrorCard
                   key={eq.id}
                   item={eq}
                   isSelected={eq.id === selectedId}
                   onSelect={() => setSelectedId(eq.id === selectedId ? null : eq.id)}
-                  onAdvance={() => {
-                    const next = NEXT_STATUS[eq.status]
-                    if (next) {
-                      useUpdateErrorQuestion().mutate({ id: eq.id, patch: { status: next } })
-                    }
-                  }}
-                  onArchive={() => archiveMutation.mutate(eq.id, {
-                    onSuccess: () => { if (selectedId === eq.id) setSelectedId(null) },
-                  })}
-                  onReset={() => resetMutation.mutate(eq.id)}
                 />
               ))}
             </div>
           )}
         </div>
 
-        {/* 右侧详情 */}
         <div className="lg:col-span-1">
           {selected ? (
             <ErrorDetail
               item={selected}
+              isBusy={recallMutation.isPending || resetMutation.isPending || archiveMutation.isPending}
               onClose={() => setSelectedId(null)}
-              onStartCoach={(id) => { setCoachQuestionId(id); setCoachOpen(true) }}
+              onRecall={handleRecall}
+              onReset={handleReset}
+              onArchive={handleArchive}
+              onStartCoach={(id) => setCoachQuestionId(id)}
             />
           ) : (
             <Card className="p-5 text-center text-sm text-ink-3">
@@ -173,26 +277,23 @@ export default function ErrorBook() {
         </div>
       </div>
 
-      {/* 创建弹窗 */}
       {showCreate && (
         <CreateModal
           onClose={() => setShowCreate(false)}
-          onCreate={(input) => createMutation.mutate(input, {
-            onSuccess: () => setShowCreate(false),
-          })}
+          onCreate={handleCreate}
           isPending={createMutation.isPending}
           error={createMutation.error}
         />
       )}
+
       <OfflineBanner />
 
-      {/* Phase 5 M17: Error Coach */}
       {coachQuestionId && (
         <ErrorCoachPanel
           errorQuestionId={coachQuestionId}
-          questionText={selected?.question_text ?? ''}
-          open={coachOpen}
-          onClose={() => { setCoachOpen(false); setCoachQuestionId(null) }}
+          questionText={items.find((eq) => eq.id === coachQuestionId)?.question_text ?? ''}
+          open={Boolean(coachQuestionId)}
+          onClose={() => setCoachQuestionId(null)}
         />
       )}
     </div>
@@ -203,108 +304,142 @@ function ErrorCard({
   item,
   isSelected,
   onSelect,
-  onAdvance,
-  onArchive,
-  onReset,
 }: {
   item: ErrorQuestion
   isSelected: boolean
   onSelect: () => void
-  onAdvance: () => void
-  onArchive: () => void
-  onReset: () => void
 }) {
   return (
-    <Card
-      hover
-      padding="md"
-      className={isSelected ? 'ring-2 ring-brand-500/30' : ''}
+    <button
+      type="button"
+      className={cn(
+        'card-hover w-full p-4 text-left transition-colors',
+        isSelected && 'ring-2 ring-brand-500/30',
+      )}
       onClick={onSelect}
       data-testid={`error-question-${item.id}`}
+      aria-pressed={isSelected}
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
             <StatusBadge status={item.status} />
             <FrequencyBadge frequency={item.frequency} />
-            <span className="text-2xs text-ink-3">{item.dimension}</span>
+            <span className="text-2xs text-ink-3">{dimensionLabel(item.dimension)}</span>
           </div>
           <p className="text-sm text-ink-1 font-medium leading-snug line-clamp-2">
             {item.question_text}
           </p>
+          <p className="mt-2 text-xs text-ink-3">
+            最近练习：{formatDate(item.last_practiced_at)}
+          </p>
         </div>
-        <ChevronRight className="h-4 w-4 text-ink-3 flex-shrink-0 mt-1" />
+        <ChevronRight className="h-4 w-4 text-ink-3 flex-shrink-0 mt-1" aria-hidden />
       </div>
-    </Card>
+    </button>
   )
 }
 
 function ErrorDetail({
   item,
+  isBusy,
   onClose,
+  onRecall,
+  onReset,
+  onArchive,
   onStartCoach,
 }: {
   item: ErrorQuestion
+  isBusy: boolean
   onClose: () => void
+  onRecall: (id: string) => void
+  onReset: (id: string) => void
+  onArchive: (id: string) => void
   onStartCoach: (id: string) => void
 }) {
-  const updateMutation = useUpdateErrorQuestion()
-  const archiveMutation = useArchiveErrorQuestion()
-  const resetMutation = useResetErrorQuestion()
-
-  const nextStatus = NEXT_STATUS[item.status]
-
   return (
-    <Card className="p-5">
+    <Card className="p-5" data-testid="error-detail">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-ink-1">错题详情</h3>
-        <button onClick={onClose} className="p-1 rounded text-ink-3 hover:text-ink-1">
+        <h2 className="text-sm font-semibold text-ink-1">错题详情</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1 rounded text-ink-3 hover:text-ink-1"
+          aria-label="关闭详情"
+        >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <StatusBadge status={item.status} />
         <FrequencyBadge frequency={item.frequency} />
       </div>
 
-      <div className="text-xs text-ink-3 mb-1">题目</div>
-      <p className="text-sm text-ink-1 mb-4 leading-relaxed">{item.question_text}</p>
-
-      {item.answer_text && (
-        <>
-          <div className="text-xs text-ink-3 mb-1">参考答案</div>
-          <p className="text-sm text-ink-2 mb-4 leading-relaxed">{item.answer_text}</p>
-        </>
-      )}
-
-      <div className="text-xs text-ink-3 mb-1">维度</div>
-      <p className="text-sm text-ink-2 mb-4">{item.dimension}</p>
-
-      <div className="text-xs text-ink-3 mb-1">得分</div>
-      <p className="text-sm text-ink-2 mb-4">{item.score}</p>
+      <DetailField label="题目" value={item.question_text} />
+      <DetailField label="参考答案" value={item.answer_text || item.reference_answer_md || '暂无参考答案'} />
+      <DetailField label="能力维度" value={dimensionLabel(item.dimension)} />
+      <DetailField label="得分" value={item.score == null ? '未评分' : `${item.score}/10`} />
+      <DetailField label="最近练习" value={formatDate(item.last_practiced_at)} />
 
       <div className="space-y-2 pt-4 border-t border-surface-border dark:border-dark-surface-border">
         {item.frequency > 0 && (
-          <Button variant="primary" size="sm" className="w-full" leftIcon={<Zap className="h-3.5 w-3.5" />} onClick={() => onStartCoach(item.id)} data-testid="start-coach-button">
+          <Button
+            variant="primary"
+            size="sm"
+            className="w-full"
+            leftIcon={<CheckCircle2 className="h-3.5 w-3.5" />}
+            onClick={() => onRecall(item.id)}
+            loading={isBusy}
+          >
+            答对一次
+          </Button>
+        )}
+        {item.frequency > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full"
+            leftIcon={<Zap className="h-3.5 w-3.5" />}
+            onClick={() => onStartCoach(item.id)}
+            data-testid="start-coach-button"
+          >
             开始强化
           </Button>
         )}
-        {nextStatus && (
-          <Button variant="primary" size="sm" className="w-full" onClick={() => updateMutation.mutate({ id: item.id, patch: { status: nextStatus } })}>
-            推进到 {STATUS_TABS.find((t) => t.key === nextStatus)?.label ?? nextStatus}
-          </Button>
-        )}
         {item.status === 'mastered' && (
-          <Button variant="secondary" size="sm" className="w-full" leftIcon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => resetMutation.mutate(item.id)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full"
+            leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
+            onClick={() => onReset(item.id)}
+            loading={isBusy}
+          >
             重置为未掌握
           </Button>
         )}
-        <Button variant="ghost" size="sm" className="w-full" leftIcon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => archiveMutation.mutate(item.id, { onSuccess: onClose })}>
-          归档
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full"
+          leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+          onClick={() => onArchive(item.id)}
+          disabled={isBusy}
+        >
+          删除
         </Button>
       </div>
     </Card>
+  )
+}
+
+function DetailField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mb-4">
+      <div className="text-xs text-ink-3 mb-1">{label}</div>
+      <p className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap">{value}</p>
+    </div>
   )
 }
 
@@ -323,8 +458,10 @@ function CreateModal({
   const [answer, setAnswer] = useState('')
   const [dimension, setDimension] = useState('')
 
+  const canSubmit = question.trim().length > 0
+
   const handleSubmit = () => {
-    if (!question.trim()) return
+    if (!canSubmit) return
     onCreate({
       question_text: question.trim(),
       dimension: dimension || undefined,
@@ -336,45 +473,77 @@ function CreateModal({
     <Modal open title="添加错题" onClose={onClose}>
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-ink-2 mb-1">题目 *</label>
-          <TextareaInput value={question} onChange={setQuestion} placeholder="输入面试中答错的题目…" rows={3} />
+          <label htmlFor="error-question-text" className="block text-xs font-medium text-ink-2 mb-1">
+            题目
+          </label>
+          <TextareaInput
+            id="error-question-text"
+            value={question}
+            onChange={setQuestion}
+            placeholder="输入面试中答错的题目..."
+            rows={3}
+          />
         </div>
         <div>
-          <label className="block text-xs font-medium text-ink-2 mb-1">参考答案</label>
-          <TextareaInput value={answer} onChange={setAnswer} placeholder="输入参考答案或提示…" rows={3} />
+          <label htmlFor="error-answer-text" className="block text-xs font-medium text-ink-2 mb-1">
+            参考答案
+          </label>
+          <TextareaInput
+            id="error-answer-text"
+            value={answer}
+            onChange={setAnswer}
+            placeholder="输入参考答案或复习提示..."
+            rows={3}
+          />
         </div>
         <div>
-          <label className="block text-xs font-medium text-ink-2 mb-1">所属维度</label>
+          <label htmlFor="error-dimension" className="block text-xs font-medium text-ink-2 mb-1">
+            能力维度
+          </label>
           <select
+            id="error-dimension"
             value={dimension}
             onChange={(e) => setDimension(e.target.value)}
             className="w-full h-9 px-3 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 border border-surface-border dark:border-dark-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500/30"
           >
             <option value="">选择维度（可选）</option>
             {DIMENSIONS.map((d) => (
-              <option key={d} value={d}>{d}</option>
+              <option key={d.value} value={d.value}>{d.label}</option>
             ))}
           </select>
         </div>
         {error && (
           <div role="alert" className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2">
-            {error.message}
+            {errorMessage(error)}
           </div>
         )}
       </div>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>取消</Button>
-        <Button variant="primary" onClick={handleSubmit} loading={isPending} disabled={!question.trim()}>
-          添加
+        <Button variant="primary" onClick={handleSubmit} loading={isPending} disabled={!canSubmit}>
+          保存
         </Button>
       </div>
     </Modal>
   )
 }
 
-function TextareaInput({ value, onChange, placeholder, rows = 3 }: { value: string; onChange: (v: string) => void; placeholder: string; rows?: number }) {
+function TextareaInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  rows = 3,
+}: {
+  id: string
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+  rows?: number
+}) {
   return (
     <textarea
+      id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}

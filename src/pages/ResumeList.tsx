@@ -3,8 +3,8 @@
  * a new branch (cloned from main by default) and navigates into the
  * editor on click. Supports in-place edit, delete, pin, and status display.
  */
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, Sparkles, FileText, GitBranch, Clock, Pin, Pencil, Trash2, Upload } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -36,6 +36,7 @@ const STATUS_VARIANT: Record<BranchStatus, 'default' | 'success' | 'warning' | '
 
 export default function ResumeList() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { data: branches = [], isLoading } = useResumeBranches()
   const createBranch = useCreateBranch()
   const deleteBranch = useDeleteBranch()
@@ -45,6 +46,13 @@ export default function ResumeList() {
 
   // Create modal
   const [open, setOpen] = useState(false)
+
+  // Auto-open create modal when ?new=true is present in the URL
+  useEffect(() => {
+    if (searchParams.get('new') === 'true') {
+      setOpen(true)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [name, setName] = useState('')
   const [company, setCompany] = useState('')
   const [position, setPosition] = useState('')
@@ -104,6 +112,7 @@ export default function ResumeList() {
           setCompany('')
           setPosition('')
           setParentId(null)
+          setSearchParams({}, { replace: true })
           navigate(`/resume/${branch.id}`)
         },
       },
@@ -291,13 +300,19 @@ export default function ResumeList() {
       {/* Create branch modal */}
       <Modal
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          setOpen(false)
+          setSearchParams({}, { replace: true })
+        }}
         title="新建简历分支"
         description="克隆主简历的块结构；后续对分支的修改不会影响源"
         size="md"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setOpen(false)}>
+            <Button variant="ghost" onClick={() => {
+              setOpen(false)
+              setSearchParams({}, { replace: true })
+            }}>
               取消
             </Button>
             <Button

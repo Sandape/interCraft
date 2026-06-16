@@ -8,6 +8,7 @@ import os
 from typing import ClassVar
 
 from arq.connections import RedisSettings
+from arq.cron import cron
 
 from app.modules.versions.auto_snapshot import auto_snapshot_branch
 from app.workers.tasks.monthly_quota_reset import monthly_quota_reset
@@ -17,6 +18,7 @@ from app.modules.locks.service import LockService
 from app.workers.tasks.purge_expired_accounts import purge_expired_accounts
 from app.workers.tasks.physical_cleanup import physical_cleanup
 from app.workers.tasks.cleanup_expired_exports import cleanup_expired_exports
+from app.workers.tasks.pdf_export import pdf_export
 from app.workers.tasks.create_next_audit_partition import create_next_audit_partition
 from app.workers.tasks.reset_monthly_quota_cron import reset_monthly_quota_cron
 
@@ -42,49 +44,18 @@ class WorkerSettings:
         cleanup_expired_exports,
         create_next_audit_partition,
         reset_monthly_quota_cron,
+        pdf_export,
     ]
     redis_settings: ClassVar = RedisSettings.from_dsn(REDIS_URL)
     cron_jobs: ClassVar = [
-        {
-            "name": "monthly_quota_reset",
-            "cron": "0 0 1 * *",
-            "coroutine": monthly_quota_reset,
-        },
-        {
-            "name": "auto_release_stale",
-            "cron": "*/30 * * * *",
-            "coroutine": auto_release_stale,
-        },
-        {
-            "name": "daily_reconcile",
-            "cron": "0 3 * * *",
-            "coroutine": daily_reconcile,
-        },
-        {
-            "name": "purge_expired_accounts",
-            "cron": "0 2 * * *",
-            "coroutine": purge_expired_accounts,
-        },
-        {
-            "name": "physical_cleanup",
-            "cron": "0 3 * * 0",
-            "coroutine": physical_cleanup,
-        },
-        {
-            "name": "cleanup_expired_exports",
-            "cron": "0 * * * *",
-            "coroutine": cleanup_expired_exports,
-        },
-        {
-            "name": "create_next_audit_partition",
-            "cron": "0 0 1 * *",
-            "coroutine": create_next_audit_partition,
-        },
-        {
-            "name": "reset_monthly_quota_cron",
-            "cron": "0 0 1 * *",
-            "coroutine": reset_monthly_quota_cron,
-        },
+        cron(monthly_quota_reset, name="monthly_quota_reset", month=1, day=1, hour=0, minute=0),
+        cron(auto_release_stale, name="auto_release_stale", second={0, 30}),
+        cron(daily_reconcile, name="daily_reconcile", hour=3, minute=0),
+        cron(purge_expired_accounts, name="purge_expired_accounts", hour=2, minute=0),
+        cron(physical_cleanup, name="physical_cleanup", weekday="sun", hour=3, minute=0),
+        cron(cleanup_expired_exports, name="cleanup_expired_exports", minute=0),
+        cron(create_next_audit_partition, name="create_next_audit_partition", month=1, day=1, hour=0, minute=0),
+        cron(reset_monthly_quota_cron, name="reset_monthly_quota_cron", month=1, day=1, hour=0, minute=0),
     ]
     keep_result: ClassVar = 60
     max_tries: ClassVar = 3

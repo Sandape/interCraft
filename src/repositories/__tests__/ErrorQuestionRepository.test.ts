@@ -1,160 +1,163 @@
-/** ErrorQuestionRepository MSW tests (US6). */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { http, HttpResponse } from 'msw'
-import { setupServer } from 'msw/node'
+/** ErrorQuestionRepository contract tests (US6 + Feature 016). */
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HttpErrorQuestionRepository, MockErrorQuestionRepository } from '../ErrorQuestionRepository'
 
-const server = setupServer(
-  // GET /error-questions
-  http.get('/api/v1/error-questions', () =>
-    HttpResponse.json({
-      data: [
-        {
-          id: '00000000-0000-7000-8000-000000000010',
-          source_session_id: null,
-          dimension: 'algorithm',
-          question_text: 'What is the time complexity of quicksort?',
-          answer_text: 'O(n log n) average, O(n²) worst',
-          status: 'fresh',
-          frequency: 3,
-          score: 0,
-          archived_at: null,
-          created_at: '2026-06-13T00:00:00Z',
-          updated_at: '2026-06-13T00:00:00Z',
-        },
-      ],
-      next_cursor: null,
-      has_more: false,
-    })
-  ),
-  // POST /error-questions
-  http.post('/api/v1/error-questions', async ({ request }) => {
-    const body = await request.json() as Record<string, unknown>
-    return HttpResponse.json({
-      id: '00000000-0000-7000-8000-000000000011',
-      source_session_id: null,
-      dimension: body.dimension || 'algorithm',
-      question_text: body.question_text,
-      answer_text: (body.answer_text as string) || '',
-      status: 'fresh',
-      frequency: 3,
-      score: 0,
-      archived_at: null,
-      created_at: '2026-06-13T00:00:00Z',
-      updated_at: '2026-06-13T00:00:00Z',
-    })
-  }),
-  // GET /error-questions/:id
-  http.get('/api/v1/error-questions/:id', ({ params }) =>
-    HttpResponse.json({
-      id: params.id as string,
-      source_session_id: null,
-      dimension: 'system_design',
-      question_text: 'How do you design a URL shortener?',
-      answer_text: '',
-      status: 'practicing',
-      frequency: 2,
-      score: 0,
-      archived_at: null,
-      created_at: '2026-06-13T00:00:00Z',
-      updated_at: '2026-06-13T00:00:00Z',
-    })
-  ),
-  // PATCH /error-questions/:id
-  http.patch('/api/v1/error-questions/:id', async ({ params, request }) => {
-    const body = await request.json() as Record<string, unknown>
-    return HttpResponse.json({
-      id: params.id as string,
-      source_session_id: null,
-      dimension: 'algorithm',
-      question_text: 'test',
-      answer_text: '',
-      status: body.status || 'fresh',
-      frequency: body.frequency ?? 3,
-      score: 0,
-      archived_at: null,
-      created_at: '2026-06-13T00:00:00Z',
-      updated_at: '2026-06-13T00:00:00Z',
-    })
-  }),
-  // DELETE /error-questions/:id
-  http.delete('/api/v1/error-questions/:id', () =>
-    new HttpResponse(null, { status: 204 })
-  ),
-  // POST /error-questions/:id/reset
-  http.post('/api/v1/error-questions/:id/reset', ({ params }) =>
-    HttpResponse.json({
-      id: params.id as string,
-      source_session_id: null,
-      dimension: 'algorithm',
-      question_text: 'test',
-      answer_text: '',
-      status: 'fresh',
-      frequency: 3,
-      score: 0,
-      archived_at: null,
-      created_at: '2026-06-13T00:00:00Z',
-      updated_at: '2026-06-13T00:00:00Z',
-    })
-  ),
-)
+const QUESTION_ID = '00000000-0000-7000-8000-000000000010'
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
-afterAll(() => server.close())
+function errorQuestion(overrides: Record<string, unknown> = {}) {
+  return {
+    id: QUESTION_ID,
+    source_session_id: null,
+    dimension: 'algorithm',
+    question_text: 'What is the time complexity of quicksort?',
+    answer_text: 'O(n log n) average, O(n^2) worst',
+    reference_answer_md: null,
+    status: 'fresh',
+    frequency: 3,
+    score: 0,
+    tags: null,
+    archived_at: null,
+    last_practiced_at: null,
+    created_at: '2026-06-13T00:00:00Z',
+    updated_at: '2026-06-13T00:00:00Z',
+    ...overrides,
+  }
+}
 
-describe('ErrorQuestionRepository', () => {
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method ?? 'GET'
+    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {}
+
+    if (method === 'GET' && url.includes('/api/v1/error-questions?')) {
+      return jsonResponse({ data: [errorQuestion()], next_cursor: null, has_more: false })
+    }
+
+    if (method === 'POST' && url.endsWith('/api/v1/error-questions')) {
+      return jsonResponse(errorQuestion({
+        id: '00000000-0000-7000-8000-000000000011',
+        dimension: body.dimension ?? 'algorithm',
+        question_text: body.question_text,
+        answer_text: body.answer_text ?? null,
+      }), 201)
+    }
+
+    if (method === 'GET' && url.endsWith(`/api/v1/error-questions/${QUESTION_ID}`)) {
+      return jsonResponse(errorQuestion({ status: 'practicing', frequency: 2 }))
+    }
+
+    if (method === 'PATCH' && url.endsWith(`/api/v1/error-questions/${QUESTION_ID}`)) {
+      return jsonResponse(errorQuestion({
+        question_text: body.question_text ?? 'test',
+        status: body.status ?? 'fresh',
+        frequency: body.frequency ?? 3,
+      }))
+    }
+
+    if (method === 'DELETE' && url.endsWith(`/api/v1/error-questions/${QUESTION_ID}`)) {
+      return new Response(null, { status: 204 })
+    }
+
+    if (method === 'POST' && url.endsWith(`/api/v1/error-questions/${QUESTION_ID}/reset`)) {
+      return jsonResponse(errorQuestion({ status: 'fresh', frequency: 3 }))
+    }
+
+    if (method === 'POST' && url.endsWith(`/api/v1/error-questions/${QUESTION_ID}/recall`)) {
+      return jsonResponse(errorQuestion({
+        status: 'practicing',
+        frequency: 2,
+        last_practiced_at: '2026-06-13T00:05:00Z',
+        updated_at: '2026-06-13T00:05:00Z',
+      }))
+    }
+
+    return jsonResponse({ error: { code: 'not_found', message: 'Unhandled test URL' } }, 404)
+  }))
+})
+
+describe('HttpErrorQuestionRepository', () => {
+  const repo = new HttpErrorQuestionRepository()
+
   it('lists error questions', async () => {
-    const resp = await fetch('/api/v1/error-questions?dimension=algorithm')
-    const json = await resp.json() as { data: unknown[] }
-    expect(resp.status).toBe(200)
-    expect(json.data).toHaveLength(1)
-    expect((json.data[0] as Record<string, unknown>).dimension).toBe('algorithm')
+    const result = await repo.list({ dimension: 'algorithm' })
+
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0].dimension).toBe('algorithm')
   })
 
   it('creates an error question', async () => {
-    const resp = await fetch('/api/v1/error-questions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question_text: 'New error?', dimension: 'algorithm' }),
-    })
-    const json = await resp.json() as Record<string, unknown>
-    expect(resp.status).toBe(200)
-    expect(json.status).toBe('fresh')
-    expect(json.frequency).toBe(3)
+    const created = await repo.create({ question_text: 'New error?', dimension: 'algorithm' })
+
+    expect(created.status).toBe('fresh')
+    expect(created.frequency).toBe(3)
+    expect(created.question_text).toBe('New error?')
   })
 
   it('gets a single error question', async () => {
-    const resp = await fetch('/api/v1/error-questions/00000000-0000-7000-8000-000000000010')
-    const json = await resp.json() as Record<string, unknown>
-    expect(resp.status).toBe(200)
-    expect(json.dimension).toBe('system_design')
+    const item = await repo.get(QUESTION_ID)
+
+    expect(item.status).toBe('practicing')
+    expect(item.frequency).toBe(2)
   })
 
   it('patches an error question', async () => {
-    const resp = await fetch('/api/v1/error-questions/00000000-0000-7000-8000-000000000010', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'mastered', frequency: 1 }),
-    })
-    const json = await resp.json() as Record<string, unknown>
-    expect(resp.status).toBe(200)
-    expect(json.status).toBe('mastered')
-    expect(json.frequency).toBe(1)
+    const patched = await repo.patch(QUESTION_ID, { status: 'mastered', frequency: 0 })
+
+    expect(patched.status).toBe('mastered')
+    expect(patched.frequency).toBe(0)
   })
 
   it('archives an error question', async () => {
-    const resp = await fetch('/api/v1/error-questions/00000000-0000-7000-8000-000000000010', {
-      method: 'DELETE',
-    })
-    expect(resp.status).toBe(204)
+    await expect(repo.archive(QUESTION_ID)).resolves.toBeUndefined()
   })
 
   it('resets an error question', async () => {
-    const resp = await fetch('/api/v1/error-questions/00000000-0000-7000-8000-000000000010/reset', {
-      method: 'POST',
+    const reset = await repo.reset(QUESTION_ID)
+
+    expect(reset.status).toBe('fresh')
+    expect(reset.frequency).toBe(3)
+  })
+
+  it('recalls an error question', async () => {
+    const recalled = await repo.recall(QUESTION_ID)
+
+    expect(recalled.status).toBe('practicing')
+    expect(recalled.frequency).toBe(2)
+    expect(recalled.last_practiced_at).toBe('2026-06-13T00:05:00Z')
+  })
+})
+
+describe('MockErrorQuestionRepository', () => {
+  it('recalls a mock error question', async () => {
+    const repo = new MockErrorQuestionRepository()
+    const created = await repo.create({
+      question_text: 'Mock recall',
+      dimension: 'algorithm',
     })
-    const json = await resp.json() as Record<string, unknown>
-    expect(resp.status).toBe(200)
-    expect(json.status).toBe('fresh')
-    expect(json.frequency).toBe(3)
+
+    const recalled = await repo.recall(created.id)
+
+    expect(recalled.status).toBe('practicing')
+    expect(recalled.frequency).toBe(2)
+    expect(recalled.last_practiced_at).toBeTruthy()
+  })
+
+  it('rejects recall for already mastered mock questions', async () => {
+    const repo = new MockErrorQuestionRepository()
+    const created = await repo.create({
+      question_text: 'Mock mastered recall',
+      dimension: 'algorithm',
+    })
+    await repo.patch(created.id, { status: 'mastered', frequency: 0 })
+
+    await expect(repo.recall(created.id)).rejects.toThrow('already mastered')
   })
 })

@@ -8,7 +8,7 @@ const server = setupServer(
   // GET /jobs/stats
   http.get('/api/v1/jobs/stats', () =>
     HttpResponse.json({
-      counts: { applied: 2, screening: 1, interview: 0, offer: 0, rejected: 0, withdrawn: 0 },
+      counts: { applied: 2, test: 1, oa: 0, hr: 0, offer: 0, rejected: 0, withdrawn: 0 },
       total: 3,
     })
   ),
@@ -54,7 +54,7 @@ const server = setupServer(
     HttpResponse.json({
       data: [
         { from_status: '', to_status: 'applied', changed_at: '2026-06-13T00:00:00Z' },
-        { from_status: 'applied', to_status: 'screening', changed_at: '2026-06-14T00:00:00Z' },
+        { from_status: 'applied', to_status: 'test', changed_at: '2026-06-14T00:00:00Z' },
       ],
     })
   ),
@@ -160,11 +160,11 @@ describe('JobRepository', () => {
     const resp = await fetch('/api/v1/jobs/00000000-0000-7000-8000-000000000020/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: 'screening' }),
+      body: JSON.stringify({ to: 'test' }),
     })
     const json = await resp.json() as Record<string, unknown>
     expect(resp.status).toBe(200)
-    expect(json.status).toBe('screening')
+    expect(json.status).toBe('test')
   })
 
   it('deletes a job', async () => {

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useId } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -19,6 +19,9 @@ const sizeMap = {
 }
 
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }: ModalProps) {
+  const titleId = useId()
+  const descriptionId = useId()
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -41,13 +44,15 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         )}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-describedby={description ? descriptionId : undefined}
       >
         {(title || description) && (
           <div className="px-5 pt-5 pb-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                {title && <h2 className="text-base font-semibold text-ink-1">{title}</h2>}
-                {description && <p className="text-xs text-ink-3 mt-1">{description}</p>}
+                {title && <h2 id={titleId} className="text-base font-semibold text-ink-1">{title}</h2>}
+                {description && <p id={descriptionId} className="text-xs text-ink-3 mt-1">{description}</p>}
               </div>
               <button
                 onClick={onClose}

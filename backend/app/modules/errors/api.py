@@ -87,4 +87,13 @@ async def reset_question(
     return await svc.reset(id, user_id)
 
 
+@router.post("/{id}/recall", response_model=ErrorQuestionOut)
+async def recall_question(
+    id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    svc: ErrorService = Depends(_get_service),
+) -> ErrorQuestionOut:
+    return await svc.recall(id, user_id)
+
+
 __all__ = ["router"]
