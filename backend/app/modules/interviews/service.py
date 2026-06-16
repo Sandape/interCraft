@@ -33,12 +33,45 @@ class InterviewSessionService:
         return session
 
     async def create(self, user_id: UUID, data: InterviewSessionCreate) -> dict:
+        # 019 — validate job_id (must exist, belong to user, branch_id consistent)
+        if data.job_id is not None:
+            from app.modules.jobs.repository import JobRepository
+            job = await JobRepository(self.session).get(data.job_id, user_id)
+            if job is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error": {
+                            "code": "job.not_found",
+                            "message": "Job not found or not owned by current user",
+                            "details": {"job_id": str(data.job_id)},
+                        }
+                    },
+                )
+            if data.branch_id is not None and job.branch_id is not None \
+                    and str(job.branch_id) != str(data.branch_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": {
+                            "code": "job.branch_mismatch",
+                            "message": "branch_id does not match job's bound branch",
+                            "details": {
+                                "job_id": str(data.job_id),
+                                "job_branch_id": str(job.branch_id),
+                                "session_branch_id": str(data.branch_id),
+                            },
+                        }
+                    },
+                )
+
         session = await self.repo.create(
             user_id=user_id,
             position=data.position,
             company=data.company,
             branch_id=data.branch_id,
             mode=data.mode,
+            job_id=data.job_id,
         )
 
         # Use session.id as the LangGraph thread_id so that the WebSocket

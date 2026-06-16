@@ -13,17 +13,24 @@ class InterviewSessionCreate(BaseModel):
     company: str = Field(..., min_length=1, max_length=100)
     branch_id: UUID | None = None
     mode: str = "text"
+    # 019 — Job→Interview linking (optional)
+    job_id: UUID | None = None
 
 
 class InterviewSessionStartOut(BaseModel):
     id: UUID
     status: str
     started_at: datetime
+    # 019 — expose for client-side routing
+    job_id: UUID | None = None
+    branch_id: UUID | None = None
 
 
 class InterviewSessionOut(BaseModel):
     id: UUID
     branch_id: UUID | None
+    # 019 — Job→Interview linking
+    job_id: UUID | None = None
     position: str | None
     company: str | None
     mode: str | None

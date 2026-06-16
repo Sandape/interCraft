@@ -7,6 +7,10 @@ from pathlib import Path
 
 from app.agents.interview.state import InterviewGraphState
 from app.agents.llm_client import get_llm_client
+from app.agents.interview.requirements_block import build_requirements_block
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -39,6 +43,16 @@ async def question_gen_node(state: InterviewGraphState) -> dict:
         [q.get("question", "") for q in questions], ensure_ascii=False
     )
 
+    # 019 — inject requirements_md block (capped at MAX_REQUIREMENTS_TOKENS)
+    raw_req = state.get("requirements_md")
+    block, provided, truncated, original_chars = build_requirements_block(raw_req)
+    if raw_req and provided and not state.get("requirements_provided"):
+        # The state was missing the booleans (e.g. resumed session without
+        # them). Re-stamp them so the report node still gets correct values.
+        state["requirements_provided"] = True
+        state["requirements_truncated"] = truncated
+        state["requirements_original_chars"] = original_chars
+
     template = _load_prompt("question_gen.md")
     prompt = template.format(
         position=state.get("position", ""),
@@ -48,6 +62,7 @@ async def question_gen_node(state: InterviewGraphState) -> dict:
         dimension=dimension,
         topics_to_probe="根据岗位要求自动选择",
         previous_questions=previous_questions if previous_questions else "无",
+        requirements_md_block=block if block else "",
     )
 
     client = get_llm_client()

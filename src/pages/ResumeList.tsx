@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Sparkles, FileText, GitBranch, Clock, Pin, Pencil, Trash2, Upload } from 'lucide-react'
+import { Plus, Sparkles, FileText, GitBranch, Clock, Pin, Pencil, Trash2, Upload, Briefcase, ChevronDown, ChevronUp } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -13,6 +13,8 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { useResumeBranches } from '@/hooks/queries/useResumeBranches'
 import { useCreateBranch, useDeleteBranch, usePatchBranch } from '@/hooks/mutations/useBranchMutations'
+import { useJob } from '@/hooks/queries/useJobs'
+import { useBindBranchToJob } from '@/hooks/mutations/useJobMutations'
 import { timeAgo, cn } from '@/lib/utils'
 import type { BranchStatus, ResumeBranch } from '@/api/types'
 import PrimaryResumeCard from '@/components/resume/list/PrimaryResumeCard'
@@ -41,8 +43,13 @@ export default function ResumeList() {
   const createBranch = useCreateBranch()
   const deleteBranch = useDeleteBranch()
   const patchBranch = usePatchBranch()
+  const bindBranchToJob = useBindBranchToJob()
 
   const main = branches.find((b) => b.is_main) ?? branches[0]
+
+  // 019 — ?source_job_id prefill (Job detail + Topbar "基于岗位创建" entry points)
+  const sourceJobId = searchParams.get('source_job_id')
+  const { data: sourceJob } = useJob(sourceJobId ?? '')
 
   // Create modal
   const [open, setOpen] = useState(false)
@@ -57,6 +64,21 @@ export default function ResumeList() {
   const [company, setCompany] = useState('')
   const [position, setPosition] = useState('')
   const [parentId, setParentId] = useState<string | null>(null)
+  const [requirementsOpen, setRequirementsOpen] = useState(false)
+
+  // 019 — prefill from source job once it loads (only the first time)
+  const [prefillApplied, setPrefillApplied] = useState(false)
+  useEffect(() => {
+    if (prefillApplied || !sourceJob) return
+    const c = (sourceJob.company ?? '').trim()
+    const p = (sourceJob.position ?? '').trim()
+    if (c || p) {
+      setName(p ? `${c} · ${p}` : c)
+      setCompany(c)
+      setPosition(p)
+    }
+    setPrefillApplied(true)
+  }, [sourceJob, prefillApplied])
 
   // Import modal
   const [importOpen, setImportOpen] = useState(false)
@@ -112,8 +134,19 @@ export default function ResumeList() {
           setCompany('')
           setPosition('')
           setParentId(null)
+          setRequirementsOpen(false)
           setSearchParams({}, { replace: true })
-          navigate(`/resume/${branch.id}`)
+          // 019 — bind the freshly-created branch back to the source job
+          if (sourceJobId) {
+            bindBranchToJob.mutate(
+              { jobId: sourceJobId, branchId: branch.id },
+              {
+                onSettled: () => navigate(`/resume/${branch.id}`),
+              },
+            )
+          } else {
+            navigate(`/resume/${branch.id}`)
+          }
         },
       },
     )
@@ -305,7 +338,9 @@ export default function ResumeList() {
           setSearchParams({}, { replace: true })
         }}
         title="新建简历分支"
-        description="克隆主简历的块结构；后续对分支的修改不会影响源"
+        description={sourceJob
+          ? `为 ${sourceJob.company} · ${sourceJob.position} 创建定制版本`
+          : '克隆主简历的块结构；后续对分支的修改不会影响源'}
         size="md"
         footer={
           <>
@@ -327,6 +362,21 @@ export default function ResumeList() {
         }
       >
         <div className="space-y-3">
+          {sourceJob && (
+            <div
+              data-testid="new-branch-source-job"
+              className="rounded-md border border-brand-200 dark:border-brand-500/30 bg-brand-50/50 dark:bg-brand-500/10 px-3 py-2 flex items-center gap-2"
+            >
+              <Briefcase className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300 flex-shrink-0" />
+              <div className="text-xs text-ink-2 dark:text-dark-ink-secondary min-w-0">
+                <span className="font-medium">来源岗位：</span>
+                <span className="truncate">{sourceJob.company} · {sourceJob.position}</span>
+                {sourceJob.base_location && (
+                  <span className="text-ink-3 ml-1">· {sourceJob.base_location}</span>
+                )}
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-ink-2 mb-1.5">分支名称</label>
             <Input
@@ -371,6 +421,27 @@ export default function ResumeList() {
                 ))}
             </select>
           </div>
+          {sourceJob?.requirements_md && sourceJob.requirements_md.length >= 50 && (
+            <div
+              data-testid="new-branch-requirements"
+              className="rounded-md border border-surface-border dark:border-dark-surface-border overflow-hidden"
+            >
+              <button
+                type="button"
+                onClick={() => setRequirementsOpen((v) => !v)}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-ink-2 hover:bg-surface-muted dark:hover:bg-dark-surface-muted transition-colors"
+                aria-expanded={requirementsOpen}
+              >
+                <span>岗位招聘需求（{sourceJob.requirements_md.length} 字）</span>
+                {requirementsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+              {requirementsOpen && (
+                <div className="px-3 py-2 text-2xs text-ink-3 leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap border-t border-surface-border dark:border-dark-surface-border">
+                  {sourceJob.requirements_md}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
 

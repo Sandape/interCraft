@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +34,12 @@ class Job(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     notes_md: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 019 — extended job fields (base_location / requirements_md / employment_type / salary_range_text / headcount)
+    base_location: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    requirements_md: Mapped[str | None] = mapped_column(Text, nullable=True)
+    employment_type: Mapped[str] = mapped_column(Text, nullable=False, default="unspecified", server_default="unspecified")
+    salary_range_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    headcount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

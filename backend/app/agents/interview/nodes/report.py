@@ -57,6 +57,18 @@ async def report_node(state: InterviewGraphState) -> dict:
     if not report_data:
         report_data = _fallback_report(scores, questions)
 
+    # 019 — append a requirements_summary block when the interview was
+    # launched from a job that has requirements_md. We append instead of
+    # mutate so the LLM-generated summary stays untouched.
+    if state.get("requirements_provided") and state.get("requirements_md"):
+        original = state.get("requirements_md", "")
+        snippet = original[:500]
+        suffix = "…" if len(original) > 500 else ""
+        report_data["requirements_summary"] = (
+            f"本次面试基于岗位招聘需求生成题目。原始需求 ({state.get('requirements_original_chars', len(original))} 字):\n\n"
+            f"{snippet}{suffix}"
+        )
+
     overall_score = report_data.get("overall_score", 5.0)
 
     return {

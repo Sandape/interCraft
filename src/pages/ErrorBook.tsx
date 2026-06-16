@@ -3,6 +3,7 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronRight,
+  Link2,
   Plus,
   RotateCcw,
   Search,
@@ -21,6 +22,7 @@ import { FrequencyBadge } from '@/components/errors/FrequencyBadge'
 import { useErrorQuestions } from '@/hooks/queries/useErrorQuestions'
 import {
   useArchiveErrorQuestion,
+  useClearErrorQuestionSource,
   useCreateErrorQuestion,
   useRecallErrorQuestion,
   useResetErrorQuestion,
@@ -46,6 +48,16 @@ const STATUS_TABS = [
 
 function dimensionLabel(value: string | null) {
   return DIMENSIONS.find((d) => d.value === value)?.label ?? '未分类'
+}
+
+function SourceBadge({ item }: { item: ErrorQuestion }) {
+  if (!item.source_question_id) return null
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 text-2xs font-medium text-purple-700 dark:text-purple-300">
+      <Link2 className="h-2.5 w-2.5" />
+      面试来源
+    </span>
+  )
 }
 
 function errorMessage(error: unknown) {
@@ -83,6 +95,7 @@ export default function ErrorBook() {
   const archiveMutation = useArchiveErrorQuestion()
   const recallMutation = useRecallErrorQuestion()
   const resetMutation = useResetErrorQuestion()
+  const clearSourceMutation = useClearErrorQuestionSource()
 
   const items = useMemo(
     () => (data?.data ?? []).filter((item) => !hiddenIds.has(item.id)),
@@ -134,6 +147,14 @@ export default function ErrorBook() {
     setFeedback(null)
     resetMutation.mutate(id, {
       onSuccess: () => setFeedback('已重置为未掌握'),
+      onError: (err) => setFeedback(errorMessage(err)),
+    })
+  }
+
+  const handleClearSource = (id: string) => {
+    setFeedback(null)
+    clearSourceMutation.mutate(id, {
+      onSuccess: () => setFeedback('已清除面试来源，变为手动错题'),
       onError: (err) => setFeedback(errorMessage(err)),
     })
   }
@@ -261,11 +282,12 @@ export default function ErrorBook() {
           {selected ? (
             <ErrorDetail
               item={selected}
-              isBusy={recallMutation.isPending || resetMutation.isPending || archiveMutation.isPending}
+              isBusy={recallMutation.isPending || resetMutation.isPending || archiveMutation.isPending || clearSourceMutation.isPending}
               onClose={() => setSelectedId(null)}
               onRecall={handleRecall}
               onReset={handleReset}
               onArchive={handleArchive}
+              onClearSource={handleClearSource}
               onStartCoach={(id) => setCoachQuestionId(id)}
             />
           ) : (
@@ -326,6 +348,7 @@ function ErrorCard({
             <StatusBadge status={item.status} />
             <FrequencyBadge frequency={item.frequency} />
             <span className="text-2xs text-ink-3">{dimensionLabel(item.dimension)}</span>
+            <SourceBadge item={item} />
           </div>
           <p className="text-sm text-ink-1 font-medium leading-snug line-clamp-2">
             {item.question_text}
@@ -347,6 +370,7 @@ function ErrorDetail({
   onRecall,
   onReset,
   onArchive,
+  onClearSource,
   onStartCoach,
 }: {
   item: ErrorQuestion
@@ -355,6 +379,7 @@ function ErrorDetail({
   onRecall: (id: string) => void
   onReset: (id: string) => void
   onArchive: (id: string) => void
+  onClearSource: (id: string) => void
   onStartCoach: (id: string) => void
 }) {
   return (
@@ -381,6 +406,27 @@ function ErrorDetail({
       <DetailField label="能力维度" value={dimensionLabel(item.dimension)} />
       <DetailField label="得分" value={item.score == null ? '未评分' : `${item.score}/10`} />
       <DetailField label="最近练习" value={formatDate(item.last_practiced_at)} />
+
+      {item.source_question_id && (
+        <div className="mb-4 rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Link2 className="h-3 w-3 text-purple-600 dark:text-purple-400" />
+            <span className="text-xs font-medium text-purple-700 dark:text-purple-300">面试来源</span>
+          </div>
+          <p className="text-xs text-purple-600 dark:text-purple-400 mb-2">
+            此错题自动来自面试评分。清除来源后可变为手动错题。
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-800/30"
+            onClick={() => onClearSource(item.id)}
+            loading={isBusy}
+          >
+            清除来源
+          </Button>
+        </div>
+      )}
 
       <div className="space-y-2 pt-4 border-t border-surface-border dark:border-dark-surface-border">
         {item.frequency > 0 && (

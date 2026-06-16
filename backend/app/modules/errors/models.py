@@ -25,6 +25,13 @@ class ErrorQuestion(Base):
     source_session_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("interview_sessions.id", ondelete="SET NULL"), nullable=True
     )
+    # 019 — Interview→ErrorBook auto link
+    # Note: spec originally called for FK to interview_questions.id, but Phase 4 stores per-question
+    # scores in interview_reports.per_question_score JSONB and questions as ai_messages rows; the
+    # source_question_id column is therefore a plain UUID (logical reference, not enforced FK).
+    source_question_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=True
+    )
     dimension: Mapped[str | None] = mapped_column(Text, nullable=True)
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)

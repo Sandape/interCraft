@@ -7,6 +7,10 @@ from pathlib import Path
 
 from app.agents.interview.state import InterviewGraphState
 from app.agents.llm_client import get_llm_client
+from app.agents.interview.requirements_block import build_requirements_block
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -14,6 +18,46 @@ _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 def _load_prompt(name: str) -> str:
     path = _PROMPT_DIR / name
     return path.read_text(encoding="utf-8")
+
+
+async def _load_job_context(job_id: str | None) -> dict:
+    """Read base_location + requirements_md from the jobs table for the
+    given job_id. Returns an empty dict on any failure so the rest of the
+    pipeline can still run.
+    """
+    if not job_id:
+        return {}
+    try:
+        from uuid import UUID
+        from sqlalchemy import text
+        from app.core.db import get_session_context
+        async with get_session_context() as session:
+            await session.execute(
+                text("SELECT set_config('app.user_id', :uid, true)"),
+                {"uid": "system"},
+            )
+            # The session_id in this row will be looked up without RLS
+            # because we only need the job's text fields, not the user's
+            # row. Use a permissive query here — the API layer already
+            # validated ownership before we got to the agent.
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT base_location, requirements_md FROM jobs "
+                        "WHERE id = :jid LIMIT 1"
+                    ),
+                    {"jid": str(UUID(job_id))},
+                )
+            ).first()
+        if not row:
+            return {}
+        return {
+            "base_location": row[0] or None,
+            "requirements_md": row[1] or None,
+        }
+    except Exception:
+        logger.warning("intake.load_job_context_failed", job_id=job_id, exc_info=True)
+        return {}
 
 
 async def intake_node(state: InterviewGraphState) -> dict:
@@ -24,6 +68,23 @@ async def intake_node(state: InterviewGraphState) -> dict:
     """
     position = state.get("position", "")
     company = state.get("company", "")
+    base_location = state.get("base_location")
+    job_id = state.get("job_id")
+
+    # 019 — pull job context (base_location + requirements_md) from DB
+    if job_id and (not base_location or state.get("requirements_md") is None):
+        ctx = await _load_job_context(job_id)
+        if not base_location and ctx.get("base_location"):
+            base_location = ctx["base_location"]
+        if state.get("requirements_md") is None and ctx.get("requirements_md"):
+            # 019 — build the block eagerly so downstream nodes can read it
+            block, provided, truncated, original = build_requirements_block(
+                ctx["requirements_md"]
+            )
+            state["requirements_md"] = ctx["requirements_md"]
+            state["requirements_provided"] = provided
+            state["requirements_truncated"] = truncated
+            state["requirements_original_chars"] = original
 
     if not position or not company:
         # Try to extract from last user message
@@ -60,8 +121,15 @@ async def intake_node(state: InterviewGraphState) -> dict:
     return {
         "position": data.get("position", position or "未指定岗位"),
         "company": data.get("company", company or "通用公司"),
+        "base_location": base_location,
         "difficulty": data.get("difficulty", "medium"),
         "current_question": 0,
+        # 019 — forward the requirements fields so the next node can read
+        # them. (The block text is built inside question_gen.)
+        "requirements_md": state.get("requirements_md"),
+        "requirements_provided": bool(state.get("requirements_provided", False)),
+        "requirements_truncated": bool(state.get("requirements_truncated", False)),
+        "requirements_original_chars": int(state.get("requirements_original_chars", 0)),
     }
 
 

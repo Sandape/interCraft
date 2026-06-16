@@ -97,3 +97,15 @@ export function useRecallErrorQuestion() {
     },
   })
 }
+
+export function useClearErrorQuestionSource() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => getErrorQuestionRepository().clearSource(id),
+    onSuccess: (data: ErrorQuestion) => {
+      qc.setQueryData(['errorQuestion', data.id], data)
+      qc.setQueriesData<ErrorQuestionList>({ queryKey: ['errorQuestions'] }, (old) => replaceCachedQuestion(old, data))
+      qc.invalidateQueries({ queryKey: ['errorQuestions'] })
+    },
+  })
+}

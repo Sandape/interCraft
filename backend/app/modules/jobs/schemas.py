@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
+
+EmploymentType = Literal["internship", "campus", "experienced", "contract", "unspecified"]
 
 
 class CreateJobInput(BaseModel):
@@ -13,6 +16,12 @@ class CreateJobInput(BaseModel):
     jd_url: str | None = Field(default=None, pattern=r'^https?://.*')
     branch_id: UUID | None = None
     notes_md: str | None = None
+    # 019 — extended fields
+    base_location: str | None = Field(default=None, max_length=50)
+    requirements_md: str | None = Field(default=None, max_length=5000)
+    employment_type: EmploymentType = "unspecified"
+    salary_range_text: str | None = Field(default=None, max_length=100)
+    headcount: int | None = Field(default=None, ge=1)
 
 
 class PatchJobInput(BaseModel):
@@ -21,6 +30,12 @@ class PatchJobInput(BaseModel):
     jd_url: str | None = Field(default=None, pattern=r'^https?://.*')
     branch_id: UUID | None = None
     notes_md: str | None = None
+    # 019 — extended fields
+    base_location: str | None = Field(default=None, max_length=50)
+    requirements_md: str | None = Field(default=None, max_length=5000)
+    employment_type: EmploymentType | None = None
+    salary_range_text: str | None = Field(default=None, max_length=100)
+    headcount: int | None = Field(default=None, ge=1)
 
 
 class UpdateJobStatusInput(BaseModel):
@@ -45,6 +60,12 @@ class JobOut(BaseModel):
     status_history: list[dict]
     last_status_changed_at: datetime
     notes_md: str | None
+    # 019 — extended fields
+    base_location: str
+    requirements_md: str | None
+    employment_type: str
+    salary_range_text: str | None
+    headcount: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -82,5 +103,5 @@ class TransitionsOut(BaseModel):
 __all__ = [
     "CreateJobInput", "JobListOut", "JobOut", "JobStatsOut",
     "JobTimelineOut", "PatchJobInput", "UpdateJobStatusInput",
-    "TransitionEdge", "TransitionsOut",
+    "TransitionEdge", "TransitionsOut", "EmploymentType",
 ]

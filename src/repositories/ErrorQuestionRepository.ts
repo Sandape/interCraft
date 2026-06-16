@@ -5,6 +5,7 @@ import { errorBook as mockErrors } from '../data/mockData'
 export interface ErrorQuestion {
   id: string
   source_session_id: string | null
+  source_question_id: string | null
   dimension: string | null
   question_text: string
   answer_text: string | null
@@ -23,7 +24,7 @@ const BASE = '/api/v1/error-questions'
 
 export abstract class ErrorQuestionRepository {
   abstract list(params?: {
-    dimension?: string; status?: string; frequency_min?: number; limit?: number
+    dimension?: string; status?: string; frequency_min?: number; limit?: number; source?: string
   }): Promise<{ data: ErrorQuestion[]; next_cursor: string | null; has_more: boolean }>
   abstract create(input: {
     question_text: string; dimension?: string; answer_text?: string; reference_answer_md?: string; score?: number; tags?: string[]
@@ -33,17 +34,19 @@ export abstract class ErrorQuestionRepository {
   abstract archive(id: string): Promise<void>
   abstract reset(id: string): Promise<ErrorQuestion>
   abstract recall(id: string): Promise<ErrorQuestion>
+  abstract clearSource(id: string): Promise<ErrorQuestion>
 }
 
 export class HttpErrorQuestionRepository extends ErrorQuestionRepository {
   async list(params?: {
-    dimension?: string; status?: string; frequency_min?: number; limit?: number
+    dimension?: string; status?: string; frequency_min?: number; limit?: number; source?: string
   }): Promise<{ data: ErrorQuestion[]; next_cursor: string | null; has_more: boolean }> {
     const q = new URLSearchParams()
     if (params?.dimension) q.set('dimension', params.dimension)
     if (params?.status) q.set('status', params.status)
     if (params?.frequency_min !== undefined) q.set('frequency_min', String(params.frequency_min))
     if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.source) q.set('filter[source]', params.source)
     const qs = q.toString()
     return request('GET', `${BASE}${qs ? `?${qs}` : ''}`)
   }
@@ -73,12 +76,17 @@ export class HttpErrorQuestionRepository extends ErrorQuestionRepository {
   async recall(id: string): Promise<ErrorQuestion> {
     return request('POST', `${BASE}/${id}/recall`)
   }
+
+  async clearSource(id: string): Promise<ErrorQuestion> {
+    return request('POST', `${BASE}/${id}/clear-source`)
+  }
 }
 
 export class MockErrorQuestionRepository extends ErrorQuestionRepository {
   private store: ErrorQuestion[] = mockErrors.map((m: any) => ({
     id: m.id,
     source_session_id: null,
+    source_question_id: null,
     dimension: m.category || 'algorithm',
     question_text: m.question || '',
     answer_text: m.hint || '',
@@ -94,11 +102,13 @@ export class MockErrorQuestionRepository extends ErrorQuestionRepository {
   }))
 
   async list(params?: {
-    dimension?: string; status?: string; limit?: number
+    dimension?: string; status?: string; limit?: number; source?: string
   }): Promise<{ data: ErrorQuestion[]; next_cursor: null; has_more: boolean }> {
     let filtered = [...this.store]
     if (params?.dimension) filtered = filtered.filter(e => e.dimension === params.dimension)
     if (params?.status) filtered = filtered.filter(e => e.status === params.status)
+    if (params?.source === 'auto') filtered = filtered.filter(e => e.source_question_id != null)
+    else if (params?.source === 'manual') filtered = filtered.filter(e => e.source_question_id == null)
     const data = filtered.slice(0, params?.limit || 20)
     return { data, next_cursor: null, has_more: data.length >= (params?.limit || 20) }
   }
@@ -110,6 +120,7 @@ export class MockErrorQuestionRepository extends ErrorQuestionRepository {
     const eq: ErrorQuestion = {
       id: `eq-${Date.now()}`,
       source_session_id: null,
+      source_question_id: null,
       dimension: input.dimension || 'algorithm',
       question_text: input.question_text,
       answer_text: input.answer_text || null,
@@ -157,6 +168,13 @@ export class MockErrorQuestionRepository extends ErrorQuestionRepository {
       frequency,
       status: frequency === 0 ? 'mastered' : frequency < 3 ? 'practicing' : 'fresh',
       last_practiced_at: new Date().toISOString(),
+    })
+  }
+
+  async clearSource(id: string): Promise<ErrorQuestion> {
+    return this.patch(id, {
+      source_session_id: null,
+      source_question_id: null,
     })
   }
 }

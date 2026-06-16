@@ -4,7 +4,7 @@ import type { ErrorQuestion } from '../../repositories/ErrorQuestionRepository'
 import { getErrorQuestionRepository } from '../../repositories/types'
 
 export function useErrorQuestions(params?: {
-  dimension?: string; status?: string; frequency_min?: number; limit?: number
+  dimension?: string; status?: string; frequency_min?: number; limit?: number; source?: string
 }) {
   return useQuery({
     queryKey: ['errorQuestions', params],

@@ -39,6 +39,12 @@ class JobService:
             jd_url=data.get("jd_url"),
             branch_id=data.get("branch_id"),
             notes_md=data.get("notes_md"),
+            # 019 — extended job fields
+            base_location=data.get("base_location") or "",
+            requirements_md=data.get("requirements_md"),
+            employment_type=data.get("employment_type") or "unspecified",
+            salary_range_text=data.get("salary_range_text"),
+            headcount=data.get("headcount"),
             status="applied",
             status_history=[{"from": None, "to": "applied", "at": now.isoformat(), "note": ""}],
             last_status_changed_at=now,
@@ -59,6 +65,16 @@ class JobService:
 
     async def patch(self, id: UUID, user_id: UUID, data: dict) -> Job:
         job = await self.get(id, user_id)
+        # 019 — when binding a branch, verify it belongs to the same user.
+        if "branch_id" in data and data["branch_id"] is not None:
+            from app.modules.resumes.repository import ResumeRepository
+            branch_repo = ResumeRepository(self.session)
+            branch = await branch_repo.get(data["branch_id"], user_id=user_id)
+            if branch is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Branch not found or not owned by current user",
+                )
         return await self.repo.patch(id, user_id, data) or job
 
     async def update_status(self, id: UUID, user_id: UUID, to: str, note: str = "") -> Job:

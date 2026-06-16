@@ -13,6 +13,7 @@ const MOCK_USER = {
   years_of_experience: 3,
   target_role: '高级前端工程师',
   bio: null,
+  avatar_url: null,
   subscription: 'free',
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-12T00:00:00Z',
@@ -51,6 +52,29 @@ const BLOCKS = [
     updated_at: '2026-06-12T00:00:00Z',
   },
 ]
+
+const SESSION_BODY = {
+  id: 'mock-session-1',
+  user_id: MOCK_USER.id,
+  branch_id: null,
+  position: null,
+  company: null,
+  mode: 'text',
+  status: 'pending',
+  thread_id: null,
+  job_id: null,
+  overall_score: null,
+  score: null,
+  duration_seconds: null,
+  duration_sec: null,
+  question_count: null,
+  started_at: null,
+  ended_at: null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  base_location: null,
+  requirements_md: null,
+}
 
 export const handlers = [
   // ---- Auth ----
@@ -121,14 +145,16 @@ export const handlers = [
   http.post('http://localhost:8000/api/v1/resume-branches', async ({ request }) => {
     const body = (await request.json()) as { name: string }
     return HttpResponse.json({
-      id: `branch-${Date.now()}`,
-      user_id: MOCK_USER.id,
-      parent_id: null,
-      name: body.name,
-      is_main: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      last_edited_at: null,
+      branch: {
+        id: `branch-${Date.now()}`,
+        user_id: MOCK_USER.id,
+        parent_id: null,
+        name: body.name,
+        is_main: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_edited_at: null,
+      },
     })
   }),
   http.delete('http://localhost:8000/api/v1/resume-branches/:id', () => new HttpResponse(null, { status: 204 })),
@@ -195,5 +221,119 @@ export const handlers = [
       new_branch: { ...BRANCHES[0], id: 'rollback-branch', name: '回滚 v1' },
       restored_version_no: 1,
     }),
+  ),
+
+  // ---- 019 — Jobs (cross-module linking) ----
+  http.get('http://localhost:8000/api/v1/jobs', () =>
+    HttpResponse.json({
+      data: [
+        {
+          id: 'job-mock-1',
+          user_id: MOCK_USER.id,
+          company: '字节',
+          position: '高级前端',
+          jd_url: null,
+          branch_id: null,
+          status: 'applied',
+          status_history: [],
+          note: null,
+          base_location: '北京',
+          requirements_md:
+            '## 岗位要求\n- 3年以上 React 经验\n- 熟悉可视化与 canvas 渲染\n- 有大型项目性能优化经验\n- 良好的工程化与团队协作能力',
+          employment_type: 'experienced',
+          salary_range_text: '30-50K',
+          headcount: 5,
+          created_at: '2026-06-17T00:00:00Z',
+          updated_at: '2026-06-17T00:00:00Z',
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    }),
+  ),
+  http.get('http://localhost:8000/api/v1/jobs/:id', ({ params }) =>
+    HttpResponse.json({
+      id: params.id,
+      user_id: MOCK_USER.id,
+      company: '字节',
+      position: '高级前端',
+      jd_url: null,
+      branch_id: null,
+      status: 'applied',
+      status_history: [],
+      note: null,
+      base_location: '北京',
+      requirements_md:
+        '## 岗位要求\n- 3年以上 React 经验\n- 熟悉可视化与 canvas 渲染\n- 有大型项目性能优化经验\n- 良好的工程化与团队协作能力',
+      employment_type: 'experienced',
+      salary_range_text: '30-50K',
+      headcount: 5,
+      created_at: '2026-06-17T00:00:00Z',
+      updated_at: '2026-06-17T00:00:00Z',
+    }),
+  ),
+  http.patch('http://localhost:8000/api/v1/jobs/:id', async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>
+    return HttpResponse.json({
+      id: params.id,
+      user_id: MOCK_USER.id,
+      company: '字节',
+      position: '高级前端',
+      jd_url: null,
+      branch_id: body.branch_id ?? null,
+      status: 'applied',
+      status_history: [],
+      note: null,
+      base_location: '北京',
+      requirements_md: null,
+      employment_type: 'experienced',
+      salary_range_text: null,
+      headcount: null,
+      created_at: '2026-06-17T00:00:00Z',
+      updated_at: '2026-06-17T00:00:00Z',
+    })
+  }),
+
+  // ---- 019 — Interview sessions (cross-module linking, US3) ----
+  http.post('http://localhost:8000/api/v1/interview-sessions', async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>
+    return HttpResponse.json({
+      data: {
+        ...SESSION_BODY,
+        id: `mock-session-${Date.now()}`,
+        branch_id: body.branch_id ?? null,
+        position: body.position ?? null,
+        company: body.company ?? null,
+        mode: body.mode ?? 'text',
+        job_id: body.job_id ?? null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    })
+  }),
+  http.get('http://localhost:8000/api/v1/interview-sessions/:id', () =>
+    HttpResponse.json({ data: { ...SESSION_BODY, id: 'sess-stub' } }),
+  ),
+  http.get('http://localhost:8000/api/v1/interview-sessions', () =>
+    HttpResponse.json({ data: [], next_cursor: null, has_more: false }),
+  ),
+  http.post('http://localhost:8000/api/v1/interview-sessions/:id/start', () =>
+    HttpResponse.json({
+      data: { id: 'sess-stub', status: 'running', started_at: new Date().toISOString() },
+    }),
+  ),
+  http.post('http://localhost:8000/api/v1/interview-sessions/:id/answers', () =>
+    HttpResponse.json({ data: { accepted: true } }),
+  ),
+  http.get('http://localhost:8000/api/v1/interview-sessions/:id/resume', () =>
+    HttpResponse.json({
+      data: {
+        thread_id: 'thread-stub',
+        values: { messages: [], questions: [], scores: [] },
+      },
+    }),
+  ),
+  http.delete('http://localhost:8000/api/v1/interview-sessions/:id', () =>
+    new HttpResponse(null, { status: 204 }),
   ),
 ]

@@ -13,8 +13,22 @@ export interface InterviewSession {
   duration_seconds: number | null
   question_count: number | null
   thread_id: string | null
+  job_id: string | null
+  branch_id: string | null
+  base_location: string | null
+  requirements_md: string | null
   created_at: string
   updated_at: string
+}
+
+export interface CreateInterviewSessionInput {
+  position: string
+  company: string
+  branch_id?: string | null
+  mode?: string
+  job_id?: string | null
+  base_location?: string | null
+  requirements_md?: string | null
 }
 
 const BASE = '/api/v1/interview-sessions'
@@ -22,6 +36,7 @@ const BASE = '/api/v1/interview-sessions'
 export abstract class InterviewSessionRepository {
   abstract list(params?: { status?: string; limit?: number }): Promise<{ data: InterviewSession[] }>
   abstract get(id: string): Promise<InterviewSession>
+  abstract create(input: CreateInterviewSessionInput): Promise<InterviewSession>
   abstract delete(id: string): Promise<void>
 }
 
@@ -36,6 +51,18 @@ export class HttpInterviewSessionRepository extends InterviewSessionRepository {
 
   async get(id: string): Promise<InterviewSession> {
     return request('GET', `${BASE}/${id}`)
+  }
+
+  async create(input: CreateInterviewSessionInput): Promise<InterviewSession> {
+    const body = {
+      position: input.position,
+      company: input.company,
+      branch_id: input.branch_id ?? null,
+      mode: input.mode ?? 'text',
+      job_id: input.job_id ?? null,
+    }
+    const res = await request<{ data: InterviewSession }>('POST', BASE, body)
+    return res.data
   }
 
   async delete(id: string): Promise<void> {
@@ -56,6 +83,10 @@ export class MockInterviewSessionRepository extends InterviewSessionRepository {
       duration_seconds: m.duration || 0,
       question_count: m.questions ?? null,
       thread_id: null,
+      job_id: null,
+      branch_id: null,
+      base_location: null,
+      requirements_md: null,
       created_at: m.date || new Date().toISOString(),
       updated_at: m.date || new Date().toISOString(),
     })) }
@@ -75,8 +106,33 @@ export class MockInterviewSessionRepository extends InterviewSessionRepository {
       duration_seconds: (found.duration || 0) * 60,
       question_count: found.questions ?? null,
       thread_id: null,
+      job_id: null,
+      branch_id: null,
+      base_location: null,
+      requirements_md: null,
       created_at: found.date || new Date().toISOString(),
       updated_at: found.date || new Date().toISOString(),
+    }
+  }
+
+  async create(input: CreateInterviewSessionInput): Promise<InterviewSession> {
+    return {
+      id: `mock-session-${Date.now()}`,
+      mode: input.mode ?? 'text',
+      status: 'pending',
+      position: input.position,
+      company: input.company,
+      score: null,
+      overall_score: null,
+      duration_seconds: null,
+      question_count: null,
+      thread_id: null,
+      job_id: input.job_id ?? null,
+      branch_id: input.branch_id ?? null,
+      base_location: input.base_location ?? null,
+      requirements_md: input.requirements_md ?? null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }
   }
 

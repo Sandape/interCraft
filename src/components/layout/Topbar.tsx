@@ -290,7 +290,8 @@ function MenuItem({
   danger,
   onClick,
   disabled,
-  'data-testid': testId,
+  'data-testid': dataTestId,
+  testId,
 }: {
   children: React.ReactNode
   danger?: boolean
@@ -302,7 +303,7 @@ function MenuItem({
   return (
     <button
       type="button"
-      data-testid={testId}
+      data-testid={dataTestId ?? testId}
       role="menuitem"
       onClick={onClick}
       disabled={disabled}

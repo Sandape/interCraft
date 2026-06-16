@@ -19,7 +19,8 @@ class InterviewGraphState(TypedDict, total=False):
     scores: accumulated list of score results.
     resume_context: optional resume content for contextual questions.
     position: target job position.
-    company: target company name.
+    company: target job company.
+    base_location: target job base location (019).
     difficulty: interview difficulty level (default "medium").
     branch_id: optional resume branch for context.
     overall_score: final aggregated score (set by report node).
@@ -27,6 +28,12 @@ class InterviewGraphState(TypedDict, total=False):
     error: error message if a node failed.
     user_id: authenticated user UUID (required for LLM quota tracking).
     thread_id: conversation thread ID.
+    job_id: optional job UUID (019 — drives requirements_md prefill).
+    # 019 — requirements injection (consumed by question_gen + report)
+    requirements_md: str | None
+    requirements_provided: bool
+    requirements_truncated: bool
+    requirements_original_chars: int
     """
 
     messages: Annotated[list[dict[str, Any]], add_messages]
@@ -36,6 +43,7 @@ class InterviewGraphState(TypedDict, total=False):
     resume_context: dict[str, Any] | None
     position: str
     company: str
+    base_location: str | None
     difficulty: str
     branch_id: str | None
     overall_score: float | None
@@ -43,6 +51,11 @@ class InterviewGraphState(TypedDict, total=False):
     error: str | None
     user_id: str
     thread_id: str
+    job_id: str | None
+    requirements_md: str | None
+    requirements_provided: bool
+    requirements_truncated: bool
+    requirements_original_chars: int
 
 
 __all__ = ["InterviewGraphState"]

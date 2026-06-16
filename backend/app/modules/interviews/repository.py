@@ -40,6 +40,7 @@ class InterviewSessionRepository:
         company: str,
         branch_id: UUID | None = None,
         mode: str = "text",
+        job_id: UUID | None = None,
     ) -> InterviewSession:
         session = InterviewSession(
             id=uuid4(),
@@ -48,6 +49,7 @@ class InterviewSessionRepository:
             company=company,
             branch_id=branch_id,
             mode=mode,
+            job_id=job_id,
             status="pending",
         )
         self.session.add(session)

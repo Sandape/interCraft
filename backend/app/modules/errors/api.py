@@ -29,13 +29,14 @@ async def list_questions(
     dimension: str | None = Query(default=None),
     status: str | None = Query(default=None),
     frequency_min: int = Query(default=0, ge=0, le=3),
+    source: str | None = Query(default=None, alias="filter[source]"),
     limit: int = Query(default=20, ge=1, le=50),
     user_id: UUID = Depends(get_current_user_id),
     svc: ErrorService = Depends(_get_service),
 ) -> dict:
     data = await svc.list(
         user_id, dimension=dimension, status=status,
-        frequency_min=frequency_min, limit=limit,
+        frequency_min=frequency_min, source=source, limit=limit,
     )
     return {"data": data, "next_cursor": None, "has_more": len(data) >= limit}
 
@@ -94,6 +95,18 @@ async def recall_question(
     svc: ErrorService = Depends(_get_service),
 ) -> ErrorQuestionOut:
     return await svc.recall(id, user_id)
+
+
+# 019 — User review: detach the error question from its interview source,
+# so it becomes a standalone (user-manual) entry. The question itself is
+# kept — only the source_session_id / source_question_id are cleared.
+@router.post("/{id}/clear-source", response_model=ErrorQuestionOut)
+async def clear_source(
+    id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    svc: ErrorService = Depends(_get_service),
+) -> ErrorQuestionOut:
+    return await svc.clear_source(id, user_id)
 
 
 __all__ = ["router"]

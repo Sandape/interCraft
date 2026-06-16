@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
+from typing import Literal
 
 ALLOWED_DIMENSIONS = {
     "tech_depth", "architecture", "engineering_practice",
@@ -57,6 +58,8 @@ class PatchErrorQuestionInput(BaseModel):
 class ErrorQuestionOut(BaseModel):
     id: UUID
     source_session_id: UUID | None
+    # 019 — Interview→ErrorBook auto link
+    source_question_id: UUID | None = None
     dimension: str | None
     question_text: str
     answer_text: str | None
@@ -79,9 +82,14 @@ class ErrorQuestionListOut(BaseModel):
     has_more: bool = False
 
 
+# 019 — source filter accepted by GET /error-questions
+ErrorQuestionSource = Literal["auto", "manual", "all"]
+
+
 __all__ = [
     "CreateErrorQuestionInput",
     "ErrorQuestionListOut",
     "ErrorQuestionOut",
+    "ErrorQuestionSource",
     "PatchErrorQuestionInput",
 ]

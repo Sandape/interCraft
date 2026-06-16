@@ -87,6 +87,7 @@ class ErrorService:
         dimension: str | None = None,
         status: str | None = None,
         frequency_min: int = 0,
+        source: str | None = None,
         limit: int = 20,
     ) -> list:
         return await self.repo.list(
@@ -94,6 +95,7 @@ class ErrorService:
             dimension=dimension,
             status=status,
             frequency_min=frequency_min,
+            source=source,
             limit=limit,
         )
 
@@ -153,6 +155,14 @@ class ErrorService:
                 detail="Only 'mastered' questions can be reset to 'fresh'",
             )
         return await self.repo.reset(id, user_id)
+
+    async def clear_source(self, id: UUID, user_id: UUID) -> ErrorQuestion:
+        """Clear source_session_id and source_question_id (user review)."""
+        _ = await self.get(id, user_id)  # ensure existence
+        instance = await self.repo.clear_source(id, user_id)
+        if instance is None:
+            raise HTTPException(status_code=404, detail="Error question not found")
+        return instance
 
     async def recall(self, id: UUID, user_id: UUID) -> ErrorQuestion:
         current = await self.get(id, user_id)
