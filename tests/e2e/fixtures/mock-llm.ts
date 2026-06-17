@@ -198,5 +198,16 @@ export const MOCK_REGISTER_USER = {
   display_name: 'E2E 019 联动冒烟',
 }
 
-export const API_BASE = process.env.E2E_API_BASE ?? 'http://127.0.0.1:8000'
-export const WS_BASE = process.env.E2E_WS_BASE ?? 'ws://127.0.0.1:8000'
+// 020 (FIX-011) — guard `process` for browser bundle. `useInterviewWS.mock.ts`
+// imports MOCK_ROUNDS from this file, and Vite will pull the whole file
+// into the frontend bundle. The browser has no `process` global, so any
+// `process.env.X` reference must be guarded or it will ReferenceError on
+// page load (white-screen crash).
+const _env = (key: string, fallback: string): string => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[key] ?? fallback
+  }
+  return fallback
+}
+export const API_BASE = _env('E2E_API_BASE', 'http://127.0.0.1:8000')
+export const WS_BASE = _env('E2E_WS_BASE', 'ws://127.0.0.1:8000')

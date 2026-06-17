@@ -22,15 +22,22 @@ export default defineConfig({
   /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: 'html',
+  reporter: [['list'], ['json', { outputFile: 'test-results/round-1-results.json' }], ['html', { outputFolder: 'test-results/html-report', open: 'never' }]],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL for `page.goto('/login')` and friends. */
     baseURL: 'http://localhost:5173',
 
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
+    /* Collect trace, video, and screenshot for every test (preserved for evidence) */
+    trace: 'on',
+    video: 'retain-on-failure',
+    screenshot: 'on',
   },
+
+  /* Preserve test output even on success (for evidence/audit) */
+  outputDir: './test-results/output',
+  /* Video dir under tests/e2e/ (per spec: D:\Project\eGGG\tests\e2e\videos) */
+  // video path is configured via use.video; default location is test-results/
 
   /* Configure projects for major browsers */
   projects: [
