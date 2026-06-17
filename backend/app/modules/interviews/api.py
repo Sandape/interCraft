@@ -58,7 +58,13 @@ async def create_session(
 ) -> dict:
     """Create an interview session and initialize LangGraph thread."""
     result = await svc.create(user_id, body)
-    return {"data": result}
+    # 020 (FIX-007, D-006): route the ORM through the Pydantic response
+    # schema so the response_model actually applies. Without this, the
+    # dict-wrapped ORM bypasses FastAPI's response_model enforcement
+    # and leaks 9+ ORM-only fields (position, company, mode, …).
+    return {
+        "data": InterviewSessionCreateOut.model_validate({"data": result}).model_dump()["data"]
+    }
 
 
 # ---- Phase 4: start ----

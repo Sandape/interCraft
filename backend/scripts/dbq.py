@@ -58,6 +58,22 @@ async def _connect():
     return await asyncpg.connect(dsn, **connect_kwargs)
 
 
+async def _fetch_with_user(conn, sql: str, user_id: str | None):
+    """Execute a SQL statement. If user_id is set, wrap the execution
+    in a transaction with `SET LOCAL app.user_id = '<uuid>'` first so
+    RLS policies (for both reads AND writes) can resolve to a concrete
+    user. Without this, RLS-protected tables will silently UPDATE 0
+    rows (because current_setting('app.user_id') is NULL and the
+    policy's USING clause fails).
+    """
+    sql = sql.strip()
+    if user_id:
+        async with conn.transaction():
+            await conn.execute(f"SET LOCAL app.user_id = '{user_id}'")
+            return await conn.fetch(sql)
+    return await conn.fetch(sql)
+
+
 # ── pretty printer ────────────────────────────────────────────────────────
 
 def _fmt(val: Any, max_width: int = 48) -> str:
@@ -245,7 +261,7 @@ async def cmd_rows(conn, args: argparse.Namespace) -> None:
     if not args.quiet:
         print(f"-- {sql}", file=sys.stderr)
 
-    records = await conn.fetch(sql)
+    records = await _fetch_with_user(conn, sql, getattr(args, "user_id", None))
     if not records:
         print("(no rows)")
         return
@@ -269,7 +285,7 @@ async def cmd_sql(conn, args: argparse.Namespace) -> None:
     if not args.quiet:
         print(f"-- {sql}", file=sys.stderr)
 
-    records = await conn.fetch(sql)
+    records = await _fetch_with_user(conn, sql, getattr(args, "user_id", None))
     if not records:
         print("(ok, no rows returned)")
         return
@@ -436,6 +452,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Top-level flags only
     p.add_argument("--version", action="version", version="dbq 0.1")
+    p.add_argument(
+        "--user-id",
+        default=None,
+        help="UUID to set as app.user_id GUC before SELECTs (RLS bypass via SET LOCAL)",
+    )
 
     sub = p.add_subparsers(dest="command", required=True)
 

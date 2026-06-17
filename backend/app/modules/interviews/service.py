@@ -18,6 +18,89 @@ from app.repositories.interview_report_repo import InterviewReportRepo
 logger = structlog.get_logger(__name__)
 
 
+async def sync_ability_dimensions(
+    session: AsyncSession, session_id: UUID, user_id: UUID
+) -> None:
+    """Synchronously upsert per-dimension scores from the interview report
+    into `ability_dimensions` so `/ability-profile` reflects the new scores
+    immediately after interview completion — no waiting on the async ARQ
+    `ability_diagnose` worker.
+
+    Mirrors `app.agents.nodes.ability_diagnose.update_dimensions` but is
+    synchronous and LLM-free. Failures are logged and swallowed: an ability
+    sync failure MUST NOT fail the interview completion request.
+
+    Module-level (not a method) so it can be invoked from the WebSocket
+    interview handler at ``app/api/v1/ws/interview.py`` which runs on its own
+    session lifecycle, separate from the HTTP ``InterviewSessionService``.
+    """
+    try:
+        report = await InterviewReportRepo(session).get_by_session_id(session_id)
+        if report is None:
+            logger.warning(
+                "interview.ability_sync.no_report",
+                session_id=str(session_id),
+                user_id=str(user_id),
+            )
+            return
+
+        dimension_scores = report.dimension_scores or {}
+        if not dimension_scores:
+            logger.warning(
+                "interview.ability_sync.empty_dimensions",
+                session_id=str(session_id),
+                user_id=str(user_id),
+            )
+            return
+
+        await session.execute(
+            text("SELECT set_config('app.user_id', :uid, true)"),
+            {"uid": str(user_id)},
+        )
+
+        upsert_dim = text(
+            """INSERT INTO ability_dimensions
+            (id, user_id, dimension_key, actual_score, ideal_score,
+             sub_scores, is_active, source, last_updated_at,
+             created_at, updated_at)
+            VALUES (:id, :uid, :dim, :score, 10, '{}'::jsonb,
+                    true, 'interview', :now, :now, :now)
+            ON CONFLICT (user_id, dimension_key) DO UPDATE
+            SET actual_score = EXCLUDED.actual_score,
+                source = 'interview',
+                last_updated_at = EXCLUDED.last_updated_at,
+                updated_at = EXCLUDED.updated_at"""
+        )
+
+        now = datetime.now(UTC)
+        for dim_key, score in dimension_scores.items():
+            await session.execute(
+                upsert_dim,
+                {
+                    "id": uuid4(),
+                    "uid": user_id,
+                    "dim": dim_key,
+                    "score": Decimal(str(score)),
+                    "now": now,
+                },
+            )
+
+        await session.commit()
+        logger.info(
+            "interview.ability_sync.completed",
+            session_id=str(session_id),
+            user_id=str(user_id),
+            dimensions=list(dimension_scores.keys()),
+        )
+    except Exception:
+        logger.error(
+            "interview.ability_sync.failed",
+            session_id=str(session_id),
+            user_id=str(user_id),
+            exc_info=True,
+        )
+
+
 class InterviewSessionService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -218,7 +301,7 @@ class InterviewSessionService:
             # Synchronously upsert per-dimension scores so /ability-profile
             # reflects the new scores immediately. The async arq job below
             # still runs for LLM-generated insights and history snapshots.
-            await self._sync_ability_dimensions(id, user_id)
+            await sync_ability_dimensions(self.session, id, user_id)
 
             # Enqueue ability diagnosis so the dashboard reflects interview scores.
             # Best-effort — failure here must not fail the API request.
@@ -246,80 +329,13 @@ class InterviewSessionService:
             raise HTTPException(status_code=404, detail="Interview session not found")
 
     async def _sync_ability_dimensions(self, session_id: UUID, user_id: UUID) -> None:
-        """Synchronously upsert per-dimension scores from the interview report
-        into `ability_dimensions` so `/ability-profile` reflects the new scores
-        immediately after interview completion — no waiting on the async ARQ
-        `ability_diagnose` worker.
-
-        Mirrors `app.agents.nodes.ability_diagnose.update_dimensions` but is
-        synchronous and LLM-free. Failures are logged and swallowed: an ability
-        sync failure MUST NOT fail the interview completion request.
+        """Backwards-compat shim — delegates to the module-level
+        :func:`sync_ability_dimensions`. Kept so any external caller that
+        bound to the method still works. New callers should use the module
+        function so it can be invoked from non-service paths (e.g. the
+        WebSocket interview handler that runs on its own session).
         """
-        try:
-            report = await InterviewReportRepo(self.session).get_by_session_id(session_id)
-            if report is None:
-                logger.warning(
-                    "interview.ability_sync.no_report",
-                    session_id=str(session_id),
-                    user_id=str(user_id),
-                )
-                return
-
-            dimension_scores = report.dimension_scores or {}
-            if not dimension_scores:
-                logger.warning(
-                    "interview.ability_sync.empty_dimensions",
-                    session_id=str(session_id),
-                    user_id=str(user_id),
-                )
-                return
-
-            await self.session.execute(
-                text("SELECT set_config('app.user_id', :uid, true)"),
-                {"uid": str(user_id)},
-            )
-
-            upsert_dim = text(
-                """INSERT INTO ability_dimensions
-                (id, user_id, dimension_key, actual_score, ideal_score,
-                 sub_scores, is_active, source, last_updated_at,
-                 created_at, updated_at)
-                VALUES (:id, :uid, :dim, :score, 10, '{}'::jsonb,
-                        true, 'interview', :now, :now, :now)
-                ON CONFLICT (user_id, dimension_key) DO UPDATE
-                SET actual_score = EXCLUDED.actual_score,
-                    source = 'interview',
-                    last_updated_at = EXCLUDED.last_updated_at,
-                    updated_at = EXCLUDED.updated_at"""
-            )
-
-            now = datetime.now(UTC)
-            for dim_key, score in dimension_scores.items():
-                await self.session.execute(
-                    upsert_dim,
-                    {
-                        "id": uuid4(),
-                        "uid": user_id,
-                        "dim": dim_key,
-                        "score": Decimal(str(score)),
-                        "now": now,
-                    },
-                )
-
-            await self.session.commit()
-            logger.info(
-                "interview.ability_sync.completed",
-                session_id=str(session_id),
-                user_id=str(user_id),
-                dimensions=list(dimension_scores.keys()),
-            )
-        except Exception:
-            logger.error(
-                "interview.ability_sync.failed",
-                session_id=str(session_id),
-                user_id=str(user_id),
-                exc_info=True,
-            )
+        await sync_ability_dimensions(self.session, session_id, user_id)
 
     async def resume(self, id: UUID, user_id: UUID) -> dict:
         session = await self.repo.get(id, user_id)

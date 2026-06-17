@@ -29,14 +29,24 @@ async def list_questions(
     dimension: str | None = Query(default=None),
     status: str | None = Query(default=None),
     frequency_min: int = Query(default=0, ge=0, le=3),
-    source: str | None = Query(default=None, alias="filter[source]"),
+    # 020 (FIX-005, D-004): `?source=` is the canonical form per the
+    # 019 contract; `?filter[source]=` is a deprecated alias kept for
+    # one release so existing consumers keep working. The canonical
+    # value wins when both are provided.
+    source: str | None = Query(default=None, description="Canonical: auto|manual|all"),
+    filter_source: str | None = Query(
+        default=None,
+        alias="filter[source]",
+        description="Deprecated alias for ?source=; kept for one release.",
+    ),
     limit: int = Query(default=20, ge=1, le=50),
     user_id: UUID = Depends(get_current_user_id),
     svc: ErrorService = Depends(_get_service),
 ) -> dict:
+    effective_source = source if source is not None else filter_source
     data = await svc.list(
         user_id, dimension=dimension, status=status,
-        frequency_min=frequency_min, source=source, limit=limit,
+        frequency_min=frequency_min, source=effective_source, limit=limit,
     )
     return {"data": data, "next_cursor": None, "has_more": len(data) >= limit}
 
@@ -100,7 +110,10 @@ async def recall_question(
 # 019 — User review: detach the error question from its interview source,
 # so it becomes a standalone (user-manual) entry. The question itself is
 # kept — only the source_session_id / source_question_id are cleared.
-@router.post("/{id}/clear-source", response_model=ErrorQuestionOut)
+# 020 (FIX-004, D-003): method changed POST → PATCH to match the
+# contract; PATCH is REST-correct for a server-side state mutation of
+# a single resource.
+@router.patch("/{id}/clear-source", response_model=ErrorQuestionOut)
 async def clear_source(
     id: UUID,
     user_id: UUID = Depends(get_current_user_id),

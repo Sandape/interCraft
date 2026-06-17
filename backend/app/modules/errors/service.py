@@ -116,6 +116,10 @@ class ErrorService:
             reference_answer_md=data.get("reference_answer_md"),
             score=data.get("score"),
             tags=data.get("tags"),
+            # 019/020 (FIX-001, D-002) — round-trip the interview-link
+            # fields that the schema now exposes.
+            source_session_id=data.get("source_session_id"),
+            source_question_id=data.get("source_question_id"),
         )
         return await self.repo.create(instance)
 
@@ -157,8 +161,24 @@ class ErrorService:
         return await self.repo.reset(id, user_id)
 
     async def clear_source(self, id: UUID, user_id: UUID) -> ErrorQuestion:
-        """Clear source_session_id and source_question_id (user review)."""
-        _ = await self.get(id, user_id)  # ensure existence
+        """Clear source_session_id and source_question_id (user review).
+
+        Strong idempotency (020 FIX-003, D-013, contract §3.2): only the
+        first call mutates state; subsequent calls when both source_*
+        are already NULL raise 400 `source_already_cleared` and the
+        repo UPDATE is never invoked.
+        """
+        current = await self.get(id, user_id)
+        if current.source_session_id is None and current.source_question_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "code": "source_already_cleared",
+                        "message": "该错题已经没有自动来源",
+                    }
+                },
+            )
         instance = await self.repo.clear_source(id, user_id)
         if instance is None:
             raise HTTPException(status_code=404, detail="Error question not found")

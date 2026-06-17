@@ -32,6 +32,7 @@ from app.core.ws_events import (
 from app.domain.interview_report import InterviewReportCreate
 from app.domain.rls import set_user_context
 from app.modules.interviews.repository import InterviewSessionRepository
+from app.modules.interviews.service import sync_ability_dimensions
 from app.repositories.interview_report_repo import InterviewReportRepo
 
 logger = structlog.get_logger("interview.ws")
@@ -194,6 +195,12 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
                         summary_md=report.get("summary_md", ""),
                         session_id=session_uuid,
                     ))
+
+                    # Sync ability_dimensions so /ability-profile reflects the
+                    # new scores immediately. The async arq job below is best-
+                    # effort and may not run if the worker isn't up; this
+                    # synchronous upsert is the source of truth.
+                    await sync_ability_dimensions(db, session_uuid, user_uuid)
             except Exception as persist_err:
                 logger.error("ws.report_persist_error", error=str(persist_err), session_id=session_id)
 

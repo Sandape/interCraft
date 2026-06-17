@@ -50,8 +50,23 @@ class InterviewSessionListOut(BaseModel):
     data: list[InterviewSessionOut]
 
 
+# 020 (FIX-007, D-006) — narrow create-response schema. The contract
+# (Round-2 MOCK-01) specifies exactly 6 fields under `data`:
+#   id, status, thread_id, checkpoint_ns, job_id, branch_id
+# ORM-only fields (position, company, mode, started_at, …) MUST NOT leak.
+class InterviewSessionCreateData(BaseModel):
+    id: UUID
+    status: str
+    thread_id: str | None
+    checkpoint_ns: str | None
+    job_id: UUID | None
+    branch_id: UUID | None
+
+    model_config = {"from_attributes": True}
+
+
 class InterviewSessionCreateOut(BaseModel):
-    data: InterviewSessionOut
+    data: InterviewSessionCreateData
 
 
 class InterviewSessionResumeOut(BaseModel):

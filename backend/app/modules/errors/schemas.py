@@ -21,6 +21,11 @@ class CreateErrorQuestionInput(BaseModel):
     reference_answer_md: str | None = None
     score: int | None = Field(default=None, ge=0, le=10)
     tags: list[str] | None = None
+    # 019/020 (FIX-001, D-002) — traceable auto-deposit from interview.
+    # Without these fields the Pydantic v2 default `ignore` behavior
+    # silently drops them on POST, breaking 019 FR-016 end-to-end.
+    source_session_id: UUID | None = None
+    source_question_id: UUID | None = None
 
     @field_validator("dimension")
     @classmethod
