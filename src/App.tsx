@@ -8,6 +8,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useCurrentUser } from '@/hooks/queries/useCurrentUser'
 import { hasTokens } from '@/api/token-storage'
+import { requireAuth } from '@/lib/requireAuth'
 import Login from '@/pages/Login'
 import Register from '@/pages/Register'
 import Dashboard from '@/pages/Dashboard'
@@ -36,15 +37,26 @@ const queryClient = new QueryClient({
   },
 })
 
+// 020 (FIX-009, D-016) — Use the pure `requireAuth` decision. Renders
+// a neutral loading state while `status === 'unknown'` so the protected
+// page never mounts until the user is confirmed.
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const status = useAuthStore((s) => s.status)
   const location = useLocation()
 
-  if (!hasTokens() && status === 'unknown') {
-    return <Navigate to="/login" replace state={{ from: location }} />
+  const decision = requireAuth({ hasTokens: hasTokens(), status })
+  if (decision.kind === 'redirect') {
+    return <Navigate to={decision.to} replace state={{ from: location }} />
   }
-  if (status === 'unauthenticated') {
-    return <Navigate to="/login" replace state={{ from: location }} />
+  if (decision.kind === 'loading') {
+    return (
+      <div
+        data-testid="auth-loading"
+        className="flex items-center justify-center min-h-screen text-sm text-ink-3"
+      >
+        正在校验登录状态…
+      </div>
+    )
   }
   return <>{children}</>
 }
@@ -55,7 +67,7 @@ function PublicOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-function AppRoutes() {
+export function AppRoutes() {
   // Eagerly resolve current user on mount.
   useCurrentUser()
   return (

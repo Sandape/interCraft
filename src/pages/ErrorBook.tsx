@@ -46,6 +46,13 @@ const STATUS_TABS = [
   { key: 'mastered', label: '已掌握' },
 ]
 
+// 020 (FIX-008, D-009) — source filter (auto / manual / all).
+const SOURCE_FILTER_TABS = [
+  { key: 'all', label: '全部' },
+  { key: 'auto', label: '来自面试' },
+  { key: 'manual', label: '手动录入' },
+]
+
 function dimensionLabel(value: string | null) {
   return DIMENSIONS.find((d) => d.value === value)?.label ?? '未分类'
 }
@@ -53,9 +60,12 @@ function dimensionLabel(value: string | null) {
 function SourceBadge({ item }: { item: ErrorQuestion }) {
   if (!item.source_question_id) return null
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 text-2xs font-medium text-purple-700 dark:text-purple-300">
+    <span
+      data-testid="error-source-badge"
+      className="inline-flex items-center gap-1 rounded-full bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 text-2xs font-medium text-purple-700 dark:text-purple-300"
+    >
       <Link2 className="h-2.5 w-2.5" />
-      面试来源
+      来自面试
     </span>
   )
 }
@@ -77,6 +87,8 @@ function formatDate(value: string | null) {
 export default function ErrorBook() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [dimensionFilter, setDimensionFilter] = useState('')
+  // 020 (FIX-008, D-009) — source filter state
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'auto' | 'manual'>('all')
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -87,6 +99,7 @@ export default function ErrorBook() {
   const queryParams = {
     status: statusFilter === 'all' ? undefined : statusFilter,
     dimension: dimensionFilter || undefined,
+    source: sourceFilter === 'all' ? undefined : sourceFilter,
     limit: 50,
   }
 
@@ -250,6 +263,19 @@ export default function ErrorBook() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* 020 (FIX-008, D-009) — source filter segmented control */}
+          <div data-testid="error-source-filter">
+            <Tabs
+              value={sourceFilter}
+              onChange={(value) => {
+                setSourceFilter(value as 'all' | 'auto' | 'manual')
+                setSelectedId(null)
+              }}
+              items={SOURCE_FILTER_TABS}
+              getTabId={(k) => `error-source-filter-${k}`}
+            />
           </div>
 
           {isLoading ? (

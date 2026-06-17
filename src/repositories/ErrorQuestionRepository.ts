@@ -46,7 +46,8 @@ export class HttpErrorQuestionRepository extends ErrorQuestionRepository {
     if (params?.status) q.set('status', params.status)
     if (params?.frequency_min !== undefined) q.set('frequency_min', String(params.frequency_min))
     if (params?.limit) q.set('limit', String(params.limit))
-    if (params?.source) q.set('filter[source]', params.source)
+    // 020 (FIX-005, D-004): canonical ?source= per the 019 contract.
+    if (params?.source) q.set('source', params.source)
     const qs = q.toString()
     return request('GET', `${BASE}${qs ? `?${qs}` : ''}`)
   }
@@ -78,7 +79,10 @@ export class HttpErrorQuestionRepository extends ErrorQuestionRepository {
   }
 
   async clearSource(id: string): Promise<ErrorQuestion> {
-    return request('POST', `${BASE}/${id}/clear-source`)
+    // 020 (FIX-004, D-003) — method is PATCH per the 019 contract;
+    // POST was a 019 implementation drift that 3rd-party clients got
+    // 404/405 for. The contract is the spec.
+    return request('PATCH', `${BASE}/${id}/clear-source`)
   }
 }
 

@@ -16,6 +16,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { JobStatusBadge } from '@/components/jobs/StatusBadge'
 import { StatusPopover } from '@/components/jobs/StatusPopover'
+import { JobsDetailPanel } from '@/components/jobs/JobsDetailPanel'
 import { useJobs, useJobStats } from '@/hooks/queries/useJobs'
 import { useJobTransitions } from '@/hooks/queries/useJobTransitions'
 import { OfflineBanner } from '@/components/lock/OfflineBanner'
@@ -43,6 +44,8 @@ export default function Jobs() {
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [rowState, setRowState] = useState<Record<string, RowMutationState>>({})
+  // 020 (FIX-002, D-014) — mount JobsDetailPanel on row click.
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
 
   const status = tab === 'all' ? undefined : tab
   const { data: jobsData, isLoading } = useJobs({ status })
@@ -56,6 +59,7 @@ export default function Jobs() {
   const jobs = jobsData?.data ?? []
   const stats = statsData?.counts ?? {}
   const total = statsData?.total ?? jobs.length
+  const selectedJob = selectedJobId ? jobs.find((j) => j.id === selectedJobId) ?? null : null
 
   const tabs = useMemo(() => {
     const list: { key: string; label: string; count: number }[] = [
@@ -223,7 +227,8 @@ export default function Jobs() {
                     <tr
                       key={j.id}
                       data-testid={`job-row-${j.id}`}
-                      className="border-b border-surface-border dark:border-dark-surface-border last:border-0 hover:bg-surface-muted/40 dark:hover:bg-dark-surface-muted/30 transition-colors group"
+                      onClick={() => setSelectedJobId(j.id)}
+                      className="cursor-pointer border-b border-surface-border dark:border-dark-surface-border last:border-0 hover:bg-surface-muted/40 dark:hover:bg-dark-surface-muted/30 transition-colors group"
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
@@ -266,6 +271,16 @@ export default function Jobs() {
               </tbody>
             </table>
           </div>
+        </Card>
+      )}
+
+      {/* 020 (FIX-002, D-014) — detail panel mounts on row click. */}
+      {selectedJob && (
+        <Card className="mt-4" data-testid="job-detail-card">
+          <JobsDetailPanel
+            job={selectedJob}
+            onClose={() => setSelectedJobId(null)}
+          />
         </Card>
       )}
 
@@ -416,6 +431,12 @@ function CreateJobModal({
               value={headcount}
               onChange={(e) => setHeadcount(e.target.value.replace(/[^0-9]/g, ''))}
               placeholder="如：5"
+              // 020 (FIX-010, D-017) — HTML hard constraints: browser-level
+              // number keypad, min=1 prevents 0/negative, step=1 prevents
+              // decimals. The JS replace() guard stays as belt-and-suspenders.
+              type="number"
+              min={1}
+              step={1}
               inputMode="numeric"
               data-testid="job-create-headcount"
             />
