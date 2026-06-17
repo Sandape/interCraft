@@ -20,7 +20,7 @@ bash scripts/run-all-tests.sh
 #    Terminal C: npm run dev   # frontend on http://localhost:5173
 ```
 
-## What you need first
+## What You Need First
 
 | Tool | Version | Check |
 |---|---|---|
@@ -30,27 +30,27 @@ bash scripts/run-all-tests.sh
 | Redis | 7+ on localhost:6379 | `redis-cli -p 6379 PING` |
 | Postgres | 15 (online or local) | reachable per `DATABASE_URL` |
 
-Docker is **not** required — the local dev path uses your host Redis and a
+Docker is **not** required. The local dev path uses your host Redis and a
 user-provided online Postgres.
 
 ## Layout
 
-```
+```text
 .
-├── backend/              FastAPI + SQLAlchemy 2.0 + Alembic + ARQ
-├── src/                  React 19 + Vite + TanStack Query + Zustand
-├── scripts/              dev-up.sh, run-all-tests.sh, gen-api.mjs
-├── specs/001-…/          Plan, research, data model, API contracts, tasks
-└── docs/                 Verification evidence + module READMEs
+|- backend/    FastAPI + SQLAlchemy 2.0 + Alembic + ARQ
+|- src/        React + Vite + TanStack Query + Zustand
+|- scripts/    dev-up.sh, run-all-tests.sh, gen-api.mjs
+|- specs/      Canonical requirements, contracts, and tasks
+`- docs/       Testing, evidence, architecture, and decisions
 ```
 
-## More docs
+## More Docs
 
-- [Documentation index](docs/README.md) - requirements, testing, evidence, and architecture map
+- [Documentation index](docs/README.md) - testing, evidence, architecture, and decisions
 - [Specs index](specs/README.md) - canonical requirements status and active feature entry
 - [Backend README](backend/README.md) - module map, CLI, health endpoints
-- [Evidence guide](docs/evidence/README.md) - verification logs, screenshots, and scorecards
+- [Evidence guide](docs/evidence/README.md) - where to put new verification artifacts
 
 ## License
 
-Internal — not for redistribution.
+Internal - not for redistribution.
