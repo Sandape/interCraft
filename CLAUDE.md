@@ -15,9 +15,9 @@ agent routing is [AGENTS.md](./AGENTS.md).
 ## Claude Notes
 
 - Use `specs/` as the requirements source of truth.
-- Treat `docs/modules/*` and old roadmap documents as legacy context.
-- Add new Playwright E2E specs under `tests/e2e/`, not root `e2e/`.
+- Historical requirement documents were removed after being folded into the
+  canonical specs. Use git history only for old context.
+- Add Playwright E2E specs under `tests/e2e/`.
 - Do not move source directories during documentation cleanup.
 - Keep generated screenshots, logs, and manual verification artifacts out of the
   repository root; use `docs/evidence/`.
-

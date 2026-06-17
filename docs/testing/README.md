@@ -1,8 +1,7 @@
 # Testing Guide
 
-This file is the canonical testing entry point. Older test plans and reports in
-this directory are historical evidence unless explicitly linked from a feature
-spec or this guide.
+This file is the canonical testing entry point. Requirement behavior is defined
+in `specs/`; this guide only describes where tests live and how to run them.
 
 ## Commands
 
@@ -21,11 +20,9 @@ spec or this guide.
 | Root | Status | Purpose |
 |---|---|---|
 | `tests/e2e/` | canonical | Playwright E2E specs. Add new E2E tests here. |
-| `e2e/` | legacy | Migration source only. Do not add new tests here. |
 | `src/**/*.test.ts(x)` | canonical | Frontend component, hook, repository, and utility tests. |
 | `tests/unit/` | canonical | Frontend unit tests that are not colocated. |
 | `backend/tests/` | canonical | Backend unit, integration, and contract tests. |
-| `docs/test/e2e/` | legacy example | Documentation example only, not a runnable test root. |
 
 ## E2E Policy
 
@@ -33,7 +30,12 @@ spec or this guide.
 - Keep feature E2E specs near the feature name, for example
   `tests/e2e/019-cross-module-linking.spec.ts`.
 - Use `tests/e2e/fixtures/` or `tests/e2e/_fixtures/` for test assets.
-- Root `e2e/` remains only until duplicate or older tests are audited and moved.
+
+## Current Round-1 Material
+
+`docs/testing/round-1/` is retained because the active `020` feature uses its
+defect catalog and summary as implementation evidence. Do not treat it as a
+general historical reports folder; it is tied to the current fix workflow.
 
 ## Evidence Policy
 
@@ -41,17 +43,3 @@ spec or this guide.
   `docs/evidence/` or a feature-specific evidence directory.
 - Evidence proves behavior; it does not define requirements. Link evidence from
   requirement status tables when a requirement is marked `done`.
-
-## Historical Reports
-
-The following files remain useful for background, but do not define the current
-test strategy:
-
-- [test-plan-phase1-4.md](./test-plan-phase1-4.md)
-- [test-report-phase1-4.md](./test-report-phase1-4.md)
-- [test-report-phase1-4-zh.md](./test-report-phase1-4-zh.md)
-- [issues-summary-phase1-4.md](./issues-summary-phase1-4.md)
-- [issues-summary-phase1-4-zh.md](./issues-summary-phase1-4-zh.md)
-- [optimization-suggestions-phase1-4.md](./optimization-suggestions-phase1-4.md)
-- [ui-ux-evaluation.md](./ui-ux-evaluation.md)
-

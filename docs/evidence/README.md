@@ -7,10 +7,8 @@ They are not requirement sources.
 
 | Path | Purpose |
 |---|---|
-| `docs/evidence/PHASE*_*/` | Phase verification runs and logs. |
-| `docs/evidence/BUG/` | Bug reproduction evidence. |
-| `docs/e2e/` | Feature-specific E2E screenshots and notes from earlier runs. |
-| `docs/evidence/unclassified/2026-06-root-artifacts/` | Root screenshots and snapshots archived during documentation cleanup. |
+| `docs/evidence/<feature-or-run>/` | New screenshots, traces, logs, and scorecards for verification runs. |
+| Feature-specific evidence folders | Evidence kept beside a feature when the feature spec explicitly owns it. |
 
 ## Naming
 
@@ -27,8 +25,6 @@ docs/evidence/<feature-or-run>/SCORECARD.md
 - Do not place new screenshots or Playwright snapshots in the repository root.
 - Link evidence from `specs/*/requirements-status.md` when using it to mark a
   requirement `done`.
-- Keep raw logs when they are needed to debug failures; summarize key outcomes in
-  a `SCORECARD.md` or feature status file.
-- Do not delete old evidence during cleanup unless a separate deprecation task
-  verifies it is duplicated and no longer referenced.
-
+- Keep raw logs only when they are needed to debug failures; summarize key
+  outcomes in a `SCORECARD.md` or feature status file.
+- Old unreferenced evidence was removed during the documentation slimming pass.

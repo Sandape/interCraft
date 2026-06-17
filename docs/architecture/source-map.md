@@ -10,7 +10,6 @@ older specs and reports.
 | Frontend app | `src/` | React 18, Vite, TanStack Query, Zustand. |
 | Frontend tests | `src/**/*.test.ts(x)`, `tests/unit/` | Vitest and Testing Library. |
 | Canonical E2E tests | `tests/e2e/` | Root `playwright.config.ts` points here. |
-| Legacy E2E tests | `e2e/` | Migration source only; do not add new tests here. |
 | Backend app | `backend/app/` | FastAPI, SQLAlchemy, modules, agents, services. |
 | Backend tests | `backend/tests/`, `backend/app/**/tests/` | Pytest unit, integration, contract tests. |
 | API/repository layer | `src/api/`, `src/repositories/` | Frontend HTTP clients and local repository abstractions. |
@@ -20,10 +19,8 @@ older specs and reports.
 
 | Path | Status | Guidance |
 |---|---|---|
-| `frontend/src/` | legacy / mostly empty | Do not target for new work. Old specs that mention `frontend/src` should be interpreted as `src/`. |
-| `docs/test/e2e/` | legacy example | Not a canonical test root. |
-| `spec/` | legacy singular spec folder | Use `specs/` for feature requirements. |
-| Root screenshots and snapshots | archived evidence | New evidence belongs under `docs/evidence/` or feature-specific evidence folders. |
+| `frontend/src/` | removed legacy path | Old specs that mention `frontend/src` should be interpreted as `src/`. |
+| Root screenshots and snapshots | removed historical evidence | New evidence belongs under `docs/evidence/` or feature-specific evidence folders. |
 
 ## Feature Area Map
 
@@ -35,4 +32,3 @@ older specs and reports.
 | Interviews | `backend/app/modules/interviews/`, `backend/app/agents/interview/` | `src/pages/InterviewList.tsx`, `src/pages/InterviewLive.tsx`, `src/pages/InterviewReport.tsx`, `src/components/interview/` | `specs/003-phase4-interview-agent/`, `specs/019-cross-module-linking/` |
 | Error Book | `backend/app/modules/errors/` | `src/pages/ErrorBook.tsx`, `src/components/error-book/`, `src/components/errors/` | `specs/016-error-book-completion/`, `specs/019-cross-module-linking/` |
 | Ability Profile | `backend/app/modules/ability_profile/`, `backend/app/modules/abilities/` | `src/pages/AbilityProfile/`, `src/pages/AbilityProfile.tsx`, `src/pages/AbilityProfileDetail.tsx` | `specs/006-personal-ability-profile/` |
-

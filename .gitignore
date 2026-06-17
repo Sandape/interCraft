@@ -63,3 +63,6 @@ backend/.data/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Local MCP config (may contain tokens)
+.mcp.json

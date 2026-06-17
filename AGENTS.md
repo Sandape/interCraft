@@ -11,17 +11,12 @@ and point agents to the canonical source for the current task.
    relevant `spec.md`, `contracts/`, `tasks.md`, and `requirements-status.md`.
 4. Test guidance: read `docs/testing/README.md`.
 5. Source layout: read `docs/architecture/source-map.md`.
-6. Historical requirements: use `docs/modules/*`,
-   `docs/PERSISTENCE_REQUIREMENTS.md`, `docs/DEVELOPMENT_ROADMAP.md`, and
-   `docs/ANALYSIS_REPORT.md` only as legacy context. They do not override
-   `specs/`.
 
 ## Project Shape
 
 - Frontend: `src/` (React 18, Vite, TypeScript, TanStack Query, Zustand).
 - Backend: `backend/app/` (FastAPI, SQLAlchemy 2.0, Alembic, Redis/ARQ).
 - Canonical E2E tests: `tests/e2e/`.
-- Legacy E2E migration source: `e2e/`.
 - Generated or manual evidence: `docs/evidence/` and feature-specific evidence
   folders.
 
@@ -56,8 +51,9 @@ frontend root `src/` unless the source map says otherwise.
 
 - Do not move `specs/*` directories just to separate done and unfinished work;
   SpecKit depends on stable paths.
-- Do not delete legacy docs or evidence during cleanup unless a separate task
-  proves they are duplicated and unreferenced.
+- Legacy docs and unreferenced evidence were intentionally removed after the
+  SpecKit documentation system became canonical. Use git history only when old
+  context is truly needed.
 - Treat the current dirty worktree as user/ongoing work. Do not revert changes
   you did not make.
 - Use the current codebase as the source of path truth. Older generated plans
@@ -65,4 +61,3 @@ frontend root `src/` unless the source map says otherwise.
 - PowerShell may display UTF-8 Chinese as mojibake. If Chinese docs look
   corrupted in terminal output, re-read with Node or another UTF-8-safe reader
   before deciding the file is damaged.
-
