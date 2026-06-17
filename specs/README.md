@@ -9,10 +9,11 @@ resolve stable paths.
 1. Read this index first.
 2. Read the active feature README, then its `spec.md`, `contracts/`, and
    `tasks.md` as needed.
-3. Treat `docs/modules/*` and the old roadmap documents as historical context,
-   not implementation authority.
-4. When implementation status changes, update both the feature-level row here
+3. When implementation status changes, update both the feature-level row here
    and the requirement-level status table in the feature directory.
+
+Historical requirement material has been folded into these feature specs. Use
+git history only when old context is specifically needed.
 
 ## Status Vocabulary
 
@@ -31,7 +32,8 @@ resolve stable paths.
 
 | ID | Feature | Status | Source Of Truth | Requirement Status | Notes |
 |---|---|---|---|---|---|
-| 019 | Cross-Module Linking | active | [spec.md](./019-cross-module-linking/spec.md) | [requirements-status.md](./019-cross-module-linking/requirements-status.md) | Current `.specify/feature.json` target. Implementation evidence exists in the worktree and still needs final verification. |
+| 019 | Cross-Module Linking | active | [spec.md](./019-cross-module-linking/spec.md) | [requirements-status.md](./019-cross-module-linking/requirements-status.md) | Implementation evidence exists in the worktree; round-1 E2E surfaced 12 defects that 020 is fixing. |
+| 020 | Fix Round-1 Defects | active | [spec.md](./020-fix-round-1-defects/spec.md) | [requirements-status.md](./020-fix-round-1-defects/requirements-status.md) | Current `.specify/feature.json` target. Closes 12 active defects from round-1; all rows currently `planned`. |
 
 ## In Progress
 
@@ -70,13 +72,3 @@ resolve stable paths.
 
 No blocked specs are recorded in this index. If a requirement is blocked, add it
 here and explain the dependency in that feature's requirement status table.
-
-## Legacy / Superseded
-
-| Source | Status | Replacement |
-|---|---|---|
-| [docs/modules/](../docs/modules/) | legacy | See [docs/requirements/legacy-map.md](../docs/requirements/legacy-map.md). |
-| [docs/PERSISTENCE_REQUIREMENTS.md](../docs/PERSISTENCE_REQUIREMENTS.md) | legacy | Specs in this directory. |
-| [docs/DEVELOPMENT_ROADMAP.md](../docs/DEVELOPMENT_ROADMAP.md) | legacy | This index plus feature-level `tasks.md`. |
-| [docs/ANALYSIS_REPORT.md](../docs/ANALYSIS_REPORT.md) | historical source | Use only for rationale and old audit context. |
-
