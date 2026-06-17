@@ -395,7 +395,7 @@ D:\Project\eGGG\
 │   └── main.tsx                      # 注入 QueryClient + ErrorBoundary
 │
 ├── tests/                            # 前端 E2E
-│   ├── e2e/
+│   ├── tests/e2e/
 │   │   ├── playwright.config.ts
 │   │   ├── sc-001-demo.spec.ts       # 5 分钟演示 happy path(spec §4 SC-001)
 │   │   └── fixtures/
@@ -412,10 +412,7 @@ D:\Project\eGGG\
 │   ├── check-fingerprint.mjs         # 设备指纹算法验证
 │   └── gen-api.mjs                   # openapi-typescript 调用
 │
-├── docs/                             # 不变(模块文档 + ANALYSIS_REPORT 等)
-│   ├── ANALYSIS_REPORT.md
-│   ├── DEVELOPMENT_ROADMAP.md
-│   ├── PERSISTENCE_REQUIREMENTS.md
+├── docs/                             # testing, evidence, architecture, decisions
 │   └── modules/
 │       └── 01-..23-*.md
 │
@@ -518,8 +515,8 @@ D:\Project\eGGG\
 - 全产品 spec:`specs/001-intercraft-product-spec/spec.md`
 - Phase 0 研究:`specs/001-intercraft-product-spec/research.md`
 - 宪法:`.specify/memory/constitution.md` v1.0.0
-- 模块文档:`docs/modules/{01..07,23}-*.md`
-- 一致性审视:`docs/ANALYSIS_REPORT.md`(A1-A17 阻塞项已映射到 Phase 2-6 入口)
-- 持久化需求:`docs/PERSISTENCE_REQUIREMENTS.md`
-- 路线图:`docs/DEVELOPMENT_ROADMAP.md`
+- 模块文档:`removed legacy module specs`
+- 一致性审视:legacy consistency review folded into this spec
+- 持久化需求:legacy persistence requirements folded into this spec
+- 路线图:legacy roadmap folded into the specs index
 - Spec quality checklist:`specs/001-intercraft-product-spec/checklists/requirements.md`

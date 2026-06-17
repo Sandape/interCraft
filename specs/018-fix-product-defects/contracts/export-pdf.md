@@ -141,7 +141,7 @@ async function handleExportPdf() {
 - POST /export/render 正常 → 200 + application/pdf
 ```
 
-### E2E（`e2e/resume/pdf-export-flow.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/resume/pdf-export-flow.spec.ts`）
 
 ```text
 1. 登录 → 新建简历 → 加 1 个块

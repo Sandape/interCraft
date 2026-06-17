@@ -69,7 +69,7 @@ And    不显示 "LCP 1.4s" / "76% 复用" / "+14" / "当前 86" 等字面量
 
 ## 测试契约
 
-### E2E（`e2e/resume/new-resume-editable.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/resume/new-resume-editable.spec.ts`）
 
 ```text
 1. 登录 → 点击 "新建简历" → 填写标题 → 提交
@@ -79,7 +79,7 @@ And    不显示 "LCP 1.4s" / "76% 复用" / "+14" / "当前 86" 等字面量
 5. 切到代码模式 → 断言 textarea 可输入
 ```
 
-### E2E（`e2e/resume/empty-resume-no-fake-ai.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/resume/empty-resume-no-fake-ai.spec.ts`）
 
 ```text
 1. 登录 → 新建空简历 → 进入编辑器

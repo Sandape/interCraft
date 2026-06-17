@@ -53,7 +53,7 @@ npm run dev
 - 在 /login 点「去注册」→ URL 变为 `/register?mode=register` → 表单切换
 - 已登录访问 `/register` → 跳转到 `/`
 
-**E2E**：`e2e/auth/register-deep-link.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/auth/register-deep-link.spec.ts`
 
 ---
 
@@ -72,7 +72,7 @@ npm run dev
 **档位 2 触发**：
 - 完成 3 场面试 + 1 份简历 + 1 条错题 + 1 条投递 → 看到「全局综合建议」
 
-**E2E**：`e2e/dashboard/no-fake-suggestions.spec.ts` + `progressive-tiers.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/dashboard/no-fake-suggestions.spec.ts` + `progressive-tiers.spec.ts`
 
 ---
 
@@ -87,7 +87,7 @@ npm run dev
 4. 切到「代码模式」→ textarea 可输入
 5. 强制刷新（F5）→ 仍可写（锁已持有）
 
-**E2E**：`e2e/resume/new-resume-editable.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/resume/new-resume-editable.spec.ts`
 
 ---
 
@@ -100,7 +100,7 @@ npm run dev
 2. ❌ 看到「LCP 1.4s」「76% 复用」「+14」「当前 86」等字面量
 3. ✓ AI 优化面板显示「添加简历块以获取 AI 优化建议」+「去添加块」按钮
 
-**E2E**：`e2e/resume/empty-resume-no-fake-ai.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/resume/empty-resume-no-fake-ai.spec.ts`
 
 ---
 
@@ -117,7 +117,7 @@ npm run dev
 - 故意清空简历内容再导出 → toast「简历内容为空，请先添加简历块」
 - 断网导出 → toast「导出服务暂不可用，请稍后重试」
 
-**E2E**：`e2e/resume/pdf-export-flow.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/resume/pdf-export-flow.spec.ts`
 
 ---
 
@@ -134,7 +134,7 @@ npm run dev
 **无简历路径**：
 - 删光所有简历 → 打开面试 setup → 控件禁用 + 提示「暂无可用简历，是否先创建？」
 
-**E2E**：`e2e/interview/setup-resume-pick.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/interview/setup-resume-pick.spec.ts`
 
 ---
 
@@ -148,7 +148,7 @@ npm run dev
 3. ✓ 顶部显示「已恢复 2 道回答，5 道题目，2 个评分」
 4. 浏览器控制台无 `Restored ...` 字样
 
-**E2E**：`e2e/interview/restore-zh-text.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/interview/restore-zh-text.spec.ts`
 
 ---
 
@@ -164,7 +164,7 @@ npm run dev
 5. 打开 Dashboard → 综合能力卡显示「X.X / 10」
 6. 全应用 string 巡检：grep `\/ 100` 无命中
 
-**E2E**：`e2e/interview/scoring-scale-0-10.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/interview/scoring-scale-0-10.spec.ts`
 
 ---
 
@@ -187,7 +187,7 @@ uv run python -m scripts.dbq
 # 应看到新行
 ```
 
-**E2E + 集成**：`e2e/interview/ability-sync.spec.ts` + `backend/tests/integration/test_interview_to_ability_sync.py`
+**E2E + 集成**：`tests/e2e/018-fix-product-defects/interview/ability-sync.spec.ts` + `backend/tests/integration/test_interview_to_ability_sync.py`
 
 ---
 
@@ -204,7 +204,7 @@ uv run python -m scripts.dbq
 **失败路径**：
 - 故意 mock 后端 503 → 见到「启动失败，请重试」+「重试」按钮可点
 
-**E2E**：`e2e/error-book/coach-start-feedback.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/error-book/coach-start-feedback.spec.ts`
 
 ---
 
@@ -217,7 +217,7 @@ uv run python -m scripts.dbq
 2. ❌ 列表中出现新错题，但右侧详情区仍显示「请选择左侧错题查看详情」
 3. ✓ 右侧详情区自动切换到该新错题内容，列表中该项高亮
 
-**E2E**：`e2e/error-book/auto-select-new.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/error-book/auto-select-new.spec.ts`
 
 ---
 
@@ -235,7 +235,7 @@ uv run python -m scripts.dbq
 - 不修改备注 → 保存 → 列表仍显示原备注
 - 修改备注 → 保存 → 列表更新
 
-**E2E**：`e2e/jobs/notes-roundtrip.spec.ts` + `backend/tests/contract/test_jobs_notes_field.py`
+**E2E**：`tests/e2e/018-fix-product-defects/jobs/notes-roundtrip.spec.ts` + `backend/tests/contract/test_jobs_notes_field.py`
 
 ---
 
@@ -250,7 +250,7 @@ uv run python -m scripts.dbq
 4. ✓「退出登录」与「注销账号」颜色不同：退出 = 中性，注销 = 危险红
 5. ✓ 两者之间有 separator
 
-**E2E**：`e2e/auth/logout-menu-semantics.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/auth/logout-menu-semantics.spec.ts`
 
 ---
 
@@ -263,7 +263,7 @@ uv run python -m scripts.dbq
 2. ❌ Console 多次出现 `React Router Future Flag Warning: v7_startTransition / v7_relativeSplatPath ...`
 3. ✓ Console 干净，无任何 React Router future flag 警告
 
-**E2E**：`e2e/shell/router-future-flags.spec.ts`
+**E2E**：`tests/e2e/018-fix-product-defects/shell/router-future-flags.spec.ts`
 
 ---
 
@@ -294,17 +294,17 @@ npx playwright test
 
 | 缺陷 | 验收点 | 自动化测试 |
 |---|---|---|
-| #1 | 100% 访问 `/register` 显示注册表单 | `e2e/auth/register-deep-link.spec.ts` |
-| #2 | 三档渐进披露，无占位文案 | `e2e/dashboard/*.spec.ts` |
-| #3 | 新建可编辑 + 锁已申请 | `e2e/resume/new-resume-editable.spec.ts` |
-| #4 | 空简历空态不假数据 | `e2e/resume/empty-resume-no-fake-ai.spec.ts` |
-| #5 | PDF 200 或可读 4xx/5xx | `e2e/resume/pdf-export-flow.spec.ts` + `test_export_contract.py` |
-| #6 | 简历可关联可跳过 | `e2e/interview/setup-resume-pick.spec.ts` |
-| #7 | 恢复中文文案 | `e2e/interview/restore-zh-text.spec.ts` |
-| #8 | 全应用 0-10 统一 | `e2e/interview/scoring-scale-0-10.spec.ts` |
-| #9 | 能力画像同步 | `e2e/interview/ability-sync.spec.ts` + `test_interview_to_ability_sync.py` |
-| #10 | 5s 内有反馈 | `e2e/error-book/coach-start-feedback.spec.ts` |
-| #11 | 新建自动选中 | `e2e/error-book/auto-select-new.spec.ts` |
-| #12 | 备注字段映射正确 | `e2e/jobs/notes-roundtrip.spec.ts` + `test_jobs_notes_field.py` |
-| #13 | 退出登录可定位 | `e2e/auth/logout-menu-semantics.spec.ts` |
-| #14 | 无 future flag warning | `e2e/shell/router-future-flags.spec.ts` |
+| #1 | 100% 访问 `/register` 显示注册表单 | `tests/e2e/018-fix-product-defects/auth/register-deep-link.spec.ts` |
+| #2 | 三档渐进披露，无占位文案 | `tests/e2e/018-fix-product-defects/dashboard/*.spec.ts` |
+| #3 | 新建可编辑 + 锁已申请 | `tests/e2e/018-fix-product-defects/resume/new-resume-editable.spec.ts` |
+| #4 | 空简历空态不假数据 | `tests/e2e/018-fix-product-defects/resume/empty-resume-no-fake-ai.spec.ts` |
+| #5 | PDF 200 或可读 4xx/5xx | `tests/e2e/018-fix-product-defects/resume/pdf-export-flow.spec.ts` + `test_export_contract.py` |
+| #6 | 简历可关联可跳过 | `tests/e2e/018-fix-product-defects/interview/setup-resume-pick.spec.ts` |
+| #7 | 恢复中文文案 | `tests/e2e/018-fix-product-defects/interview/restore-zh-text.spec.ts` |
+| #8 | 全应用 0-10 统一 | `tests/e2e/018-fix-product-defects/interview/scoring-scale-0-10.spec.ts` |
+| #9 | 能力画像同步 | `tests/e2e/018-fix-product-defects/interview/ability-sync.spec.ts` + `test_interview_to_ability_sync.py` |
+| #10 | 5s 内有反馈 | `tests/e2e/018-fix-product-defects/error-book/coach-start-feedback.spec.ts` |
+| #11 | 新建自动选中 | `tests/e2e/018-fix-product-defects/error-book/auto-select-new.spec.ts` |
+| #12 | 备注字段映射正确 | `tests/e2e/018-fix-product-defects/jobs/notes-roundtrip.spec.ts` + `test_jobs_notes_field.py` |
+| #13 | 退出登录可定位 | `tests/e2e/018-fix-product-defects/auth/logout-menu-semantics.spec.ts` |
+| #14 | 无 future flag warning | `tests/e2e/018-fix-product-defects/shell/router-future-flags.spec.ts` |

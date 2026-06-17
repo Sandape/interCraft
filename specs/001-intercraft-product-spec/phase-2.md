@@ -353,7 +353,7 @@ D:\Project\eGGG\
 │   └── main.tsx                            # 沿用
 │
 └── tests/
-    └── e2e/
+    └── tests/e2e/
         └── phase2/                         # 新
             ├── profile-from-api.spec.ts
             ├── jobs-from-api.spec.ts

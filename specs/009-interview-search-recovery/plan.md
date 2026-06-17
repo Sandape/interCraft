@@ -61,7 +61,7 @@ src/
     `-- InterviewList.tsx
 
 tests/
-`-- e2e/
+`-- tests/e2e/
     `-- interview-search-recovery.spec.ts
 ```
 

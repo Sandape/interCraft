@@ -67,7 +67,7 @@
 - **Strengths**:
   - Phase 1 demo path is concrete and testable in 5 minutes
   - 6 phases map cleanly to 8-sprint roadmap (Phase 5 = Sprint 6+7 combined)
-  - Cross-references to existing `docs/ANALYSIS_REPORT.md` A1-A17 prevent known-issues from being re-introduced
+  - Legacy consistency review items were folded into the canonical spec to prevent known issues from being re-introduced
   - Assumptions §6 explicitly list tech defaults (FastAPI/Postgres/Redis/LangGraph/Claude) without making them hard requirements
   - 12 UI pages explicitly tied to phases via M23 sub-phases
 

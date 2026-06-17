@@ -227,7 +227,7 @@ frontend/
         └── interviewReportRepo.ts  # Phase 4:新增
 
 tests/
-└── e2e/
+└── tests/e2e/
     ├── interview-flow.spec.ts      # 完整面试流程
     └── interview-reconnect.spec.ts # 断线重连流程
 ```

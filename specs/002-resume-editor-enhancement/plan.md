@@ -133,7 +133,7 @@ tests/
 │   ├── WysiwygEditor.test.tsx
 │   ├── PrimaryResumeCard.test.tsx
 │   └── StyleSelector.test.tsx
-└── e2e/
+└── tests/e2e/
     ├── resume-editor.spec.ts
     └── resume-export.spec.ts
 ```

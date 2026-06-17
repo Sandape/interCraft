@@ -340,6 +340,6 @@ make test                              # 后端 + 前端 + E2E
 
 Phase 2 启动前:
 1. 跑 `npm run gen:api` 确认新生成的 schema 与 mockData 仍兼容
-2. 在 `docs/modules/08-error-book.md` / `09-ability-profile.md` / `10-task-activity.md` / `11-interview-history.md` plan 阶段拍板 spec §8 Q1/Q5
+2. Use the canonical feature specs and `specs/README.md` when resolving spec §8 Q1/Q5.
 3. 跑 `tests/integration/test_rls_isolation.py` 验证新表的 RLS 策略就位
 4. 启动 Phase 2 任务列表(`/speckit-tasks`)

@@ -69,7 +69,7 @@ src/
 |   `-- InterviewList.tsx
 
 tests/
-`-- e2e/
+`-- tests/e2e/
     `-- interview-resume-guardrails.spec.ts
 ```
 

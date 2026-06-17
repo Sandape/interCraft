@@ -95,7 +95,7 @@
 
 1. **Given** Job 详情面板中一个 `branch_id IS NULL` 的 job, **When** 用户看到基本信息区, **Then** 「为该岗位创建简历分支」CTA 可见,文案清晰;若已绑定分支,该 CTA 隐藏,改为「换绑简历分支」下拉(复用 014 现有逻辑)。
 2. **Given** 用户点击「为该岗位创建简历分支」, **When** 跳转, **Then** URL 为 `/resume/{newBranchId}?source_job_id={jobId}`,分支编辑器中 `name` 输入框预填为「{company} · {position}」,`company` 预填为 `{company}`,`position` 预填为 `{position}`,用户可在原字段上直接修改。
-3. **Given** 用户在分支编辑器看到预填, **When** 保存分支, **Then** `POST /resumes/branches` 返回 `branch.id`,前端用 `PATCH /jobs/{jobId}` 把 `branch_id` 设为该值(走 014 outbox);若 PATCH 失败,前端显示 Toast「简历已保存,但岗位绑定失败,请到求职追踪里手动绑定」。
+3. **Given** 用户在分支编辑器看到预填, **When** 保存分支, **Then** `POST /resume-branches` 返回 `branch.id`,前端用 `PATCH /jobs/{jobId}` 把 `branch_id` 设为该值(走 014 outbox);若 PATCH 失败,前端显示 Toast「简历已保存,但岗位绑定失败,请到求职追踪里手动绑定」。
 4. **Given** Topbar「新建简历」下拉, **When** 用户选「基于岗位创建」并从二级下拉选一个 job, **Then** 行为与从 Job 详情进入完全一致(同一 URL 模板)。
 5. **Given** `requirements_md` 超过 200 字, **When** 进入分支编辑器, **Then** 编辑器顶部显示一行折叠提示「本岗位的招聘需求(点击展开复制)」,展开后是只读 Markdown,用户可手动复制到分支 blocks 中(不强制注入到 `notes_md`——分支无该字段,避免误存)。
 6. **Given** 用户从分支编辑器返回 Job 详情, **When** 查看基本信息区, **Then** 「绑定的简历分支」字段显示新分支名(可点击跳转 `/resume/{branchId}`)。
@@ -269,7 +269,7 @@
     → jobs.branch_id = NULL
 
 [2] 用户在 Job 详情点「为该岗位创建简历分支」
-    → 前端 POST /resumes/branches { name: "{company} · {position}", company, position, ... }
+    → 前端 POST /resume-branches { name: "{company} · {position}", company, position, ... }
     → 前端 PATCH /jobs/{jobId} { branch_id: newBranchId }
 
 [3] 用户在 Job 详情点「为该岗位开始模拟面试」(branch_id 已绑)

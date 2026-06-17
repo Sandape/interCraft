@@ -48,7 +48,7 @@ export default function Register() {
 
 ## 测试契约
 
-### E2E（`e2e/auth/register-deep-link.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/auth/register-deep-link.spec.ts`）
 
 ```text
 1. Given 未登录

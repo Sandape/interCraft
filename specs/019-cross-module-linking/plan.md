@@ -182,7 +182,7 @@ frontend/
 │   │   ├── ResumeEditorSourceJob.test.tsx         # NEW: 预填逻辑
 │   │   ├── IntakeFormPrefill.test.tsx             # NEW: 4 字段预填
 │   │   └── ErrorBookDetail.test.tsx               # NEW: 移除/删除按钮条件渲染
-│   └── e2e/
+│   └── tests/e2e/
 │       └── 019-cross-module-linking.spec.ts       # NEW: 5 步联动冒烟
 ```
 

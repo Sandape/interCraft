@@ -70,7 +70,7 @@ src/
 
 tests/
 |-- unit/export-api.test.ts
-`-- e2e/resume-export-gateway.spec.ts
+`-- tests/e2e/resume-export-gateway.spec.ts
 ```
 
 **Structure Decision**: Keep the gateway inside the existing FastAPI v1 router because the frontend already calls `/api/v1/export/render`. Keep renderer code in its existing module. Frontend behavior stays in the existing export client and export menu.

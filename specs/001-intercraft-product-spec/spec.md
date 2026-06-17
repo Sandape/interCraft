@@ -4,7 +4,7 @@
 **Created**: 2026-06-12
 **Status**: Draft
 **Input**: 基于已完成的前端 UI-UX 样板(12 个页面、10 个 UI 组件、`src/data/mockData.ts` 静态数据)生成覆盖整个 InterCraft 产品的需求文档,作为 6 阶段分批开发的基线。
-**Spec Kit 范围**: 整个 InterCraft 产品(对齐 `docs/modules/01-infrastructure.md` ~ `23-frontend-migration.md` 的 23 个后端模块)
+**Spec Kit scope**: Entire InterCraft product. The original module taxonomy has been folded into this canonical product spec and later feature specs.
 **主要读者**: 全栈工程师(后端 + 前端)、架构师;PM 可读场景与验收章节
 
 ---
@@ -41,7 +41,7 @@ InterCraft 是面向求职中/转岗中工程师的**结构化面试准备平台
 ## 2. User Scenarios & Testing *(mandatory)*
 
 > 故事按优先级 P1 → P3 排序;每条故事**独立可测试、可独立部署、可独立演示**。
-> 每条故事对应 1 个或多个后端模块(参见 `docs/modules/`),优先级由「用户价值 × 关键路径位置」决定,而非实现难易。
+> 每条故事对应 1 个或多个后端模块(see the feature specs listed in `specs/README.md`),优先级由「用户价值 × 关键路径位置」决定,而非实现难易。
 
 ### User Story 1 — 注册与登录(账号体系) (Priority: P1)
 
@@ -80,7 +80,7 @@ InterCraft 是面向求职中/转岗中工程师的**结构化面试准备平台
 
 用户在编辑过程中可手动/自动保存版本,版本以「完整快照 + diff(自上次完整版本起)」混合方式存储,可对比、还原。
 
-**Why this priority**: 简历迭代频繁,误改后回滚是核心需求;A9(版本字段缺失)已在 ANALYSIS_REPORT 中标出,本 Phase 必须落地。
+**Why this priority**: 简历迭代频繁,误改后回滚是核心需求;A9 version-field gap was identified during legacy review,本 Phase 必须落地。
 
 **Independent Test**: 修改 3 次 → 手动保存版本 v2 → 再改 2 次 → 选 v2 「回滚到此版本」→ 创建新分支指向 v2 状态,可在新分支上继续修改。
 
@@ -403,7 +403,7 @@ Resources 页汇总公开学习资源(文章/视频/课程),按标签分类;Help
 > 2. 关键路径串行(用户故事 P1),非关键并行(P2/P3)
 > 3. 单 Phase 工作量适中(2-3 周,1-2 人)
 > 4. 后端就绪一部分,前端就迁移一部分(避免大批量 mock 切换)
-> 5. 阻塞性问题(A1-A5,见 `docs/ANALYSIS_REPORT.md`)在进入相关 Phase 前必须修订
+> 5. 阻塞性问题(A1-A5,from the folded legacy consistency review)在进入相关 Phase 前必须修订
 
 ### Phase 1 — P0 基线(账号 + 简历 CRUD + 前端基础设施) **2-3 周**
 
@@ -625,7 +625,7 @@ Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 
 
 > 这些问题**不阻塞** spec 通过,但**必须**在对应 Phase 的 `plan.md` 中明确决定。
 
-- **Q1**: Ability Dimension 6 个维度的具体定义 / 子项划分,见 M09 §1(参考 `docs/PERSISTENCE_REQUIREMENTS.md`)
+- **Q1**: Ability Dimension 6 个维度的具体定义 / 子项划分,见 M09 §1(reference the canonical ability profile specs)
 - **Q2**: LangSmith 启用决策(参见 A17),需法务介入
 - **Q3**: LLM 模型族选择(Claude Opus / Sonnet / Haiku 按场景分层),需 M14 plan 阶段决定
 - **Q4**: 资源(Resources)内容运营策略:是自建题库还是聚合外部,见 M19 plan 阶段
@@ -636,10 +636,10 @@ Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 
 ## 9. References
 
 - **UI 样板**: `src/pages/*.tsx`(12 个页面)、`src/components/ui/`(10 个 UI 组件)、`src/components/layout/`(AppShell/Sidebar/Topbar)、`src/data/mockData.ts`(静态数据)
-- **后端需求总览**: `docs/PERSISTENCE_REQUIREMENTS.md`(v0.2, 893 行,需 v0.3 修订)
-- **一致性审视**: `docs/ANALYSIS_REPORT.md`(17 项问题,5 项阻塞 / 8 项重要 / 4 项建议)
-- **开发路线图**: `docs/DEVELOPMENT_ROADMAP.md`(8 Sprint,本 spec 合并为 6 Phase)
-- **23 模块文档**: `docs/modules/01-infrastructure.md` ~ `23-frontend-migration.md`
+- **Historical backend requirement overview**: folded into this spec and later feature specs.
+- **Historical consistency review**: blocking and important issues were folded into the relevant feature specs.
+- **Development roadmap**: use the specs index and feature-level task files.
+- **Historical module taxonomy**: folded into canonical specs; use git history only for old context.
 - **Constitution**: `.specify/memory/constitution.md`(5 大原则:Library-First / CLI / Test-First / Integration / Observability)
 
 ---

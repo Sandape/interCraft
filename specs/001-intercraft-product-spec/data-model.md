@@ -511,6 +511,6 @@ CREATE POLICY resume_branches_user_isolation ON resume_branches
 
 - [PostgreSQL RLS](https://www.postgresql.org/docs/15/ddl-rowsecurity.html)
 - [SQLAlchemy 2.0 Mapped](https://docs.sqlalchemy.org/en/20/orm/mapping_styles.html#declarative-mapping-with-typed-mapped-attributes)
-- spec `docs/PERSISTENCE_REQUIREMENTS.md` §3.2
+- Historical persistence requirement review folded into this spec.
 - M04 §4, M05 §4, M06 §4, M07 §4
 - 决议 DEC-2 (uuidv7) / DEC-3 (fractional-indexing) / DEC-4 (jsonpatch) / DEC-5 (PyJWT)

@@ -118,7 +118,7 @@ interface PatchJobInput {
 - PATCH /jobs/:id { notes_md: "Y" } → DB 更新
 ```
 
-### E2E（`e2e/jobs/notes-roundtrip.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/jobs/notes-roundtrip.spec.ts`）
 
 ```text
 1. 登录 → 打开 Jobs 页

@@ -278,9 +278,9 @@
 - [X] T149 [P] Add `frontend-design`/`frontend-ui-engineering` review on Login + ResumeList + ResumeEditor + Register pages (consistency check: dark-mode contrast ≥ 4.5:1; keyboard navigation; focus rings)
 - [X] T150 [P] Add `Makefile` (targets: `make up`, `make down`, `make test`, `make e2e`, `make seed`, `make reset`, `make gen-api`)
 - [X] T151 [P] Add `.github/workflows/ci.yml` (or equivalent) — lint → typecheck → unit → integration → contract → e2e (Playwright on real backend via `docker-compose.test.yml`)
-- [X] T152 [P] Add `docs/PHASE1_RELEASE_NOTES.md` summarizing what ships + acceptance checklist aligned to `quickstart.md` §6
+- [X] T152 [P] Add `phase-one release notes` summarizing what ships + acceptance checklist aligned to `quickstart.md` §6
 - [X] T153 [P] Verify `VITE_USE_MOCK=true` regression: all Phase 1 pages still work (Login/Register/ResumeList/ResumeEditor) without backend
-- [X] T154 [P] **[UNBLOCKED]** Ran quickstart end-to-end at `specs/001-intercraft-product-spec/quickstart.md` §2 (SC-001 5-minute happy path) and §3.1-§3.7 (edge cases); all 8 tests pass in `tests/integration/test_e2e_phase1.py`; evidence recorded in `docs/PHASE1_RELEASE_NOTES.md`
+- [X] T154 [P] **[UNBLOCKED]** Ran quickstart end-to-end at `specs/001-intercraft-product-spec/quickstart.md` §2 (SC-001 5-minute happy path) and §3.1-§3.7 (edge cases); all 8 tests pass in `tests/integration/test_e2e_phase1.py`; evidence recorded in `phase-one release notes`
 - [X] T155 [P] **[UNBLOCKED]** Full backend `pytest -q` → 47 passed, 22 skipped (legacy TDD stubs superseded by `test_e2e_phase1.py`); frontend vitest already green; final `git diff` review pending
 - [X] T156 [P] Final Constitution Check re-evaluation: review plan.md §「Re-evaluation after Phase 1 design」; confirm no new violations; add a `phase-1-done.md` summary if any drift
 

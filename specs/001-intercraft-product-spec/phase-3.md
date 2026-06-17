@@ -282,7 +282,7 @@ D:\Project\eGGG\
 │       └── mockData.ts                         # 保留(留 mock 仓库用)
 │
 └── tests/
-    └── e2e/
+    └── tests/e2e/
         └── phase3/
             ├── lock-acquire-release.spec.ts    # 双浏览器上下文:锁获取/释放/WS 推送
             ├── outbox-offline-replay.spec.ts   # 离线编辑 → 联网回放

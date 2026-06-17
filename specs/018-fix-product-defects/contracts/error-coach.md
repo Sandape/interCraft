@@ -130,14 +130,14 @@ And   列表中该项高亮
 - mock state=error → 显示错误 + 「重试」按钮
 ```
 
-### E2E（`e2e/error-book/coach-start-feedback.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/error-book/coach-start-feedback.spec.ts`）
 
 ```text
 - 错题详情点「开始强化」→ 5s 内见到 loading / error / first-question
 - 模拟后端 503 → 见到「启动失败，请重试」+ 按钮可点
 ```
 
-### E2E（`e2e/error-book/auto-select-new.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/error-book/auto-select-new.spec.ts`）
 
 ```text
 - 打开「+ 新建错题」→ 填内容 → 提交

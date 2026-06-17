@@ -102,7 +102,7 @@ Topbar 菜单结构（src/components/layout/Topbar.tsx）:
 
 ## 测试契约
 
-### E2E（`e2e/shell/router-future-flags.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/shell/router-future-flags.spec.ts`）
 
 ```text
 - 加载 / 切换路由 → console 不出现以下警告：
@@ -114,7 +114,7 @@ Topbar 菜单结构（src/components/layout/Topbar.tsx）:
   - "React Router Future Flag Warning: v7_skipActionErrorRevalidation"
 ```
 
-### E2E（`e2e/auth/logout-menu-semantics.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/auth/logout-menu-semantics.spec.ts`）
 
 ```text
 - 打开个人菜单 → 用 page.getByRole('button', { name: '退出登录' }) 命中

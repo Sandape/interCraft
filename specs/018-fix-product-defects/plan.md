@@ -37,7 +37,7 @@
 
 **Project Type**:
 - 单仓 monorepo：
-  - 前端：`src/`（页面 / 组件 / hooks / repositories / stores / api） + `e2e/` + `tests/`
+  - 前端：`src/`（页面 / 组件 / hooks / repositories / stores / api） + `tests/e2e/018-fix-product-defects/` + `tests/`
   - 后端：`backend/app/`（modules / agents / api / core / domain） + `backend/tests/` + `backend/migrations/`
 
 **Performance Goals**:
@@ -125,7 +125,7 @@ specs/018-fix-product-defects/
 ### 源代码（仓库根）
 
 ```text
-# 前端（仓库根 src/，与 e2e/、tests/ 平级）
+# 前端（仓库根 src/，与 tests/e2e/018-fix-product-defects/、tests/ 平级）
 src/
 ├── pages/
 │   ├── Login.tsx                  # 缺陷 #1
@@ -177,7 +177,7 @@ backend/app/
         └── test_jobs_notes_field.py           # 缺陷 #12
 
 # 测试
-e2e/
+tests/e2e/018-fix-product-defects/
 ├── auth/
 │   ├── register-deep-link.spec.ts           # 缺陷 #1
 │   └── logout-menu-semantics.spec.ts        # 缺陷 #13
@@ -232,8 +232,8 @@ e2e/
 - ✅ quickstart.md 列出 14 个缺陷 × ≥1 个 E2E 路径
 
 ### IV. Integration & Synchronization Testing
-- ✅ 缺陷 #3（锁协议）→ `e2e/resume/new-resume-editable.spec.ts`（真后端 + 真锁）
-- ✅ 缺陷 #5（PDF 导出）→ `backend/tests/contract/test_export_contract.py` + `e2e/resume/pdf-export-flow.spec.ts`
+- ✅ 缺陷 #3（锁协议）→ `tests/e2e/018-fix-product-defects/resume/new-resume-editable.spec.ts`（真后端 + 真锁）
+- ✅ 缺陷 #5（PDF 导出）→ `backend/tests/contract/test_export_contract.py` + `tests/e2e/018-fix-product-defects/resume/pdf-export-flow.spec.ts`
 - ✅ 缺陷 #9（interview → ability_profile 跨模块回调）→ `backend/tests/integration/test_interview_to_ability_sync.py`（不 mock 链路）
 - ✅ 缺陷 #6 / #10 涉及 WS 路径 → 端到端跑真后端 + 真 WS（不走 mock 快乐路径）
 

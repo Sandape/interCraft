@@ -200,7 +200,7 @@ D:\Project\eGGG\
 │   │       └── abilityProfileClient.ts  # API 调用封装
 │
 ├── tests/
-│   └── e2e/
+│   └── tests/e2e/
 │       └── sc-ability-profile.spec.ts   # E2E:查看→自评→分享→导出→管理查看
 │
 └── scripts/

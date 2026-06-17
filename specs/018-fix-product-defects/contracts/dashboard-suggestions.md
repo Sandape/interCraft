@@ -65,7 +65,7 @@ useJobs()                → jobs
 
 ## 测试契约
 
-### E2E（`e2e/dashboard/no-fake-suggestions.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/dashboard/no-fake-suggestions.spec.ts`）
 
 ```text
 - 新注册账号访问 /dashboard → 见到档位 0 CTA，无任何 "字节跳动"/"系统设计"/"+14" 文案

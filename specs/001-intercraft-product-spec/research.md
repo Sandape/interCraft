@@ -305,5 +305,5 @@ export function deviceFingerprint(): string {
 - [openapi-typescript](https://openapi-ts.dev/)
 - [MSW (Mock Service Worker)](https://mswjs.io/)
 - [Playwright](https://playwright.dev/)
-- 模块文档:`docs/modules/{01..07,23}-*.md`
+- Historical module taxonomy: folded into this spec and retained feature specs.
 - 宪法:`.specify/memory/constitution.md` v1.0.0

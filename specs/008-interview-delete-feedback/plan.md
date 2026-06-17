@@ -64,7 +64,7 @@ src/
         `-- useInterviewSessions.ts
 
 tests/
-`-- e2e/
+`-- tests/e2e/
     `-- interview-delete-feedback.spec.ts
 ```
 

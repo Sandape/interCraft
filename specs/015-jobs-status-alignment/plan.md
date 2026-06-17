@@ -94,7 +94,7 @@ src/
 └── repositories/__tests__/JobRepository.test.ts  # MODIFIED: switch fixture counts to real backend statuses
 
 tests/
-└── e2e/
+└── tests/e2e/
     └── jobs-status-alignment.spec.ts  # NEW: 3 E2E scenarios (happy path, 409 retry, phantom tabs gone)
 ```
 

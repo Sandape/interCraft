@@ -31,5 +31,5 @@
 
 ## Notes
 
-- All items pass validation. No [NEEDS CLARIFICATION] markers present — the feature scope is clearly defined by existing module docs (docs/modules/16 through 19) and the product spec (001-intercraft-product-spec/spec.md). No clarification questions needed.
+- All items pass validation. No [NEEDS CLARIFICATION] markers present. The feature scope is defined by the canonical product spec and retained feature specs. No clarification questions needed.
 - Phase 5 builds directly on Phase 4 infrastructure (M14 LangGraph foundation, M22 audit) and Phase 1/2 business entities (M08 error questions, M09 abilities, M10 tasks/activities), all well-documented.

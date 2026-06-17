@@ -64,7 +64,7 @@ src/
     `-- Settings.tsx
 
 tests/
-`-- e2e/
+`-- tests/e2e/
     `-- topbar-utility-actions.spec.ts
 ```
 

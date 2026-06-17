@@ -44,14 +44,12 @@ without rewriting the internal logic of those modules.
 ## Related Tests
 
 - Canonical E2E: `tests/e2e/019-cross-module-linking.spec.ts`
-- Legacy/root E2E copy: `e2e/019-cross-module-linking.spec.ts`
 - Backend tests added for 019 live under `backend/tests/unit/` and
   `backend/tests/integration/`.
 
 ## Do Not Use As Source
 
-- `docs/modules/*` for implementation decisions.
+- Removed legacy module documents for implementation decisions.
 - Old Phase 1-4 testing reports as requirements.
 - Any `frontend/src` paths in old generated plans. The current frontend root is
   `src/`; see [docs/architecture/source-map.md](../../docs/architecture/source-map.md).
-

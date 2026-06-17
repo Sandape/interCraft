@@ -139,27 +139,27 @@ complete_session() →
 
 ## 测试契约
 
-### E2E（`e2e/interview/setup-resume-pick.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/interview/setup-resume-pick.spec.ts`）
 
 ```text
 - 有 1 份简历 → 打开面试 setup → 「使用简历」下拉列出该简历 → 提交带 branch_id
 - 无简历 → 打开面试 setup → 控件禁用 + 看到「暂无可用简历」
 ```
 
-### E2E（`e2e/interview/restore-zh-text.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/interview/restore-zh-text.spec.ts`）
 
 ```text
 - 进行中面试 → 强制刷新 → 顶部显示「已恢复 N 道回答，...」无 "Restored"
 ```
 
-### E2E（`e2e/interview/scoring-scale-0-10.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/interview/scoring-scale-0-10.spec.ts`）
 
 ```text
 - 完成面试 → 报告卡显示 "X.X / 10" + "满分 10"
 - 巡检 Dashboard / AbilityProfile：所有能力分显示 "X.X / 10"，无 "/ 100"
 ```
 
-### E2E（`e2e/interview/ability-sync.spec.ts`）
+### E2E（`tests/e2e/018-fix-product-defects/interview/ability-sync.spec.ts`）
 
 ```text
 1. 登录 → 新建简历 → 启动面试 → 提交 5 道题答案

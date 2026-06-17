@@ -279,10 +279,10 @@ description: "Phase 2 (P1 entities) 任务列表 — M08/M09/M10/M11 + M23 P1.5 
 - [X] T104 [P] 创建 `tests/e2e/phase2/rls-isolation-phase2.spec.ts`:7 张表 2-user 互访 → 404
 - [X] T105 [P] 创建 `scripts/check-task-dedup.mjs` + `scripts/check-error-fsm.mjs` + `scripts/check-ability-normalize.mjs`:前端核心逻辑 CLI 验证(Constitution II)
 - [X] T106 [P] 创建 `backend/app/modules/jobs/cli.py`:`replay` 子命令(从 fixture 重放幂等场景,Constitution V Observability)
-- [X] T107 [P] 创建 `docs/PHASE2_RELEASE_NOTES.md`:Phase 2 演示场景 + 验收清单 + 与 Phase 1 差异 + 风险回顾
+- [X] T107 [P] 创建 `phase-two release notes`:Phase 2 演示场景 + 验收清单 + 与 Phase 1 差异 + 风险回顾
 - [X] T108 [P] 验证 VITE_USE_MOCK=true 回归:Profile / Jobs / ErrorBook / Settings 资料 tab 仍可走 mock,无后端依赖
 - [X] T109 [P] 走 [quickstart-phase-2.md](./quickstart-phase-2.md) §0-§3 全 8 场景 + 录屏脚本
-- [X] T110 [P] 更新 `docs/modules/08-error-book.md` / `09-ability-profile.md` / `10-task-activity.md` / `11-interview-history.md`:补 Phase 2 决议引用(澄清 2026-06-13 决议)
+- [X] T110 [P] 更新 `removed legacy module notes`:补 Phase 2 决议引用(澄清 2026-06-13 决议)
 - [X] T111 [P] Constitution v1.0.0 Phase 2 Re-evaluation:逐条校验 5 原则,无新违规则 `phase-2-done.md` 总结
 
 **Checkpoint**: Phase 2 入口验收(三个页面在 `VITE_USE_MOCK=false` 下完全可用)+ E2E 套件全绿 + 文档齐备

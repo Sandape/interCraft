@@ -29,7 +29,7 @@
 
 ### Verification
 - 单元：`src/api/__tests__/export.test.ts` 覆盖 401/403/404/422/500 错误 → 中文文案映射
-- E2E：`e2e/resume/pdf-export-flow.spec.ts`：登录 → 新建简历 → 加块 → 触发导出 → 收到 PDF
+- E2E：`tests/e2e/018-fix-product-defects/resume/pdf-export-flow.spec.ts`：登录 → 新建简历 → 加块 → 触发导出 → 收到 PDF
 
 ---
 
@@ -55,7 +55,7 @@
   2. 提交 5 个答案，调用 `complete_session()`
   3. 立即 `GET /api/v1/ability-profile/dashboard`，断言对应 dim 分数 > 0
   4. 同时 patch 验证：DB 行 `ability_dimensions` 出现新行，`source='interview'`，`actual_score == 题目均分（0-10）`
-- E2E：`e2e/interview/ability-sync.spec.ts`：登录 → 完成一场面试 → 立即打开 `/ability-profile` 看到维度分 > 0
+- E2E：`tests/e2e/018-fix-product-defects/interview/ability-sync.spec.ts`：登录 → 完成一场面试 → 立即打开 `/ability-profile` 看到维度分 > 0
 
 ---
 
@@ -77,7 +77,7 @@
 
 ### Verification
 - 组件测试 `src/components/error-book/__tests__/ErrorCoachPanel.test.tsx`：mock 5s 才返回 → 断言 1.5s 内出现 loading 指示
-- E2E：`e2e/error-book/coach-start-feedback.spec.ts`：点"开始强化" → 5s 内见到 loading / 错误 / 第一道题
+- E2E：`tests/e2e/018-fix-product-defects/error-book/coach-start-feedback.spec.ts`：点"开始强化" → 5s 内见到 loading / 错误 / 第一道题
 
 ---
 
@@ -99,7 +99,7 @@
 ### Verification
 - 单元：`src/api/__tests__/jobs.test.ts`：mock API 收到 `{notes_md: "X"}`，断言 UI 显示 X
 - 契约测试 `backend/tests/contract/test_jobs_notes_field.py`：POST /jobs with `{notes_md: "X"}` → DB 行有 X；GET /jobs/{id} 返 X
-- E2E：`e2e/jobs/notes-roundtrip.spec.ts`：添加带备注的职位 → 列表备注列非 — → 编辑回填原备注
+- E2E：`tests/e2e/018-fix-product-defects/jobs/notes-roundtrip.spec.ts`：添加带备注的职位 → 列表备注列非 — → 编辑回填原备注
 
 ---
 
@@ -120,7 +120,7 @@
 
 ### Verification
 - 单元：`src/lib/lock/__tests__/useLock.test.ts`：模拟新建分支 → 调 acquire → isReadOnly=false
-- E2E：`e2e/resume/new-resume-editable.spec.ts`：新建 → 看到 "添加块" 入口 → 点击 → 成功新增块
+- E2E：`tests/e2e/018-fix-product-defects/resume/new-resume-editable.spec.ts`：新建 → 看到 "添加块" 入口 → 点击 → 成功新增块
 
 ---
 
@@ -146,7 +146,7 @@
 
 ### Verification
 - 单元：`src/pages/__tests__/Dashboard.test.tsx` 三档 fixture
-- E2E：`e2e/dashboard/no-fake-suggestions.spec.ts` + `e2e/dashboard/progressive-tiers.spec.ts`
+- E2E：`tests/e2e/018-fix-product-defects/dashboard/no-fake-suggestions.spec.ts` + `tests/e2e/018-fix-product-defects/dashboard/progressive-tiers.spec.ts`
 
 ---
 
@@ -166,7 +166,7 @@
 
 ### Verification
 - 单元：`src/pages/__tests__/InterviewLive.setup.test.tsx`
-- E2E：`e2e/interview/setup-resume-pick.spec.ts`
+- E2E：`tests/e2e/018-fix-product-defects/interview/setup-resume-pick.spec.ts`
 
 ---
 
@@ -184,7 +184,7 @@
 - **B. 不本地化，只改文案** — 接受（最小实现，i18n 留给未来）
 
 ### Verification
-- E2E：`e2e/interview/restore-zh-text.spec.ts`
+- E2E：`tests/e2e/018-fix-product-defects/interview/restore-zh-text.spec.ts`
 
 ---
 
@@ -208,7 +208,7 @@
 - **B. 报告 / Dashboard 各自量纲独立** — 拒绝（Q1 选项 A 已选统一 0-10）
 
 ### Verification
-- E2E：`e2e/interview/scoring-scale-0-10.spec.ts` 巡检全应用 string 不含 `/ 100`
+- E2E：`tests/e2e/018-fix-product-defects/interview/scoring-scale-0-10.spec.ts` 巡检全应用 string 不含 `/ 100`
 
 ---
 
@@ -229,7 +229,7 @@
 - **B. 用 menuitem role 替代 button** — 拒绝（FR-022 选项 A 优先 button）
 
 ### Verification
-- E2E：`e2e/auth/logout-menu-semantics.spec.ts` 用 `getByRole('button', { name: /退出登录/ })` 稳定定位
+- E2E：`tests/e2e/018-fix-product-defects/auth/logout-menu-semantics.spec.ts` 用 `getByRole('button', { name: /退出登录/ })` 稳定定位
 
 ---
 
@@ -261,7 +261,7 @@
 - **B. 只 suppress warning，不 opt-in** — 拒绝（治标不治本，warning 还会以其他形式出现）
 
 ### Verification
-- E2E：`e2e/shell/router-future-flags.spec.ts` 巡检 console 不含 future flag warning
+- E2E：`tests/e2e/018-fix-product-defects/shell/router-future-flags.spec.ts` 巡检 console 不含 future flag warning
 
 ---
 
@@ -289,7 +289,7 @@ export default function Register() {
 - **B. 在 Login 内监听 `searchParams` 变化** — 接受（作为 R-012 的伴随实现）
 
 ### Verification
-- E2E：`e2e/auth/register-deep-link.spec.ts`
+- E2E：`tests/e2e/018-fix-product-defects/auth/register-deep-link.spec.ts`
 
 ---
 
@@ -310,7 +310,7 @@ export default function Register() {
 - **B. 加一个"是否包含"断言后重试** — 脆弱，放弃
 
 ### Verification
-- E2E：`e2e/error-book/auto-select-new.spec.ts`
+- E2E：`tests/e2e/018-fix-product-defects/error-book/auto-select-new.spec.ts`
 
 ---
 
@@ -329,7 +329,7 @@ export default function Register() {
 - **A. 后端在 `notes_md` 为空时 422** — 接受（作为深度防御，但前端守卫先做）
 
 ### Verification
-- E2E：`e2e/resume/empty-resume-no-fake-ai.spec.ts`
+- E2E：`tests/e2e/018-fix-product-defects/resume/empty-resume-no-fake-ai.spec.ts`
 
 ---
 

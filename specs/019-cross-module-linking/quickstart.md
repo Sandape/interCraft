@@ -92,7 +92,7 @@ cd frontend && npm run test -- JobsDetailPanel
 
 ```bash
 # 3.1.1 创建分支
-BRANCH_ID=$(curl -X POST $BASE/resumes/branches -H "Authorization: Bearer $TOKEN" \
+BRANCH_ID=$(curl -X POST $BASE/resume-branches -H "Authorization: Bearer $TOKEN" \
   -d '{"name":"字节 · 前端","company":"字节","position":"前端"}' | jq -r .branch.id)
 
 # 3.1.2 绑定到 job

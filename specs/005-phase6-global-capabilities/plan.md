@@ -235,7 +235,7 @@ frontend/
     │       ├── SubscriptionTab.test.tsx
     │       ├── SecurityTab.test.tsx
     │       └── ExportTab.test.tsx
-    └── e2e/
+    └── tests/e2e/
         └── settings-flow.spec.ts
 ```
 

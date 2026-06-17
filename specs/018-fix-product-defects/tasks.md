@@ -54,9 +54,9 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 ### Tests for User Story 1 ⚠️ (TDD: 先红后绿)
 
-- [ ] T014 [P] [US1] E2E `e2e/resume/new-resume-editable.spec.ts` — 登录 → 新建简历 → 断言可写 + "+ 添加块" 入口可见 + 代码模式可输入 + 强制刷新后仍可写
-- [ ] T015 [P] [US1] E2E `e2e/resume/empty-resume-no-fake-ai.spec.ts` — 新建空简历 → 断言 AIOptimizePanel 显示空态, 不含 "LCP" / "76%" / "+14" 字面量
-- [ ] T016 [P] [US1] E2E `e2e/resume/pdf-export-flow.spec.ts` — 新建简历 + 1 块 → 导出 PDF → 断言下载非空 PDF; 模拟后端 500 → 断言 toast "导出服务暂不可用"
+- [ ] T014 [P] [US1] E2E `tests/e2e/018-fix-product-defects/resume/new-resume-editable.spec.ts` — 登录 → 新建简历 → 断言可写 + "+ 添加块" 入口可见 + 代码模式可输入 + 强制刷新后仍可写
+- [ ] T015 [P] [US1] E2E `tests/e2e/018-fix-product-defects/resume/empty-resume-no-fake-ai.spec.ts` — 新建空简历 → 断言 AIOptimizePanel 显示空态, 不含 "LCP" / "76%" / "+14" 字面量
+- [ ] T016 [P] [US1] E2E `tests/e2e/018-fix-product-defects/resume/pdf-export-flow.spec.ts` — 新建简历 + 1 块 → 导出 PDF → 断言下载非空 PDF; 模拟后端 500 → 断言 toast "导出服务暂不可用"
 - [ ] T017 [P] [US1] Unit `src/api/__tests__/export.test.ts` — mock 200/400 EMPTY_CONTENT/401/404/500 → 断言 ExportError 抛出与文案映射
 - [ ] T018 [P] [US1] Contract `backend/tests/contract/test_export_contract.py` — POST `/api/v1/export/render` 无 token=401, markdown=""=400 EMPTY_CONTENT, style_id="invalid"=400 INVALID_STYLE, format="gif"=400 INVALID_FORMAT, 正常=200 application/pdf
 
@@ -79,7 +79,7 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T024 [P] [US2] E2E `e2e/auth/register-deep-link.spec.ts` — 3 个场景: 未登录 /register 看到注册表单; /login 点去注册切到注册态; 已登录访问 /register 跳到 /
+- [ ] T024 [P] [US2] E2E `tests/e2e/018-fix-product-defects/auth/register-deep-link.spec.ts` — 3 个场景: 未登录 /register 看到注册表单; /login 点去注册切到注册态; 已登录访问 /register 跳到 /
 
 ### Implementation for User Story 2
 
@@ -99,8 +99,8 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 - [ ] T027 [P] [US3] Unit `src/pages/__tests__/Dashboard.test.tsx` — 3 个 fixture (零数据 / 1 场面试 / 3 场面试+齐全), 断言不出现 "字节跳动" / "系统设计" / "失分 N 次" 字面量
 - [ ] T028 [P] [US3] Unit `src/hooks/__tests__/useDashboardSuggestions.test.ts` — 档位选择器 3 个 case (档位 0/1/2 边界)
-- [ ] T029 [P] [US3] E2E `e2e/dashboard/no-fake-suggestions.spec.ts` — 新账号访问 /dashboard, 见到档位 0 CTA
-- [ ] T030 [P] [US3] E2E `e2e/dashboard/progressive-tiers.spec.ts` — 3 个数据档位的 E2E 验证
+- [ ] T029 [P] [US3] E2E `tests/e2e/018-fix-product-defects/dashboard/no-fake-suggestions.spec.ts` — 新账号访问 /dashboard, 见到档位 0 CTA
+- [ ] T030 [P] [US3] E2E `tests/e2e/018-fix-product-defects/dashboard/progressive-tiers.spec.ts` — 3 个数据档位的 E2E 验证
 
 ### Implementation for User Story 3
 
@@ -118,8 +118,8 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T033 [P] [US4] E2E `e2e/interview/scoring-scale-0-10.spec.ts` — 完成面试后报告卡显示 "X.X / 10"; 全应用 string 巡检无 "/ 100" 形式
-- [ ] T034 [P] [US4] E2E `e2e/interview/ability-sync.spec.ts` — 完成面试后立即打开 /ability-profile, 至少 1 个维度 actual_score > 0
+- [ ] T033 [P] [US4] E2E `tests/e2e/018-fix-product-defects/interview/scoring-scale-0-10.spec.ts` — 完成面试后报告卡显示 "X.X / 10"; 全应用 string 巡检无 "/ 100" 形式
+- [ ] T034 [P] [US4] E2E `tests/e2e/018-fix-product-defects/interview/ability-sync.spec.ts` — 完成面试后立即打开 /ability-profile, 至少 1 个维度 actual_score > 0
 - [ ] T035 [P] [US4] Integration `backend/tests/integration/test_interview_to_ability_sync.py` (T013 骨架已就位) — 完成 5 题面试后断言 `ability_dimensions` 出现 `source='interview'` 新行, `actual_score == 题均分`
 
 ### Implementation for User Story 4
@@ -141,8 +141,8 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T041 [P] [US5] E2E `e2e/interview/setup-resume-pick.spec.ts` — 有 1 份简历 → 看到下拉 + 可选; 无简历 → 控件禁用 + 看到引导
-- [ ] T042 [P] [US5] E2E `e2e/interview/restore-zh-text.spec.ts` — 进行中面试刷新 → 顶部显示「已恢复 N 道回答, M 道题目, K 个评分」
+- [ ] T041 [P] [US5] E2E `tests/e2e/018-fix-product-defects/interview/setup-resume-pick.spec.ts` — 有 1 份简历 → 看到下拉 + 可选; 无简历 → 控件禁用 + 看到引导
+- [ ] T042 [P] [US5] E2E `tests/e2e/018-fix-product-defects/interview/restore-zh-text.spec.ts` — 进行中面试刷新 → 顶部显示「已恢复 N 道回答, M 道题目, K 个评分」
 
 ### Implementation for User Story 5
 
@@ -164,8 +164,8 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 - [ ] T047 [P] [US6] Unit `src/components/error-book/__tests__/ErrorCoachPanel.test.tsx` — mock start 5s 才返 → 1.5s 内见 loading; mock state=running → 显第一题; mock state=error → 显错误 + 重试按钮
 - [ ] T048 [P] [US6] Unit `src/hooks/__tests__/useErrorCoach.test.ts` — 验证 `refetchInterval: 1500` 配置; status=done/error 时停轮询
-- [ ] T049 [P] [US6] E2E `e2e/error-book/coach-start-feedback.spec.ts` — 错题详情点开始强化 → 5s 内见 loading/题; 后端 503 → 见「启动失败, 请重试」
-- [ ] T050 [P] [US6] E2E `e2e/error-book/auto-select-new.spec.ts` — 新建错题 → 右侧自动切换 + 列表高亮
+- [ ] T049 [P] [US6] E2E `tests/e2e/018-fix-product-defects/error-book/coach-start-feedback.spec.ts` — 错题详情点开始强化 → 5s 内见 loading/题; 后端 503 → 见「启动失败, 请重试」
+- [ ] T050 [P] [US6] E2E `tests/e2e/018-fix-product-defects/error-book/auto-select-new.spec.ts` — 新建错题 → 右侧自动切换 + 列表高亮
 
 ### Implementation for User Story 6
 
@@ -187,7 +187,7 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 - [ ] T055 [P] [US7] Unit `src/api/__tests__/jobs.test.ts` — 创建/编辑/读取 jobs API 字段 `notes_md` 映射
 - [ ] T056 [P] [US7] Contract `backend/tests/contract/test_jobs_notes_field.py` — POST /jobs { notes_md: "X" } → DB 行 notes_md="X"; GET 回返; PATCH 更新
-- [ ] T057 [P] [US7] E2E `e2e/jobs/notes-roundtrip.spec.ts` — 添加带备注职位 → 列表显示; 编辑回填; 修改保存
+- [ ] T057 [P] [US7] E2E `tests/e2e/018-fix-product-defects/jobs/notes-roundtrip.spec.ts` — 添加带备注职位 → 列表显示; 编辑回填; 修改保存
 
 ### Implementation for User Story 7
 
@@ -206,8 +206,8 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 ### Tests for User Story 8 ⚠️
 
-- [ ] T061 [P] [US8] E2E `e2e/shell/router-future-flags.spec.ts` — 巡检主流程页面 console, 不出现 6 个 v7 future flag warning
-- [ ] T062 [P] [US8] E2E `e2e/auth/logout-menu-semantics.spec.ts` — 打开菜单 → `getByRole('button', { name: /退出登录/ })` 命中; 点击跳 /login
+- [ ] T061 [P] [US8] E2E `tests/e2e/018-fix-product-defects/shell/router-future-flags.spec.ts` — 巡检主流程页面 console, 不出现 6 个 v7 future flag warning
+- [ ] T062 [P] [US8] E2E `tests/e2e/018-fix-product-defects/auth/logout-menu-semantics.spec.ts` — 打开菜单 → `getByRole('button', { name: /退出登录/ })` 命中; 点击跳 /login
 - [ ] T063 [P] [US8] Unit `src/components/layout/__tests__/Topbar.test.tsx` — 「退出登录」与「注销账号」不在同一危险色区; 两者间有 separator; 键盘 Tab 可达
 
 ### Implementation for User Story 8
@@ -229,7 +229,7 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 - [ ] T069 [P] Run `uv run ruff check . && uv run mypy app/` in `D:/Project/eGGG/backend` — 后端 0 error
 - [ ] T070 String lint — 巡检 `src/` 不出现 "字节跳动简历分支" / "系统设计失分 3 次" / "LCP 1.4s" / "76% 复用" / "+14" / "Restored N answers" / "/ 100" 等旧字面量
 - [ ] T071 [P] Verify `specs/018-fix-product-defects/checklists/requirements.md` 11/11 项仍全勾选
-- [ ] T072 [P] Update `e2e/seed.spec.ts` (若存在 shared seed) — 添加本批次测试用户 / fixture
+- [ ] T072 [P] Update `tests/e2e/seed.spec.ts` (若存在 shared seed) — 添加本批次测试用户 / fixture
 - [ ] T073 [P] Run `npx playwright test` (全量回归) — 不破坏既有 016 / 017 等特性的 E2E
 - [ ] T074 Bump `CHANGELOG.md` (or `specs/CHANGELOG.md` 若项目用) — 018-fix-product-defects 入口
 
@@ -268,7 +268,7 @@ description: "Task list for 018-fix-product-defects (v1 Quality Batch)"
 
 - **Phase 1**: T001..T006 全部 [P] — 6 个不同文件, 可并行
 - **Phase 2**: T007 / T008 / T009 / T010 / T012 / T013 [P] — 但 T011 必须在 T007 之后 (App.tsx 内 useDashboardSuggestions import 之前需先存在)
-- **P1 故事**: US1 (e2e/resume + src/api/export + src/components/resume) ∥ US2 (src/pages/Register + Login) ∥ US3 (src/pages/Dashboard + src/hooks) ∥ US4 (src/pages/InterviewReport + AbilityProfile + backend)
+- **P1 故事**: US1 (tests/e2e/018-fix-product-defects/resume + src/api/export + src/components/resume) ∥ US2 (src/pages/Register + Login) ∥ US3 (src/pages/Dashboard + src/hooks) ∥ US4 (src/pages/InterviewReport + AbilityProfile + backend)
 - **P2 故事**: US5 (InterviewLive) ∥ US6 (ErrorBook + useErrorCoach) ∥ US7 (Jobs + jobs API)
 - **P3 故事**: US8 (App.tsx + Topbar) 与 P1/P2 任意并行
 - **Polish**: T066 / T067 / T068 / T069 / T070 / T071 [P]
