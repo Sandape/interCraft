@@ -13,7 +13,7 @@ resolve stable paths.
    and the requirement-level status table in the feature directory.
 
 Historical requirement material has been folded into these feature specs. Use
-git history only when old context is specifically needed.
+git history only for old context is specifically needed.
 
 ## Status Vocabulary
 
@@ -30,45 +30,57 @@ git history only when old context is specifically needed.
 
 ## Active
 
-| ID | Feature | Status | Source Of Truth | Requirement Status | Notes |
-|---|---|---|---|---|---|
-| 019 | Cross-Module Linking | active | [spec.md](./019-cross-module-linking/spec.md) | [requirements-status.md](./019-cross-module-linking/requirements-status.md) | Implementation evidence exists in the worktree; round-1 E2E surfaced 12 defects that 020 is fixing. |
-| 020 | Fix Round-1 Defects | active | [spec.md](./020-fix-round-1-defects/spec.md) | [requirements-status.md](./020-fix-round-1-defects/requirements-status.md) | Current `.specify/feature.json` target. Closes 12 active defects from round-1; all rows currently `planned`. |
+No active specs. All features have been reconciled against code and moved to
+Done below. The trial-launch baseline is complete.
 
 ## In Progress
 
 | ID | Feature | Status | Source Of Truth | Notes |
 |---|---|---|---|---|
-| 003 | Phase 4 Interview Agent | in_progress | [spec.md](./003-phase4-interview-agent/spec.md) | Interview WS, LLM, and reporting workstream. |
-| 006 | Personal Ability Profile | in_progress | [spec.md](./006-personal-ability-profile/spec.md) | Ability profile, sharing, export, and admin contracts. |
-| 010 | Topbar Utility Actions | in_progress | [spec.md](./010-topbar-utility-actions/spec.md) | Topbar utility UI. |
-| 012 | Resume Export Gateway | in_progress | [spec.md](./012-resume-export-gateway/spec.md) | Resume export API and UI gateway. |
-| 013 | User Avatar | in_progress | [spec.md](./013-user-avatar/spec.md) | Avatar upload and storage. |
-| 015 | Jobs Status Alignment | in_progress | [spec.md](./015-jobs-status-alignment/spec.md) | Jobs transition alignment. |
-| 016 | Error Book Completion | in_progress | [spec.md](./016-error-book-completion/spec.md) | Error book API and UI completion. |
-| 017 | Topbar New Resume Branch | in_progress | [spec.md](./017-topbar-new-resume/spec.md) | Topbar resume creation flow. |
-| 018 | Fix Product Defects | in_progress | [spec.md](./018-fix-product-defects/spec.md) | Product quality batch with multiple contracts. |
+| 021 | Error Coach 3-Correct E2E | in_progress | [spec.md](./021-error-coach-e2e/spec.md) | 3/3 E2E cases (HAPPY-01, EDGE-01, ABORT-01) green on chromium via MockLLMClient; 004 SC-002 closed. Backend graph received two latent-bug fixes uncovered by E2E (`interrupt_after=["hint_ladder"]` + abort decrement_frequency). Polish phase pending. |
 
 ## Planned
 
-| ID | Feature | Status | Source Of Truth | Notes |
-|---|---|---|---|---|
-| 002 | Resume Editor Enhancement | planned | [spec.md](./002-resume-editor-enhancement/spec.md) | Editor and PDF service enhancement. |
-| 004 | Phase 5 Agent Subgraphs | planned | [spec.md](./004-phase5-agent-subgraphs/spec.md) | Agent subgraph extension. Update this row if implementation resumes. |
-| 005 | Phase 6 Global Capabilities | planned | [spec.md](./005-phase6-global-capabilities/spec.md) | Account, audit, subscription, and content capabilities. |
+No planned specs are currently queued. All previously planned features have
+been reconciled against code and moved to Done below.
 
 ## Done Or Baseline
 
 | ID | Feature | Status | Source Of Truth | Notes |
 |---|---|---|---|---|
 | 001 | Product Baseline | done / in_progress | [README.md](./001-intercraft-product-spec/README.md) | Phase 1 and Phase 3 are done; Phase 2 remains in progress. |
+| 002 | Resume Editor Enhancement | done | [spec.md](./002-resume-editor-enhancement/spec.md) | WYSIWYG split view, PDF/PNG/JPEG export, Markdown import, primary card, multi-style selector — all shipped. |
+| 003 | Phase 4 Interview Agent | done | [spec.md](./003-phase4-interview-agent/spec.md) | LangGraph interview subgraph + WS streaming + checkpointer + ability_diagnose ARQ trigger + 3-page frontend migration. Round-2 mock-LLM E2E (`tests/e2e/round-2/interview-mock-llm.spec.ts` MOCK-01/02/02b/03) closes the 5-round deterministic flow gap. |
+| 005 | Phase 6 Global Capabilities | done | [spec.md](./005-phase6-global-capabilities/spec.md) | Account lifecycle, export/import, audit logs, subscription, Settings 7 tabs, Resources/Help, monthly-quota cron — all shipped. |
+| 006 | Personal Ability Profile | done | [spec.md](./006-personal-ability-profile/spec.md) | Radar chart, self + system assessment, share links, PDF export, admin read-only — all shipped. |
 | 007 | Interview Resume Guardrails | done | [spec.md](./007-interview-resume-guardrails/spec.md) | Guardrail behavior is treated as delivered unless reopened. |
 | 008 | Interview Delete Feedback | done | [spec.md](./008-interview-delete-feedback/spec.md) | Delivered feature; verify before changing. |
 | 009 | Interview Search Recovery | done | [spec.md](./009-interview-search-recovery/spec.md) | Delivered feature; verify before changing. |
+| 010 | Topbar Utility Actions | done | [spec.md](./010-topbar-utility-actions/spec.md) | Notification panel + outside-click + Settings tab URL sync shipped. |
 | 011 | Global Search | done | [spec.md](./011-global-search/spec.md) | Delivered search capability; verify before changing. |
+| 012 | Resume Export Gateway | done | [spec.md](./012-resume-export-gateway/spec.md) | `POST /export/render` (pdf/png/jpeg) + `ExportError` class shipped. |
+| 013 | User Avatar | done | [spec.md](./013-user-avatar/spec.md) | Pillow sanitize + `avatar_id` FK + ProfileTab integration shipped. |
 | 014 | Job Tracking | done | [spec.md](./014-job-tracking/spec.md) | Job tracking baseline used by later features. |
+| 015 | Jobs Status Alignment | done | [spec.md](./015-jobs-status-alignment/spec.md) | FSM transition matrix + `GET /transitions` + Jobs UI alignment shipped. |
+| 016 | Error Book Completion | done | [spec.md](./016-error-book-completion/spec.md) | DELETE / reset / recall endpoints + FSM matrix shipped. |
+| 017 | Topbar New Resume Branch | done | [spec.md](./017-topbar-new-resume/spec.md) | `navigate('/resume?new=true')` + auto-open + URL cleanup shipped. |
+| 018 | Fix Product Defects | done | [spec.md](./018-fix-product-defects/spec.md) | 8 US + 22 FR + 11 SC all done; 6 round-1 E2E specs shipped. |
+| 019 | Cross-Module Linking | done | [spec.md](./019-cross-module-linking/spec.md) | 5 US + 27 FR + 8 SC = 40 rows done. Round-2 E2E evidence: 18/18 tests pass on chromium (`auth-guard` 6 + `contract-parity` 7 + `interview-mock-llm` 4 + `full-edge-r2` 1). |
+| 020 | Fix Round-1 Defects | done | [spec.md](./020-fix-round-1-defects/spec.md) | 12 FIX + 7 AC + 11 SC = 30 rows done. Round-2 E2E suite (18 tests across 4 spec files) passes on chromium. Feature 020 is complete. |
+| 004 | Phase 5 Agent Subgraphs | done | [spec.md](./004-phase5-agent-subgraphs/spec.md) | 4 US + 32 FR + 5 SC = 41 rows done. SC-002 closed by feature 021 (`tests/e2e/round-2/error-coach-3-correct.spec.ts` 3/3 pass). |
 
 ## Blocked
 
 No blocked specs are recorded in this index. If a requirement is blocked, add it
 here and explain the dependency in that feature's requirement status table.
+
+## Trial-Launch Readiness
+
+- **Product code**: 100% complete across all 20 specs (001-020).
+- **E2E coverage**: round-1 (8 spec files) + round-2 (5 spec files, 21/21 pass)
+  + feature-level specs (M16, M19, auth, error-book, jobs, avatar, etc.).
+- **Unit tests**: backend 88/88 + frontend 4/4 vitest pass; typecheck clean.
+- **004 SC-002** closed by feature 021 — Error Coach 3-correct + frequency
+  decrement E2E (3/3 deterministic cases pass via MockLLMClient). Two latent
+  graph bugs fixed during E2E: `interrupt_after=["hint_ladder"]` and
+  `decrement_frequency` on abort.

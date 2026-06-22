@@ -98,10 +98,28 @@ class LLMResponse(TypedDict):
 # LLM Client
 # ---------------------------------------------------------------------------
 _llm_client_singleton: LLMClient | None = None
+# 021: mock client is cached per scenario-file mtime so the score sequence
+# inside MockLLMClient persists across invokes within a session. When the
+# E2E test overwrites the scenario file, the mtime changes and the cache
+# is invalidated.
+_mock_client_singleton: object | None = None
+_mock_client_scenario_mtime: float | None = None
 
 
 def get_llm_client() -> LLMClient:
-    global _llm_client_singleton
+    global _llm_client_singleton, _mock_client_singleton, _mock_client_scenario_mtime
+    if os.environ.get("LLM_MOCK_MODE") == "1":
+        path = os.environ.get("LLM_MOCK_SCENARIO_PATH", "")
+        try:
+            mtime = os.path.getmtime(path) if path and os.path.exists(path) else 0.0
+        except OSError:
+            mtime = 0.0
+        if _mock_client_singleton is None or mtime != _mock_client_scenario_mtime:
+            from app.agents.llm_client_mock import MockLLMClient
+
+            _mock_client_singleton = MockLLMClient.from_scenario_file(path)
+            _mock_client_scenario_mtime = mtime
+        return _mock_client_singleton  # type: ignore[return-value]
     if _llm_client_singleton is None:
         _llm_client_singleton = LLMClient()
     return _llm_client_singleton

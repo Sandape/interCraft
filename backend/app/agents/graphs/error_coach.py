@@ -60,7 +60,14 @@ class ErrorCoachGraph(BaseAgent):
         )
 
         checkpointer = await self._get_checkpointer()
-        return builder.compile(checkpointer=checkpointer)
+        # 021: pause after hint_ladder so the graph waits for the user's
+        # next answer instead of looping evaluate→hint_ladder until the
+        # recursion limit. Without this, start() runs the whole 3-round
+        # conversation with itself and submit_answer is a no-op.
+        return builder.compile(
+            checkpointer=checkpointer,
+            interrupt_after=["hint_ladder"],
+        )
 
     def _route_after_loop(self, state: ErrorCoachState) -> Literal["hint_ladder", "__end__"]:
         correct_count = state.get("correct_count", 0)
@@ -115,8 +122,31 @@ class ErrorCoachGraph(BaseAgent):
         graph = await self.build_graph()
         config = await get_graph_config(thread_id)
 
-        await graph.aupdate_state(config, {"session_aborted": True})
+        state = await graph.aget_state(config)
+        # 021: if the graph is paused before evaluate (state.next contains
+        # "evaluate"), skip it — we don't want to score the last answer a
+        # second time during abort. Using as_node="evaluate" advances the
+        # cursor past evaluate so ainvoke resumes at loop_or_finish.
+        next_nodes = list(state.next or [])
+        if "evaluate" in next_nodes:
+            await graph.aupdate_state(
+                config, {"session_aborted": True}, as_node="evaluate"
+            )
+        else:
+            await graph.aupdate_state(config, {"session_aborted": True})
         result = await graph.ainvoke(None, config)
+
+        # 021: abort must also decrement frequency (mirrors submit_answer's
+        # end-of-session path). Without this, an abandoned session leaves
+        # frequency unchanged.
+        session_aborted = result.get("session_aborted", False)
+        if session_aborted:
+            user_id = (state.values or {}).get("user_id", "")
+            error_question_id = (state.values or {}).get("error_question_id", "")
+            if error_question_id and user_id:
+                service = ErrorCoachService()
+                await service.decrement_frequency(error_question_id, user_id)
+
         return result
 
     async def get_state(self, thread_id: str) -> dict[str, Any]:
