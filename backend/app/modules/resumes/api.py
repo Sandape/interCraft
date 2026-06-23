@@ -61,10 +61,11 @@ async def list_branches(
         is_pinned=is_pinned,
         status=status_filter,
     )
+    # 022: batch counts (2 SQL roundtrips total, vs 2N before).
+    counts_map = await svc.repo.get_counts_batch([b.id for b in branches])
     out: list[ResumeBranchOut] = []
     for b in branches:
-        bc = await svc.repo.get_block_count(b.id)
-        vc = await svc.repo.get_version_count(b.id)
+        vc, bc = counts_map.get(b.id, (0, 0))
         out.append(await _branch_out(b, bc, vc))
     return ResumeBranchListResponse(data=out)
 

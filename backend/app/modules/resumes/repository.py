@@ -26,9 +26,19 @@ class ResumeRepository(BaseRepository[ResumeBranch]):
         status: str | None = None,
         limit: int = 50,
     ) -> list[ResumeBranch]:
-        stmt = select(ResumeBranch).where(
-            ResumeBranch.user_id == user_id,
-            ResumeBranch.deleted_at.is_(None),
+        # 022: list_branches does not serialize branch.versions / branch.blocks
+        # (the response schema ResumeBranchOut only carries scalar counts,
+        # populated separately by get_counts_batch). Eager-loading those
+        # relationships would issue 2 unused SQL roundtrips; the counts come
+        # from get_counts_batch (2 GROUP BY queries) instead. Total queries:
+        # 1 (this list) + 2 (batch COUNT) = 3, constant regardless of branch
+        # count (was 1 + 2N before).
+        stmt = (
+            select(ResumeBranch)
+            .where(
+                ResumeBranch.user_id == user_id,
+                ResumeBranch.deleted_at.is_(None),
+            )
         )
         if is_main is not None:
             stmt = stmt.where(ResumeBranch.is_main == is_main)
@@ -43,6 +53,38 @@ class ResumeRepository(BaseRepository[ResumeBranch]):
         ).limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_counts_batch(
+        self,
+        branch_ids: list[UUID],
+    ) -> dict[UUID, tuple[int, int]]:
+        """Return {branch_id: (version_count, block_count)} in 2 SQL roundtrips.
+
+        022: used by list_branches to avoid N+1 per-branch COUNT queries.
+        """
+        from app.modules.versions.models import ResumeVersion
+
+        if not branch_ids:
+            return {}
+
+        v_stmt = (
+            select(ResumeVersion.branch_id, func.count())
+            .where(ResumeVersion.branch_id.in_(branch_ids))
+            .group_by(ResumeVersion.branch_id)
+        )
+        b_stmt = (
+            select(ResumeBlock.branch_id, func.count())
+            .where(
+                ResumeBlock.branch_id.in_(branch_ids),
+                ResumeBlock.deleted_at.is_(None),
+            )
+            .group_by(ResumeBlock.branch_id)
+        )
+        v_result = await self.session.execute(v_stmt)
+        b_result = await self.session.execute(b_stmt)
+        v_map = {row[0]: int(row[1] or 0) for row in v_result.all()}
+        b_map = {row[0]: int(row[1] or 0) for row in b_result.all()}
+        return {bid: (v_map.get(bid, 0), b_map.get(bid, 0)) for bid in branch_ids}
 
     async def get(self, branch_id: UUID, *, user_id: UUID | None = None) -> ResumeBranch | None:
         stmt = select(ResumeBranch).where(
