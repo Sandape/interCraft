@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Soft-touch DB + Redis on boot (best-effort).
     log.info("deps.probe", db=await db_ping(), redis=await redis_ping())
 
+    # 023: Warm checkpointer connection pool (best-effort, non-fatal).
+    from app.agents.checkpointer import preheat as checkpointer_preheat
+
+    await checkpointer_preheat()
+
     try:
         yield
     finally:

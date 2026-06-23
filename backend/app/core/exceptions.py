@@ -12,6 +12,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.agents.exceptions import CheckpointerUnavailableError
+
 
 class AppError(Exception):
     """Base class for all app-raised, structured errors.
@@ -125,6 +127,20 @@ def _rid(request: Request) -> str:
 
 
 def install_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(CheckpointerUnavailableError)
+    async def _checkpointer_unavailable(request: Request, exc: CheckpointerUnavailableError) -> JSONResponse:
+        rid = _rid(request)
+        return JSONResponse(
+            status_code=503,
+            content=_envelope(
+                code="agent.checkpointer_unavailable",
+                message="面试服务暂时不可用，请稍后重试",
+                request_id=rid,
+                details={"retry_after": exc.retry_after},
+            ),
+            headers={"X-Request-ID": rid, "Retry-After": str(exc.retry_after)},
+        )
+
     @app.exception_handler(AppError)
     async def _app_error(request: Request, exc: AppError) -> JSONResponse:
         code = exc.code_override or exc.code
@@ -160,6 +176,24 @@ def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         rid = _rid(request)
+        # 024 FIX: when callers raise HTTPException(detail={"error": {...}}),
+        # preserve the inner code/message/details instead of flattening to
+        # `http.<status>`. This keeps backwards compatibility with handlers
+        # that built the structured envelope directly (e.g. errors service
+        # `source_already_cleared`).
+        detail = exc.detail
+        if isinstance(detail, dict) and isinstance(detail.get("error"), dict):
+            inner = detail["error"]
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=_envelope(
+                    code=inner.get("code", f"http.{exc.status_code}"),
+                    message=inner.get("message", "HTTP error"),
+                    request_id=rid,
+                    details=inner.get("details"),
+                ),
+                headers={"X-Request-ID": rid},
+            )
         return JSONResponse(
             status_code=exc.status_code,
             content=_envelope(

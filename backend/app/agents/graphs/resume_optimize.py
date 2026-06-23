@@ -13,7 +13,7 @@ from uuid import uuid4
 from langgraph.graph import END, StateGraph
 
 from app.agents.base import BaseAgent
-from app.agents.checkpointer import get_graph_config
+from app.agents.checkpointer import get_checkpointer, get_graph_config, retry_graph_op
 from app.agents.nodes.resume_optimize.apply_or_discard import apply_or_discard_node
 from app.agents.nodes.resume_optimize.diff_jd import diff_jd_node
 from app.agents.nodes.resume_optimize.load_branch import load_branch_node
@@ -27,16 +27,6 @@ class ResumeOptimizeGraph(BaseAgent):
 
     Flow: load_branch → diff_jd → suggest_blocks → apply_or_discard (interrupt) → snapshot → END
     """
-
-    def __init__(self) -> None:
-        self._checkpointer = None
-
-    async def _get_checkpointer(self):
-        if self._checkpointer is None:
-            from app.agents.checkpointer import get_checkpointer
-
-            self._checkpointer = await get_checkpointer()
-        return self._checkpointer
 
     async def build_graph(self) -> StateGraph:
         """Build the compiled Resume Optimize StateGraph with PostgreSQL checkpointer."""
@@ -62,7 +52,7 @@ class ResumeOptimizeGraph(BaseAgent):
         )
         builder.add_edge("snapshot", END)
 
-        checkpointer = await self._get_checkpointer()
+        checkpointer = await get_checkpointer()
         return builder.compile(checkpointer=checkpointer, interrupt_after=["apply_or_discard"])
 
     def _route_after_decision(self, state: ResumeOptimizeState) -> Literal["snapshot", "__end__"]:
@@ -102,14 +92,10 @@ class ResumeOptimizeGraph(BaseAgent):
         decision: str,
     ) -> dict[str, Any]:
         """Resolve interrupt with user decision (apply/discard)."""
-        graph = await self.build_graph()
         config = await get_graph_config(thread_id)
 
-        await graph.aupdate_state(
-            config,
-            {"decision": decision, "thread_aborted": decision == "discard"},
-        )
-        result = await graph.ainvoke(None, config)
+        await retry_graph_op(self.build_graph, config, "aupdate_state", {"decision": decision, "thread_aborted": decision == "discard"})
+        result = await retry_graph_op(self.build_graph, config, "ainvoke", None, state_first=True)
         return result
 
     async def get_state(
@@ -117,11 +103,8 @@ class ResumeOptimizeGraph(BaseAgent):
         thread_id: str,
     ) -> dict[str, Any]:
         """Get current graph state."""
-        from app.agents.checkpointer import get_graph_config
-
-        graph = await self.build_graph()
         config = await get_graph_config(thread_id)
-        state = await graph.aget_state(config)
+        state = await retry_graph_op(self.build_graph, config, "aget_state")
 
         values = state.values if state.values else {}
         return {

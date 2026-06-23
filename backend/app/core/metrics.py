@@ -68,13 +68,54 @@ outbox_conflict_total = Counter(
     "Outbox replay conflicts detected",
 )
 
+# ---- Feature 022: LLM quota & AI layer ----
+llm_quota_exhausted_total = Counter(
+    "llm_quota_exhausted_total",
+    "Total LLM quota exhaustion events",
+    ["user_id"],
+)
+llm_quota_available = Gauge(
+    "llm_quota_available",
+    "Current available LLM quota per user",
+    ["user_id"],
+)
+
+# ---- Feature 022: Checkpointer (埋点位置由 023 触发递增) ----
+checkpointer_reconnect_total = Counter(
+    "checkpointer_reconnect_total",
+    "Total checkpointer reconnection attempts",
+)
+
+# ---- Feature 022: WebSocket ----
+ws_connections_active = Gauge(
+    "ws_connections_active",
+    "Current active WebSocket connections",
+)
+
+# ---- Feature 022: ARQ ----
+arq_jobs_queued = Gauge(
+    "arq_jobs_queued",
+    "Current ARQ jobs queued per queue",
+    ["queue"],
+)
+arq_jobs_failed_total = Counter(
+    "arq_jobs_failed_total",
+    "Total ARQ jobs failed per queue",
+    ["queue"],
+)
+
 
 __all__ = [
+    "arq_jobs_failed_total",
+    "arq_jobs_queued",
     "auth_active_sessions",
     "auth_login_attempts_total",
     "auth_register_attempts_total",
+    "checkpointer_reconnect_total",
     "http_request_duration_seconds",
     "http_requests_total",
+    "llm_quota_available",
+    "llm_quota_exhausted_total",
     "lock_acquire_attempts_total",
     "lock_audit_write_failures_total",
     "lock_heartbeat_latency_seconds",
@@ -82,4 +123,5 @@ __all__ = [
     "outbox_replay_total",
     "resume_branches_total",
     "resume_versions_total",
+    "ws_connections_active",
 ]

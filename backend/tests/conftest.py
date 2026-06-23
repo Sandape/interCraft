@@ -49,7 +49,21 @@ def pytest_collection_modifyitems(config, items):
 def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
+    # Close Redis client so the next test's new event loop gets a fresh one.
+    try:
+        loop.run_until_complete(_close_redis_safe())
+    except Exception:
+        pass
     loop.close()
+
+
+async def _close_redis_safe() -> None:
+    """Close Redis client if it exists, ignoring errors."""
+    try:
+        from app.core.redis import close_redis
+        await close_redis()
+    except Exception:
+        pass
 
 
 @pytest.fixture
@@ -70,6 +84,25 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Direct DB session for test setup/verification (no RLS)."""
     async with _session_cm() as session:
         yield session
+
+
+# ---- checkpointer singleton hygiene (023 SC-007 / REQ-MERGE-02 #10) ----
+#
+# The checkpointer singleton survives across tests if not torn down, which
+# caused flaky ``OperationalError: the connection is closed`` when running
+# ``test_general_coach_idle_reconnect`` alongside the other 023 integration
+# tests.  Force a reset after every async test so each starts with a clean
+# pool.  ``_force_rebuild`` is a no-op when the singleton is already None,
+# so this is cheap for the many tests that never touch the checkpointer.
+
+@pytest.fixture(autouse=True)
+async def _reset_checkpointer_singleton(request):
+    """Reset the checkpointer singleton + pool before and after each async test."""
+    from app.agents.checkpointer import _force_rebuild
+
+    await _force_rebuild()
+    yield
+    await _force_rebuild()
 
 
 # ---- auth helpers ----

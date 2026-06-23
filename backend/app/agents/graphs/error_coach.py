@@ -13,7 +13,7 @@ from uuid import uuid4
 from langgraph.graph import END, StateGraph
 
 from app.agents.base import BaseAgent
-from app.agents.checkpointer import get_graph_config
+from app.agents.checkpointer import get_checkpointer, get_graph_config, retry_graph_op
 from app.agents.nodes.error_coach.evaluate import evaluate_node
 from app.agents.nodes.error_coach.fetch_question import fetch_question_node
 from app.agents.nodes.error_coach.hint_ladder import hint_ladder_node
@@ -27,16 +27,6 @@ class ErrorCoachGraph(BaseAgent):
 
     Flow: fetch_question → hint_ladder ↔ evaluate ↔ loop_or_finish (3 rounds max)
     """
-
-    def __init__(self) -> None:
-        self._checkpointer = None
-
-    async def _get_checkpointer(self):
-        if self._checkpointer is None:
-            from app.agents.checkpointer import get_checkpointer
-
-            self._checkpointer = await get_checkpointer()
-        return self._checkpointer
 
     async def build_graph(self) -> StateGraph:
         builder = StateGraph(ErrorCoachState)
@@ -59,7 +49,7 @@ class ErrorCoachGraph(BaseAgent):
             },
         )
 
-        checkpointer = await self._get_checkpointer()
+        checkpointer = await get_checkpointer()
         # 021: pause after hint_ladder so the graph waits for the user's
         # next answer instead of looping evaluate→hint_ladder until the
         # recursion limit. Without this, start() runs the whole 3-round
@@ -96,15 +86,14 @@ class ErrorCoachGraph(BaseAgent):
         return thread_id
 
     async def submit_answer(self, thread_id: str, content: str) -> dict[str, Any]:
-        graph = await self.build_graph()
         config = await get_graph_config(thread_id)
 
-        state = await graph.aget_state(config)
+        state = await retry_graph_op(self.build_graph, config, "aget_state")
         if not state.values:
             return {"status": "not_found"}
 
-        await graph.aupdate_state(config, {"messages": [{"role": "user", "content": content}]})
-        result = await graph.ainvoke(None, config)
+        await retry_graph_op(self.build_graph, config, "aupdate_state", {"messages": [{"role": "user", "content": content}]})
+        result = await retry_graph_op(self.build_graph, config, "ainvoke", None, state_first=True)
 
         # If session complete, decrement frequency
         correct_count = result.get("correct_count", 0)
@@ -119,22 +108,19 @@ class ErrorCoachGraph(BaseAgent):
         return result
 
     async def abort(self, thread_id: str) -> dict[str, Any]:
-        graph = await self.build_graph()
         config = await get_graph_config(thread_id)
 
-        state = await graph.aget_state(config)
+        state = await retry_graph_op(self.build_graph, config, "aget_state")
         # 021: if the graph is paused before evaluate (state.next contains
         # "evaluate"), skip it — we don't want to score the last answer a
         # second time during abort. Using as_node="evaluate" advances the
         # cursor past evaluate so ainvoke resumes at loop_or_finish.
         next_nodes = list(state.next or [])
         if "evaluate" in next_nodes:
-            await graph.aupdate_state(
-                config, {"session_aborted": True}, as_node="evaluate"
-            )
+            await retry_graph_op(self.build_graph, config, "aupdate_state", {"session_aborted": True}, as_node="evaluate")
         else:
-            await graph.aupdate_state(config, {"session_aborted": True})
-        result = await graph.ainvoke(None, config)
+            await retry_graph_op(self.build_graph, config, "aupdate_state", {"session_aborted": True})
+        result = await retry_graph_op(self.build_graph, config, "ainvoke", None, state_first=True)
 
         # 021: abort must also decrement frequency (mirrors submit_answer's
         # end-of-session path). Without this, an abandoned session leaves
@@ -150,9 +136,8 @@ class ErrorCoachGraph(BaseAgent):
         return result
 
     async def get_state(self, thread_id: str) -> dict[str, Any]:
-        graph = await self.build_graph()
         config = await get_graph_config(thread_id)
-        state = await graph.aget_state(config)
+        state = await retry_graph_op(self.build_graph, config, "aget_state")
 
         values = state.values or {}
         return {

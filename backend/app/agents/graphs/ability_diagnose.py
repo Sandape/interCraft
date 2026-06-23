@@ -7,10 +7,12 @@ Triggered by ARQ task diagnose_after_interview.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from langgraph.graph import END, StateGraph
 
 from app.agents.base import BaseAgent
-from app.agents.checkpointer import get_graph_config
+from app.agents.checkpointer import get_checkpointer, get_graph_config, retry_graph_op
 from app.agents.nodes.ability_diagnose.aggregate_scores import aggregate_scores_node
 from app.agents.nodes.ability_diagnose.compare_baseline import compare_baseline_node
 from app.agents.nodes.ability_diagnose.generate_insight import generate_insight_node
@@ -23,16 +25,6 @@ class AbilityDiagnoseGraph(BaseAgent):
 
     Flow: aggregate_scores → compare_baseline → generate_insight → update_dimensions → END
     """
-
-    def __init__(self) -> None:
-        self._checkpointer = None
-
-    async def _get_checkpointer(self):
-        if self._checkpointer is None:
-            from app.agents.checkpointer import get_checkpointer
-
-            self._checkpointer = await get_checkpointer()
-        return self._checkpointer
 
     async def build_graph(self) -> StateGraph:
         builder = StateGraph(AbilityDiagnoseState)
@@ -48,24 +40,32 @@ class AbilityDiagnoseGraph(BaseAgent):
         builder.add_edge("generate_insight", "update_dimensions")
         builder.add_edge("update_dimensions", END)
 
-        checkpointer = await self._get_checkpointer()
+        checkpointer = await get_checkpointer()
         return builder.compile(checkpointer=checkpointer)
 
-    async def run(self, user_id: str, session_id: str) -> dict:
-        """Execute the full ability diagnosis pipeline."""
-        thread_id = f"diag-{session_id}"
-        graph = await self.build_graph()
-        config = await get_graph_config(thread_id)
+    async def run(self, user_id: str, session_id: str) -> dict[str, Any]:
+        """Execute the full ability diagnosis pipeline.
 
-        result = await graph.ainvoke(
-            {
-                "user_id": user_id,
-                "session_id": session_id,
-                "thread_id": thread_id,
-            },
+        023 US4 (FR-011): ``ainvoke`` is wrapped with the shared
+        ``retry_graph_op`` helper (``state_first=True`` because
+        ``ainvoke(state, config)`` puts config in the second position).
+        A transient checkpointer drop (e.g. ARQ worker idle reconnect)
+        triggers a force-rebuild + retry instead of failing the job.
+        """
+        thread_id = f"diag-{session_id}"
+        initial_state = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "thread_id": thread_id,
+        }
+        config = await get_graph_config(thread_id)
+        return await retry_graph_op(
+            self.build_graph,
             config,
+            "ainvoke",
+            initial_state,
+            state_first=True,
         )
-        return result
 
 
 _ability_diagnose_graph: AbilityDiagnoseGraph | None = None

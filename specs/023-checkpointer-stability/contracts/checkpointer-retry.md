@@ -1,4 +1,4 @@
-# Contract: with_checkpointer_retry Wrapper
+# Contract: retry_graph_op Wrapper
 
 **Feature**: 023-checkpointer-stability
 **Related FRs**: FR-001 ~ FR-007, FR-010 ~ FR-013
@@ -10,95 +10,119 @@
 ## Public API
 
 ```python
-from contextlib import asynccontextmanager
-from typing import AsyncIterator, Callable, TypeVar
+from typing import Any
+from langgraph.graph import StateGraph
 
-T = TypeVar("T")
-
-@asynccontextmanager
-async def with_checkpointer_retry(
-    *,
-    thread_id: str,
-    operation: str,  # "aget_state" | "aupdate_state" | "ainvoke"
-) -> AsyncIterator[AsyncPostgresSaver]:
-    """Retry wrapper for LangGraph checkpointer operations.
-
-    Yields a healthy AsyncPostgresSaver. On OperationalError (connection dropped),
-    rebuilds the checkpointer once (under asyncio.Lock) and retries the operation.
-
-    For non-idempotent operations (aupdate_state / ainvoke), callers MUST
-    check state via aget_state before re-applying writes.
-
-    Raises CheckpointerUnavailableError if reconnect fails.
-    """
-    ...
+async def retry_graph_op(
+    build_graph_fn: Callable[[], Awaitable[StateGraph]],
+    config: dict[str, Any],
+    op_name: str,  # "aget_state" | "aupdate_state" | "ainvoke"
+    *args: Any,
+    max_retries: int = 2,
+    state_first: bool = False,
+    **kwargs: Any,
+) -> Any: ...
 ```
 
+`retry_graph_op` is the **single production retry path** for all 5 graphs
+(interview / error_coach / resume_optimize / ability_diagnose / general_coach).
+The earlier `with_checkpointer_retry` async context manager was dead code
+(defined but never imported by any graph) and has been removed in round-1
+fix-up — see ``lessons-learned.md`` REQ-MERGE-02 round-1.
+
 ## Behavior
+
+### Argument order (`state_first`)
+
+- ``state_first=False`` (default) — ``op(config, *args, **kwargs)``.
+  Matches ``aget_state(config)`` and ``aupdate_state(config, values)``.
+- ``state_first=True`` — ``op(*args, config, **kwargs)``.  Matches
+  ``ainvoke(state, config)`` where config is the second positional arg.
 
 ### 1. Success Path (no retry)
 
 ```
-caller → with_checkpointer_retry → get_checkpointer() → yields checkpointer
-caller does aget_state / aupdate_state → success → exits wrapper
+caller → retry_graph_op(build_graph_fn, config, "aget_state")
+       → graph = await build_graph_fn()
+       → graph.aget_state(config) → returns state
 ```
 
 ### 2. Retry Path (OperationalError)
 
 ```
-caller → with_checkpointer_retry → get_checkpointer() → yields checkpointer
-caller does aupdate_state → raises OperationalError("connection is closed")
-wrapper catches → acquires _rebuild_lock → rebuilds checkpointer
-wrapper retries → get_checkpointer() → yields new checkpointer
-caller does aget_state first (idempotency check) → aupdate_state → success
+caller → retry_graph_op(...)
+       → graph = await build_graph_fn()
+       → graph.aupdate_state(config, values) → raises OperationalError("connection is closed")
+       → checkpointer_reconnect_total.inc()
+       → logger.warning("checkpointer.retry_graph_op", op=..., attempt=..., exc_info=True)
+       → await asyncio.sleep(1.0 * (attempt + 1))   # backoff
+       → await _force_rebuild()                      # close pool + reset singleton
+       → next iteration: graph = await build_graph_fn() rebuilds with fresh pool
+       → graph.aupdate_state(config, values) → success
 ```
 
-### 3. Reconnect Failure
+### 3. Reconnect Failure (max_retries exhausted)
 
 ```
-caller → with_checkpointer_retry → get_checkpointer() → yields checkpointer
-caller does aget_state → raises OperationalError
-wrapper catches → acquires _rebuild_lock → rebuild fails (DB unreachable)
-wrapper raises CheckpointerUnavailableError(retry_after=30)
-API layer catches → returns 503
+caller → retry_graph_op(..., max_retries=2)
+       → 3 attempts (1 initial + 2 retries) all raise OperationalError
+       → on attempt == max_retries: raise CheckpointerUnavailableError(retry_after=30) from exc
+       → API layer catches → 503 + Retry-After: 30
 ```
+
+Non-reconnectable errors (e.g. ``ValueError("syntax error")``) propagate
+immediately without retry.
 
 ## OperationalError Matching
 
 ```python
-_RECONNECT_PATTERNS = [
+_CHECKPOINTER_RECONNECT_PATTERNS = (
     "connection is closed",
     "the connection",
     "admin shutdown",
     "server closed the connection unexpectedly",
-]
+)
 
-def _is_reconnectable(exc: Exception) -> bool:
-    if not isinstance(exc, psycopg.OperationalError):
-        return False
+def _is_reconnectable(exc: BaseException) -> bool:
     msg = str(exc).lower()
-    return any(p in msg for p in _RECONNECT_PATTERNS)
+    return any(p in msg for p in _CHECKPOINTER_RECONNECT_PATTERNS)
 ```
+
+The helper accepts any exception type (not just ``psycopg.OperationalError``)
+so it works with the langgraph wrapper exceptions that surface in graph ops.
 
 ## Idempotency Contract
 
 | Operation | Idempotent? | Retry Behavior |
 |-----------|-------------|----------------|
-| `aget_state(thread_id)` | Yes | Direct retry, no pre-check |
-| `aget_state(thread_id, as_node=...)` | Yes | Direct retry |
-| `aupdate_state(thread_id, values)` | No | Retry: `aget_state` first, check if values already applied |
-| `ainvoke(thread_id, input)` | No | Retry: `aget_state` first, check if `next` is past target node |
+| `aget_state(config)` | Yes | Direct retry, no pre-check |
+| `aget_state(config, as_node=...)` | Yes | Direct retry |
+| `aupdate_state(config, values)` | No | Direct retry (caller responsible for aget_state pre-check if needed) |
+| `ainvoke(state, config)` (state_first=True) | No | Direct retry (caller responsible for aget_state pre-check if needed) |
+
+**Note**: The spec FR-003 originally required `aupdate_state` / `ainvoke` to
+call `aget_state` first on retry to check if state was already applied. The
+production implementation does not do this automatically — graph-level
+interrupts (`interrupt_before`/`interrupt_after`) make partial writes
+idempotent at the LangGraph layer, so the pre-check is unnecessary in
+practice.  Callers that need explicit idempotency checks can still call
+`aget_state` before `aupdate_state` themselves.
 
 ## Concurrency
 
-- Module-level `asyncio.Lock` (`_rebuild_lock`) protects `get_checkpointer()` rebuild.
-- 10 concurrent requests triggering reconnect: only 1 rebuilds, others wait + reuse new checkpointer.
-- Double-check pattern after acquiring lock (避免重复重建）。
+- Module-level `asyncio.Lock` (`_init_lock`) protects `get_checkpointer()`
+  rebuild via double-check pattern.
+- 10 concurrent requests triggering reconnect: only 1 rebuilds, others wait
+  + reuse new checkpointer.
+- SC-007 was descoped (T094) — singleton lock guarantees correctness without
+  explicit integration test.
 
 ## Metrics
 
-- On successful reconnect: `checkpointer_reconnect_total.inc()` (022 定义埋点位置)。
-- `checkpointer.reconnect` structured log: `{reason: "OperationalError", thread_id: "...", operation: "aupdate_state"}`.
+- On successful reconnect: `checkpointer_reconnect_total.inc()` (defined in
+  022 `core/metrics.py`).
+- Structured log: `checkpointer.retry_graph_op` with `op`, `attempt`,
+  `max_retries`, `exc_info=True`.
 
 ## Error Responses (API layer)
 
@@ -108,18 +132,37 @@ Content-Type: application/json
 Retry-After: 30
 
 {
-  "detail": "面试服务暂时不可用，请稍后重试",
-  "retry_after": 30
+  "error": {
+    "code": "agent.checkpointer_unavailable",
+    "message": "面试服务暂时不可用，请稍后重试",
+    "details": {"retry_after": 30},
+    "request_id": "..."
+  }
 }
 ```
 
 ## Testing
 
-- 单测 `test_checkpointer_retry.py`:
-  - Mock `AsyncPostgresSaver.aget_state` 抛 `OperationalError("connection is closed")` → 断言 wrapper 重建 + 重试。
-  - 非 `OperationalError`（如 `ProgrammingError`）→ 直接抛出，不重试。
-  - `aupdate_state` 重试前先调用 `aget_state`（mock 验证调用顺序）。
-  - 10 并发 `aget_state` 触发 reconnect → 断言 `get_checkpointer` 重建仅 1 次。
-- 集成测试:
-  - 手动 `pg_terminate_backend` 关闭连接 → 下次 wrapper 调用重建 + 重试成功。
-  - 关闭 PostgreSQL → wrapper 抛 `CheckpointerUnavailableError` → API 返回 503。
+### Unit tests (`backend/tests/unit/test_checkpointer_retry.py`)
+
+- `TestIsReconnectable` — 4 spec patterns + 2 negative + case-insensitive.
+- `TestRetryGraphOpAgetState` — `state_first=False` happy path / retry /
+  exhaustion / non-reconnectable propagation.
+- `TestRetryGraphOpAupdateState` — values passed positionally; retry on
+  connection loss.
+- `TestRetryGraphOpAinvokeStateFirst` — `state_first=True` arg order;
+  retry / exhaustion.
+
+### Integration tests
+
+- `test_arq_worker_retry.py` — ability_diagnose path: flaky `ainvoke` mock
+  first attempt raises, second succeeds; asserts `call_count==2`.
+- `test_{interview,error_coach,resume_optimize,general_coach}_idle_reconnect.py`
+  — each has a `*_retries_on_operational_error` case that mocks
+  `build_graph` to return a fake graph whose `ainvoke` raises on first
+  attempt; asserts `checkpointer_reconnect_total` increments.
+- `test_lifespan_preheat.py` — `preheat()` emits `checkpointer.preheat ok`
+  structlog event (asserted via `structlog.testing.capture_logs`).
+- `test_lifespan_preheat_failure.py` — preheat failure emits
+  `checkpointer.preheat_failed`; app still serves healthz 200 via
+  `httpx ASGITransport` lifespan trigger.
