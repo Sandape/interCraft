@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-22
 
-**Status**: Draft
+**Status**: done
 
 **Input**: User description: "Feature 021 — Error Coach 3-correct + frequency decrement E2E. 补齐 004 SC-002 剩余的确定性 E2E 覆盖。M17 Error Coach 子图代码已完成（`backend/app/agents/nodes/error_coach/` + `backend/app/agents/graphs/error_coach.py` + `backend/app/api/v1/agents_error_coach.py`），但 `tests/e2e/` 下没有对应的 E2E 测试。范围：(1) 扩展 `tests/e2e/fixtures/mock-llm.ts` 或新增 error-coach-mock，支持 Error Coach 子图事件（hint_ladder 输出 small/medium/detailed 提示、evaluate 评分 0-10、correct_count 累积、frequency 递减、REST 同步返回）；(2) 新增 `tests/e2e/round-2/error-coach-3-correct.spec.ts` 覆盖完整路径：start → 3 轮答对（score≥8）→ frequency 减 3 → status 可能变 mastered；(3) 覆盖 edge case：1 错（score<8，hint 升级）+ 3 对 → frequency 仍减 3；(4) 覆盖超时/退出场景。不改后端代码（API 稳定）。成功标准：004 SC-002 从 in_progress 翻为 done，round-2 E2E 全绿。"
 

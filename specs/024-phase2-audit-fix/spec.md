@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-22
 
-**Status**: Draft
+**Status**: done
 
 **Input**: User description: "Feature 024 — Phase 2 (M5-M11) spec/code 偏差审计与修复。补齐 v1 Phase 2 模块的 spec/code 偏差，范围聚焦在六项高/中严重度 gap（来自 v2 启动前的 Phase 2 审计扫描）：(1) M9 岗位追踪 Offer 字段未实现；(2) M9 status_history 字段名前后端不一致；(3) M9 JobsDetailPanel 80% FR 缺失；(4) M9 outbox 未接入；(5) M7 archived 状态过度实现；(6) M8 能力画像 PIN/ProfileView 过度实现 + PDF 导出语义偏差。修复策略：M9 补齐 Offer 字段+UI+outbox（大改），M9 status_history 前端字段对齐后端（小改），M7 archived 状态移除+FSM 回归 spec（小改），M8 PIN/ProfileView 评估保留或移除（决策项），M8 PDF 导出对齐 spec「直接下载」（小改）。不改既有 API 契约（除新增 Offer 字段），不破坏既有 E2E。"
 

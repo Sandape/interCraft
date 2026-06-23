@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-22
 
-**Status**: Draft
+**Status**: done
 
 **Input**: User description: "Feature 022 — 性能与可观测性增强。补齐 v1 在可观测性和性能方面的短板，范围聚焦在六项高/中严重度 gap：LLM 日志 request_id 关联、Resume 列表 N+1 查询、errors 表复合索引、前端路由懒加载、Vite manualChunks、metrics 覆盖补全。不改业务逻辑，不改 API 契约。"
 

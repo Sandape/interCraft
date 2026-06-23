@@ -35,9 +35,7 @@ Done below. The trial-launch baseline is complete.
 
 ## In Progress
 
-| ID | Feature | Status | Source Of Truth | Notes |
-|---|---|---|---|---|
-| 021 | Error Coach 3-Correct E2E | in_progress | [spec.md](./021-error-coach-e2e/spec.md) | 3/3 E2E cases (HAPPY-01, EDGE-01, ABORT-01) green on chromium via MockLLMClient; 004 SC-002 closed. Backend graph received two latent-bug fixes uncovered by E2E (`interrupt_after=["hint_ladder"]` + abort decrement_frequency). Polish phase pending. |
+No in-progress specs. All features reconciled against code.
 
 ## Planned
 
@@ -68,6 +66,11 @@ been reconciled against code and moved to Done below.
 | 019 | Cross-Module Linking | done | [spec.md](./019-cross-module-linking/spec.md) | 5 US + 27 FR + 8 SC = 40 rows done. Round-2 E2E evidence: 18/18 tests pass on chromium (`auth-guard` 6 + `contract-parity` 7 + `interview-mock-llm` 4 + `full-edge-r2` 1). |
 | 020 | Fix Round-1 Defects | done | [spec.md](./020-fix-round-1-defects/spec.md) | 12 FIX + 7 AC + 11 SC = 30 rows done. Round-2 E2E suite (18 tests across 4 spec files) passes on chromium. Feature 020 is complete. |
 | 004 | Phase 5 Agent Subgraphs | done | [spec.md](./004-phase5-agent-subgraphs/spec.md) | 4 US + 32 FR + 5 SC = 41 rows done. SC-002 closed by feature 021 (`tests/e2e/round-2/error-coach-3-correct.spec.ts` 3/3 pass). |
+| 021 | Error Coach 3-Correct E2E | done | [spec.md](./021-error-coach-e2e/spec.md) | 3/3 E2E cases (HAPPY-01, EDGE-01, ABORT-01) green on chromium via MockLLMClient; 004 SC-002 closed. Backend graph received two latent-bug fixes uncovered by E2E (`interrupt_after=["hint_ladder"]` + abort decrement_frequency). Commit `a084f71`. |
+| 025 | A2A Interview Upgrade (Planner + Interviewer) | done | [spec.md](./025-a2a-interview-upgrade/spec.md) | 12 US + 34 FR + 6 SC all done. Tavily+MockTavily integrated, Planner+Supervisor graph built, frontend plan display in InterviewLive+InterviewReport, E2E tests (HAPPY-02, BC-01) in `tests/e2e/interview-a2a-planner.spec.ts`. |
+| 022 | Perf & Observability Enhancement | done | [spec.md](./022-perf-observability-enhancement/spec.md) | 6 US + 22 FR + 7 SC done. request_id `ContextVar` 关联 / Resume `selectinload` N+1 修复 / errors 部分索引 / 路由 `React.lazy` / Vite `manualChunks` / metrics 补全 — shipped in baseline. |
+| 023 | Checkpointer Stability | done | [spec.md](./023-checkpointer-stability/spec.md) | 6 US + 21 FR + 7 SC done. 连接池配置 + lifespan 预热 + 共享 `retry_graph_op` wrapper 覆盖 5 graphs (interview / error_coach / resume_optimize / ability_diagnose / general_coach). Commit `dcae326`. |
+| 024 | Phase 2 Audit Fix | done | [spec.md](./024-phase2-audit-fix/spec.md) | 6 US + 28 FR + 8 SC done. Jobs Offer 字段 + outbox 接入 + status_history 字段对齐 / archived 状态移除 / PIN+ProfileView 移除 / PDF 同步直接下载. Frontend 177/177 + round-1+round-2 E2E 64/64 pass on chromium; code commit pending. |
 
 ## Blocked
 

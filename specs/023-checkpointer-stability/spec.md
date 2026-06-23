@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-22
 
-**Status**: Draft
+**Status**: done
 
 **Input**: User description: "Feature 023 — LangGraph checkpointer 连接稳定性修复。补齐 v1 在 LangGraph checkpointer 连接管理方面的短板，范围聚焦在三项根因修复：连接池配置缺失、lifespan 不预热、retry 逻辑仅覆盖 interview 且 submit_answer 漏接。修复后 5 个 graph 的所有 checkpoint 操作统一走共享 retry wrapper。不改业务逻辑，不改 API 契约，不切换到 sync checkpointer。"
 
