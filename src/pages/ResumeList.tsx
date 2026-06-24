@@ -197,6 +197,7 @@ export default function ResumeList() {
               <PrimaryResumeCard
                 branch={main}
                 blockCount={main.block_count}
+                onEdit={() => openEdit(main)}
               />
               {/* Section separator */}
               <div className="flex items-center gap-3 pt-2">

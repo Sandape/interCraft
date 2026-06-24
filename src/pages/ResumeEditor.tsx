@@ -606,6 +606,7 @@ export default function ResumeEditor() {
                 onChange={setMarkdownContent}
                 readOnly={isReadonly}
                 onAutoSave={handleCodeAutoSave}
+                onSaveVersion={() => setSaveOpen(true)}
               />
             )}
           </div>

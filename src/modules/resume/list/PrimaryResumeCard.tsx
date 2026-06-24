@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Sparkles, Clock, FileText, ArrowRight, Layers } from 'lucide-react'
+import { Sparkles, Clock, FileText, ArrowRight, Layers, Pencil } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { timeAgo, cn } from '@/lib/utils'
@@ -25,16 +25,37 @@ interface PrimaryResumeCardProps {
   branch: ResumeBranch
   blockCount: number
   previewText?: string
+  onEdit?: () => void
 }
 
-export default function PrimaryResumeCard({ branch, blockCount, previewText }: PrimaryResumeCardProps) {
+export default function PrimaryResumeCard({ branch, blockCount, previewText, onEdit }: PrimaryResumeCardProps) {
   return (
     <Link to={`/resume/${branch.id}`} className="group block">
       <Card
         hover
         padding="lg"
-        className="border-brand-200 dark:border-brand-500/20 bg-gradient-to-r from-brand-50/30 to-white dark:from-brand-500/5 dark:to-dark-surface"
+        className="border-brand-200 dark:border-brand-500/20 bg-gradient-to-r from-brand-50/30 to-white dark:from-brand-500/5 dark:to-dark-surface relative"
       >
+        {/* Hover action buttons (US6 T091) */}
+        {onEdit && (
+          <div
+            className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            onClick={(e) => e.preventDefault()}
+          >
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                onEdit()
+              }}
+              className="p-1 rounded hover:bg-surface-muted text-ink-3 hover:text-ink-1"
+              aria-label="编辑属性"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
         <div className="flex items-start gap-4">
           {/* Icon */}
           <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center flex-shrink-0 shadow-sm">

@@ -14,12 +14,33 @@ monacoGlobal.MonacoEnvironment = {
 
 loader.config({ monaco })
 
+function wrapSelection(ed: editor.ICodeEditor, wrapper: string) {
+  const selection = ed.getSelection()
+  if (!selection) return
+  const model = ed.getModel()
+  if (!model) return
+  const text = model.getValueInRange(selection)
+  if (!text) return
+  const wrapped = `${wrapper}${text}${wrapper}`
+  ed.executeEdits('keyboard-shortcut', [{ range: selection, text: wrapped }])
+  // Select the wrapped text (including markers)
+  ed.setSelection(
+    new monaco.Selection(
+      selection.startLineNumber,
+      selection.startColumn,
+      selection.endLineNumber,
+      selection.endColumn + wrapper.length * 2,
+    ),
+  )
+  ed.focus()
+}
+
 interface MarkdownEditorProps {
   value: string
   onChange: (value: string) => void
   readOnly?: boolean
-  /** Callback for auto-save after user stops typing (debounced externally) */
   onAutoSave?: (value: string) => void
+  onSaveVersion?: () => void
   className?: string
 }
 
@@ -28,27 +49,55 @@ export default function MarkdownEditor({
   onChange,
   readOnly = false,
   onAutoSave,
+  onSaveVersion,
   className = '',
 }: MarkdownEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleMount: OnMount = useCallback((editor) => {
-    editorRef.current = editor
-    editor.updateOptions({
-      wordWrap: 'on',
-      minimap: { enabled: false },
-      lineNumbers: 'off',
-      folding: false,
-      lineDecorationsWidth: 0,
-      renderLineHighlight: 'none',
-      scrollBeyondLastLine: false,
-      fontSize: 14,
-      fontFamily:
-        "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Consolas, monospace",
-      padding: { top: 16, bottom: 16 },
-    })
-  }, [])
+  const handleMount: OnMount = useCallback(
+    (editor) => {
+      editorRef.current = editor
+      editor.updateOptions({
+        wordWrap: 'on',
+        minimap: { enabled: false },
+        lineNumbers: 'off',
+        folding: false,
+        lineDecorationsWidth: 0,
+        renderLineHighlight: 'none',
+        scrollBeyondLastLine: false,
+        fontSize: 14,
+        fontFamily:
+          "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Consolas, monospace",
+        padding: { top: 16, bottom: 16 },
+      })
+
+      // Ctrl+S / Cmd+S — save version (US6 T090)
+      editor.addAction({
+        id: 'save-version',
+        label: 'Save Version',
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+        run: () => onSaveVersion?.(),
+      })
+
+      // Ctrl+B / Cmd+B — bold (US6 T090)
+      editor.addAction({
+        id: 'bold-text',
+        label: 'Bold',
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB],
+        run: (ed) => wrapSelection(ed, '**'),
+      })
+
+      // Ctrl+I / Cmd+I — italic (US6 T090)
+      editor.addAction({
+        id: 'italic-text',
+        label: 'Italic',
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI],
+        run: (ed) => wrapSelection(ed, '*'),
+      })
+    },
+    [onSaveVersion],
+  )
 
   const handleChange = useCallback(
     (newValue: string | undefined) => {
