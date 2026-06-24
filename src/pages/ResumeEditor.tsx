@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Plus, Save, History, RotateCcw, Eye, Pencil, RefreshCw, PanelRight } from 'lucide-react'
+import { Plus, Save, History, RotateCcw, Eye, Pencil, RefreshCw, PanelRight, GitCompare } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -41,6 +41,11 @@ import StyleSelector from '@/modules/resume/editor/StyleSelector'
 import EditorSidebar from '@/modules/resume/editor/EditorSidebar'
 import ExportMenu from '@/modules/resume/export/ExportMenu'
 import AvatarDialog from '@/modules/resume/editor/AvatarDialog'
+import VersionDiffView from '@/modules/resume/editor/VersionDiffView'
+import { useVersionDiff } from '@/hooks/queries/useVersionDiff'
+import { pushHistory } from '@/modules/resume/history/local-history'
+import type { HistoryEntry } from '@/modules/resume/history/local-history'
+import { savePref, loadPref } from '@/modules/resume/ui-pref/index'
 import { loadTheme, applyColor } from '@/modules/resume/themes'
 
 const STATUS_LABEL: Record<BranchStatus, string> = {
@@ -82,6 +87,15 @@ export default function ResumeEditor() {
   // Version detail viewer
   const [viewVersionNo, setViewVersionNo] = useState<number | null>(null)
   const { data: versionDetail } = useResumeVersion(branchId ?? null, viewVersionNo)
+
+  // US7 version diff
+  const [diffSelected, setDiffSelected] = useState<number[]>([])
+  const [diffOpen, setDiffOpen] = useState(false)
+  const { data: versionDiff, isFetching: diffLoading } = useVersionDiff(
+    branchId ?? null,
+    diffSelected.length === 2 ? Math.min(...diffSelected) : null,
+    diffSelected.length === 2 ? Math.max(...diffSelected) : null,
+  )
 
   // Add block modal
   const [addBlockOpen, setAddBlockOpen] = useState(false)
@@ -144,7 +158,8 @@ export default function ResumeEditor() {
     avatarDialogOpen ||
     styleSelectorOpen ||
     exportMenuOpen ||
-    sidebarOpen
+    sidebarOpen ||
+    diffOpen
 
   // Split pane state
   const [splitRatio, setSplitRatio] = useState(50)
@@ -170,11 +185,19 @@ export default function ResumeEditor() {
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      // Persist split ratio when drag finishes — read from the splitRatioRef.
+      if (branchId) {
+        savePref(branchId, { splitRatio: splitRatioRef.current })
+      }
     }
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-  }, [])
+  }, [branchId])
+
+  // Ref tracking latest splitRatio for the drag-end persistence callback.
+  const splitRatioRef = useRef(splitRatio)
+  useEffect(() => { splitRatioRef.current = splitRatio }, [splitRatio])
 
   const styleId =
     branch?.style_preference && getStyleById(branch.style_preference)
@@ -198,6 +221,26 @@ export default function ResumeEditor() {
       .then(() => applyColor(accent))
       .catch((err) => console.error('Failed to load theme:', err))
   }, [branch?.id, branch?.theme_id, branch?.accent_color])
+
+  // US7 FR-054/055: restore UI prefs (mode + splitRatio) on mount.
+  useEffect(() => {
+    if (!branchId) return
+    const prefs = loadPref(branchId)
+    if (prefs.mode && prefs.mode !== mode) {
+      setMode(prefs.mode)
+    }
+    if (typeof prefs.splitRatio === 'number') {
+      setSplitRatio(prefs.splitRatio)
+    }
+    // Restore scroll position after tick (FR-056).
+    const rafId = requestAnimationFrame(() => {
+      if (typeof prefs.scrollPos === 'number') {
+        const container = document.querySelector<HTMLElement>('.resume-preview-container')
+        if (container) container.scrollTop = prefs.scrollPos
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId])
 
   // Mode toggle: Quick ↔ Code
   const { mode, setMode, markdownContent, setMarkdownContent, switchToCode, switchToQuick } =
@@ -319,6 +362,39 @@ export default function ResumeEditor() {
     patchBlock.mutate({ id, input: { content_md } })
   }
 
+  // US7 FR-056: save scroll position of the preview container on scroll (debounced 500ms).
+  useEffect(() => {
+    if (!branchId) return
+    const container = document.querySelector<HTMLElement>('.resume-preview-container')
+    if (!container) return
+    let t: ReturnType<typeof setTimeout>
+    const handler = () => {
+      clearTimeout(t)
+      t = setTimeout(() => {
+        savePref(branchId, { scrollPos: container.scrollTop })
+      }, 500)
+    }
+    container.addEventListener('scroll', handler, { passive: true })
+    return () => {
+      clearTimeout(t)
+      container.removeEventListener('scroll', handler)
+    }
+  }, [branchId])
+
+  // US7 FR-051: push to local history 2s after edit idle (debounce).
+  useEffect(() => {
+    if (!branchId || !branch) return
+    const t = setTimeout(() => {
+      pushHistory(branchId, {
+        markdown: previewMarkdown,
+        themeId: branch.theme_id ?? 'default',
+        accentColor: branch.accent_color ?? '#39393a',
+        timestamp: Date.now(),
+      })
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [branchId, branch, previewMarkdown])
+
   // Code mode auto-save: parse markdown and persist changed blocks
   function handleCodeAutoSave(md: string) {
     const parsed = markdownToBlocks(md)
@@ -343,6 +419,61 @@ export default function ResumeEditor() {
     })
   }
 
+  // US7 FR-053: restore from local history entry (content, theme, colour).
+  const handleRestoreHistory = useCallback((entry: HistoryEntry) => {
+    if (!branchId || !branch) return
+
+    const parsed = markdownToBlocks(entry.markdown)
+
+    // Patch existing blocks by index, create any new ones beyond current count.
+    parsed.forEach((pb, i) => {
+      const existing = blocks[i]
+      if (existing) {
+        if (
+          existing.content_md !== pb.content_md ||
+          existing.type !== pb.type ||
+          existing.title !== pb.title
+        ) {
+          patchBlock.mutate({
+            id: existing.id,
+            input: {
+              type: pb.type,
+              title: pb.title,
+              content_md: pb.content_md,
+              meta: pb.meta as Record<string, unknown> | null,
+            },
+          })
+        }
+      } else {
+        createBlock.mutate({
+          type: pb.type,
+          title: pb.title || null,
+          content_md: pb.content_md,
+        })
+      }
+    })
+
+    // Delete excess blocks that no longer exist in the restored state.
+    if (parsed.length < blocks.length) {
+      for (let i = parsed.length; i < blocks.length; i++) {
+        deleteBlock.mutate(blocks[i].id)
+      }
+    }
+
+    // Set markdown content for code mode, and switch to quick.
+    setMarkdownContent(entry.markdown)
+    setMode('quick')
+
+    // Restore theme + accent colour (FR-053).
+    void loadTheme(entry.themeId).then(() => applyColor(entry.accentColor))
+    if (entry.themeId !== branch.theme_id || entry.accentColor !== branch.accent_color) {
+      patchBranch.mutate({
+        id: branch.id,
+        input: { theme_id: entry.themeId, accent_color: entry.accentColor },
+      })
+    }
+  }, [branchId, branch, blocks, patchBlock, createBlock, deleteBlock, patchBranch, setMarkdownContent, setMode])
+
   if (isLoading) {
     return <div className="p-8 text-sm text-ink-3">加载中…</div>
   }
@@ -364,6 +495,8 @@ export default function ResumeEditor() {
           } else if (newMode === 'quick' && mode === 'code') {
             switchToQuick()
           }
+          // Persist mode preference (FR-054).
+          if (branchId) savePref(branchId, { mode: newMode })
         }}
         versionCount={versions.length}
         onSaveVersion={() => setSaveOpen(true)}
@@ -538,6 +671,7 @@ export default function ResumeEditor() {
               }
             }}
             onSaveVersion={() => setSaveOpen(true)}
+            onRestoreHistory={handleRestoreHistory}
           />
         </div>
       </div>
@@ -645,43 +779,90 @@ export default function ResumeEditor() {
         {versions.length === 0 ? (
           <p className="text-sm text-ink-3 py-4 text-center">还没有历史版本</p>
         ) : (
-          <ul className="divide-y divide-surface-border dark:divide-dark-surface-border">
-            {[...versions].reverse().map((v) => (
-              <li key={v.id} className="py-3 flex items-center justify-between gap-3" data-testid={`version-${v.version_no}`}>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-ink-1">
-                    v{v.version_no} {v.label ? `· ${v.label}` : '· 未命名'}
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-ink-3">
+                {diffSelected.length > 0 ? `已选 ${diffSelected.length}/2 个版本` : '勾选两个版本可对比差异'}
+              </span>
+              {diffSelected.length === 2 && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  leftIcon={<GitCompare className="h-3 w-3" />}
+                  onClick={() => {
+                    setDiffOpen(true)
+                    setVersionDrawerOpen(false)
+                  }}
+                  data-testid="diff-compare"
+                >
+                  对比选择
+                </Button>
+              )}
+              {diffSelected.length > 0 && diffSelected.length !== 2 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setDiffSelected([])}
+                >
+                  清除
+                </Button>
+              )}
+            </div>
+            <ul className="divide-y divide-surface-border dark:divide-dark-surface-border">
+              {[...versions].reverse().map((v) => (
+                <li key={v.id} className="py-3 flex items-center justify-between gap-3" data-testid={`version-${v.version_no}`}>
+                  <div className="min-w-0 flex-1 flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      className="rounded border-surface-border dark:border-dark-surface-border text-brand-500 focus:ring-brand-500 h-4 w-4"
+                      checked={diffSelected.includes(v.version_no)}
+                      onChange={() => {
+                        setDiffSelected((prev) =>
+                          prev.includes(v.version_no)
+                            ? prev.filter((n) => n !== v.version_no)
+                            : prev.length < 2
+                              ? [...prev, v.version_no]
+                              : prev, // max 2
+                        )
+                      }}
+                      data-testid={`diff-chk-${v.version_no}`}
+                    />
+                    <div>
+                      <div className="text-sm font-medium text-ink-1">
+                        v{v.version_no} {v.label ? `· ${v.label}` : '· 未命名'}
+                      </div>
+                      <div className="text-2xs text-ink-3 mt-0.5">
+                        {v.author_type === 'ai' ? 'AI 自动' : '手动'} · {timeAgo(v.created_at)} · {v.is_full_snapshot ? '完整快照' : '差异补丁'}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-2xs text-ink-3 mt-0.5">
-                    {v.author_type === 'ai' ? 'AI 自动' : '手动'} · {timeAgo(v.created_at)} · {v.is_full_snapshot ? '完整快照' : '差异补丁'}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      leftIcon={<Eye className="h-3 w-3" />}
+                      onClick={() => setViewVersionNo(v.version_no)}
+                      data-testid={`view-${v.version_no}`}
+                    >
+                      查看
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      leftIcon={<RotateCcw className="h-3 w-3" />}
+                      onClick={() => {
+                        setVersionDrawerOpen(false)
+                        setRollbackTarget(v.version_no)
+                      }}
+                      data-testid={`rollback-${v.version_no}`}
+                    >
+                      回滚
+                    </Button>
                   </div>
-                </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    leftIcon={<Eye className="h-3 w-3" />}
-                    onClick={() => setViewVersionNo(v.version_no)}
-                    data-testid={`view-${v.version_no}`}
-                  >
-                    查看
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    leftIcon={<RotateCcw className="h-3 w-3" />}
-                    onClick={() => {
-                      setVersionDrawerOpen(false)
-                      setRollbackTarget(v.version_no)
-                    }}
-                    data-testid={`rollback-${v.version_no}`}
-                  >
-                    回滚
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </Modal>
 
@@ -732,6 +913,17 @@ export default function ResumeEditor() {
           <p className="text-sm text-ink-3 py-4 text-center">加载中…</p>
         )}
       </Modal>
+
+      {/* US7 Version diff modal */}
+      <VersionDiffView
+        open={diffOpen}
+        onClose={() => {
+          setDiffOpen(false)
+          setDiffSelected([])
+        }}
+        diff={versionDiff ?? null}
+        loading={diffLoading}
+      />
 
       {/* Rollback confirmation modal */}
       <Modal

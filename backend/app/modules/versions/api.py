@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import db_session_user_dep, get_current_user_id
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.modules.versions.schemas import (
     CreateVersionInput,
     CreateVersionResponse,
@@ -17,6 +17,7 @@ from app.modules.versions.schemas import (
     RollbackResponse,
     Snapshot,
     VersionDetailResponse,
+    VersionDiffResponse,
     VersionsListResponse,
 )
 from app.modules.versions.service import VersionService
@@ -113,3 +114,35 @@ async def rollback(
     if new_branch is None:
         raise NotFoundError("resume.version_not_found", "Version or branch not found")
     return RollbackResponse(new_branch_id=str(new_branch.id))
+
+
+@router.get(
+    "/resume-branches/{branch_id}/versions/{v1_no}/diff/{v2_no}",
+    response_model=VersionDiffResponse,
+)
+async def diff_versions(
+    branch_id: UUID,
+    v1_no: int,
+    v2_no: int,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(db_session_user_dep),
+):
+    """Diff two versions of the same branch (spec 027 US7 FR-049/050).
+
+    Returns a VersionDiff with branch-level + block-level diffs and a
+    per-block line_diff for modified blocks. Returns 404 if either version
+    is missing or the branch doesn't belong to the user. Returns 422 if
+    v1 == v2 (no-op diff is not useful).
+    """
+    if v1_no == v2_no:
+        raise ValidationError(
+            "resume.invalid_diff",
+            "两个版本号不能相同",
+        )
+    svc = VersionService(db)
+    diff = await svc.diff_versions(
+        branch_id=branch_id, v1_no=v1_no, v2_no=v2_no, user_id=user_id
+    )
+    if diff is None:
+        raise NotFoundError("resume.version_not_found", "Version or branch not found")
+    return VersionDiffResponse(diff=diff)

@@ -175,3 +175,36 @@ export interface CreateVersionInput {
 export interface RollbackResponse {
   new_branch_id: string
 }
+
+// ── US7 version diff types ─────────────────────────────────────────────────
+
+export interface BlockLineDiff {
+  kind: 'unchanged' | 'added' | 'removed'
+  text: string
+}
+
+export interface BlockDiff {
+  op: 'unchanged' | 'added' | 'removed' | 'modified'
+  key: string
+  type: string
+  title: string | null
+  old_block: SnapshotBlock | null
+  new_block: SnapshotBlock | null
+  line_diff: BlockLineDiff[] | null
+}
+
+export interface BranchDiff {
+  name: string | null
+  company: string | null
+  position: string | null
+  status: string | null
+}
+
+export interface VersionDiff {
+  branch_id: string
+  old_version_no: number
+  new_version_no: number
+  branch_diff: BranchDiff
+  blocks: BlockDiff[]
+  summary: { added: number; removed: number; modified: number; unchanged: number }
+}

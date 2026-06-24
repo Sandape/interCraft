@@ -1,9 +1,11 @@
-import { Sparkles, History, RotateCcw, Eye } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Sparkles, History, RotateCcw, Eye, HardDrive } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { cn, timeAgo } from '@/lib/utils'
 import type { ResumeBranch, ResumeVersionSummary } from '@/modules/resume/api/types'
 import { RESUME_STYLES, getStyleById } from '@/modules/resume/styles'
+import { getHistory, type HistoryEntry } from '@/modules/resume/history/local-history'
 
 // ── Style thumbnail mini ──────────────────────────────────
 
@@ -62,6 +64,7 @@ interface EditorSidebarProps {
   onVersionSelect: (versionNo: number) => void
   onRollback: () => void
   onSaveVersion: () => void
+  onRestoreHistory?: (entry: HistoryEntry) => void
   className?: string
 }
 
@@ -73,9 +76,15 @@ export default function EditorSidebar({
   onVersionSelect,
   onRollback,
   onSaveVersion,
+  onRestoreHistory,
   className,
 }: EditorSidebarProps) {
   const aiVersionCount = versions.filter((v) => v.trigger === 'ai').length
+
+  // US7 FR-053: read local history entries for this branch.
+  const [localHistory, setLocalHistory] = useState<HistoryEntry[]>(() =>
+    getHistory(branch.id),
+  )
 
   return (
     <aside
@@ -230,6 +239,44 @@ export default function EditorSidebar({
             回滚到上一版本
           </button>
         </div>
+      </div>
+
+      {/* ── 本地编辑历史 (US7 FR-051~053) ── */}
+      <div className="px-4 py-4 border-t border-surface-border dark:border-dark-surface-border">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <HardDrive className="h-3 w-3 text-ink-3" />
+            <h4 className="text-xs font-semibold text-ink-1">本地历史</h4>
+          </div>
+          {localHistory.length > 0 && (
+            <Badge variant="default">{localHistory.length}</Badge>
+          )}
+        </div>
+
+        {localHistory.length === 0 ? (
+          <p className="text-2xs text-ink-3 py-2 text-center">编辑内容后自动保存</p>
+        ) : (
+          <ul className="space-y-0.5">
+            {localHistory.slice(0, 8).map((entry, idx) => (
+              <li key={entry.timestamp}>
+                <button
+                  onClick={() => onRestoreHistory?.(entry)}
+                  className="w-full text-left px-2.5 py-2 rounded-md transition-colors hover:bg-surface-muted dark:hover:bg-dark-surface-muted group"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-ink-300 dark:bg-ink-600" />
+                    <span className="text-xs text-ink-1 truncate flex-1">
+                      {new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div className="text-2xs text-ink-3 mt-0.5 pl-3 truncate">
+                    {entry.markdown.slice(0, 40)}{entry.markdown.length > 40 ? '…' : ''}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </aside>
   )
