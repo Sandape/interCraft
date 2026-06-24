@@ -1,6 +1,7 @@
 /**
  * App.tsx — providers + router + auth guard.
  */
+import React, { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from '@/contexts/ThemeContext'
@@ -9,23 +10,28 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { useCurrentUser } from '@/hooks/queries/useCurrentUser'
 import { hasTokens } from '@/api/token-storage'
 import { requireAuth } from '@/lib/requireAuth'
+
+/* ── Eager (first-screen, keep as static import) ── */
 import Login from '@/pages/Login'
 import Register from '@/pages/Register'
-import Dashboard from '@/pages/Dashboard'
-import ResumeList from '@/pages/ResumeList'
-import ResumeEditor from '@/pages/ResumeEditor'
-import Profile from '@/pages/Profile'
-import Jobs from '@/pages/Jobs'
-import ErrorBook from '@/pages/ErrorBook'
-import InterviewList from '@/pages/InterviewList'
-import InterviewLive from '@/pages/InterviewLive'
-import InterviewReport from '@/pages/InterviewReport'
-import Settings from '@/pages/Settings'
-import GeneralCoach from '@/pages/GeneralCoach'
-import Help from '@/pages/Help'
-import AbilityProfile from '@/pages/AbilityProfile'
-import AbilityProfileDetail from '@/pages/AbilityProfileDetail'
 import SharedAbilityProfile from '@/pages/SharedAbilityProfile'
+
+/* ── Lazy (code-split on route) ── */
+const Dashboard = lazy(() => import('@/pages/Dashboard'))
+const ResumeList = lazy(() => import('@/pages/ResumeList'))
+const ResumeEditor = lazy(() => import('@/pages/ResumeEditor'))
+const Square = lazy(() => import('@/modules/resume/marketplace/Square'))
+const Profile = lazy(() => import('@/pages/Profile'))
+const Jobs = lazy(() => import('@/pages/Jobs'))
+const ErrorBook = lazy(() => import('@/pages/ErrorBook'))
+const InterviewList = lazy(() => import('@/pages/InterviewList'))
+const InterviewLive = lazy(() => import('@/pages/InterviewLive'))
+const InterviewReport = lazy(() => import('@/pages/InterviewReport'))
+const Settings = lazy(() => import('@/pages/Settings'))
+const GeneralCoach = lazy(() => import('@/pages/GeneralCoach'))
+const Help = lazy(() => import('@/pages/Help'))
+const AbilityProfile = lazy(() => import('@/pages/AbilityProfile'))
+const AbilityProfileDetail = lazy(() => import('@/pages/AbilityProfileDetail'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -94,10 +100,12 @@ export function AppRoutes() {
         element={
           <AuthGuard>
             <AppShell>
+              <Suspense fallback={<div className="flex items-center justify-center min-h-screen text-sm text-ink-3">正在加载页面…</div>}>
               <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/resume" element={<ResumeList />} />
+                <Route path="/resume/marketplace" element={<Square />} />
                 <Route path="/resume/:branchId" element={<ResumeEditor />} />
                 <Route path="/interview" element={<InterviewList />} />
                 <Route path="/interview/new" element={<InterviewLive />} />
@@ -113,6 +121,7 @@ export function AppRoutes() {
                 <Route path="/help" element={<Help />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
+              </Suspense>
             </AppShell>
           </AuthGuard>
         }

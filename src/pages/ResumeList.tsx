@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Sparkles, FileText, GitBranch, Clock, Pin, Pencil, Trash2, Upload, Briefcase, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Sparkles, FileText, GitBranch, Clock, Pin, Pencil, Trash2, Upload, Briefcase, ChevronDown, ChevronUp, LayoutTemplate } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -171,6 +171,14 @@ export default function ResumeList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            leftIcon={<LayoutTemplate className="h-3.5 w-3.5" />}
+            onClick={() => navigate('/resume/marketplace')}
+            data-testid="open-marketplace-button"
+          >
+            模板市场
+          </Button>
           <Button
             variant="ghost"
             leftIcon={<Upload className="h-3.5 w-3.5" />}
