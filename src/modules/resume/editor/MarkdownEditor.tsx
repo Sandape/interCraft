@@ -1,8 +1,9 @@
-import { useRef, useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import type { editor } from 'monaco-editor'
+import MarkdownToolbar from './MarkdownToolbar'
 
 const monacoGlobal = globalThis as typeof globalThis & {
   MonacoEnvironment?: { getWorker: () => Worker }
@@ -23,7 +24,6 @@ function wrapSelection(ed: editor.ICodeEditor, wrapper: string) {
   if (!text) return
   const wrapped = `${wrapper}${text}${wrapper}`
   ed.executeEdits('keyboard-shortcut', [{ range: selection, text: wrapped }])
-  // Select the wrapped text (including markers)
   ed.setSelection(
     new monaco.Selection(
       selection.startLineNumber,
@@ -41,6 +41,7 @@ interface MarkdownEditorProps {
   readOnly?: boolean
   onAutoSave?: (value: string) => void
   onSaveVersion?: () => void
+  onOpenIconPicker?: () => void
   className?: string
 }
 
@@ -50,14 +51,15 @@ export default function MarkdownEditor({
   readOnly = false,
   onAutoSave,
   onSaveVersion,
+  onOpenIconPicker,
   className = '',
 }: MarkdownEditorProps) {
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleMount: OnMount = useCallback(
     (editor) => {
-      editorRef.current = editor
+      setEditorInstance(editor)
       editor.updateOptions({
         wordWrap: 'on',
         minimap: { enabled: false },
@@ -72,7 +74,6 @@ export default function MarkdownEditor({
         padding: { top: 16, bottom: 16 },
       })
 
-      // Ctrl+S / Cmd+S — save version (US6 T090)
       editor.addAction({
         id: 'save-version',
         label: 'Save Version',
@@ -80,7 +81,6 @@ export default function MarkdownEditor({
         run: () => onSaveVersion?.(),
       })
 
-      // Ctrl+B / Cmd+B — bold (US6 T090)
       editor.addAction({
         id: 'bold-text',
         label: 'Bold',
@@ -88,7 +88,6 @@ export default function MarkdownEditor({
         run: (ed) => wrapSelection(ed, '**'),
       })
 
-      // Ctrl+I / Cmd+I — italic (US6 T090)
       editor.addAction({
         id: 'italic-text',
         label: 'Italic',
@@ -118,17 +117,20 @@ export default function MarkdownEditor({
   }, [])
 
   return (
-    <div className={`h-full w-full ${className}`}>
-      <Editor
-        height="100%"
-        defaultLanguage="markdown"
-        value={value}
-        onChange={handleChange}
-        onMount={handleMount}
-        loading={<div className="text-sm text-ink-3 p-4">加载编辑器…</div>}
-        options={{ readOnly }}
-        theme="vs-light"
-      />
+    <div className={`h-full w-full flex flex-col ${className}`}>
+      {!readOnly && <MarkdownToolbar editor={editorInstance} onOpenIconPicker={onOpenIconPicker} />}
+      <div className="flex-1 min-h-0">
+        <Editor
+          height="100%"
+          defaultLanguage="markdown"
+          value={value}
+          onChange={handleChange}
+          onMount={handleMount}
+          loading={<div className="text-sm text-ink-3 p-4">加载编辑器…</div>}
+          options={{ readOnly }}
+          theme="vs-light"
+        />
+      </div>
     </div>
   )
 }
