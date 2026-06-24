@@ -1,0 +1,70 @@
+/* ── Block-level bidirectional locator (spec 027 US8) ──
+ *
+ * Each rendered block sits inside `<section class="rs-block" data-block-id="…">`.
+ * `.rs-block-flash` paints a 1.5s yellow highlight when the preview scrolls
+ * to a block (forward-locate). The base `.rs-block` adds a subtle pointer
+ * cursor to hint that reverse-locate (clicking) works.
+ *
+ * PDF export strips both classes — `rs-block-flash` is animation-only and
+ * `.rs-block` has no print styles, so PDF output remains identical to the
+ * pre-US8 result for callers that don't opt into per-block rendering.
+ */
+
+.rs-block {
+  cursor: pointer;
+  scroll-margin-top: 8mm; /* keep header clear when scrolling into view */
+}
+
+.rs-block-flash {
+  animation: rs-block-flash-anim 1.5s ease-out;
+}
+
+@keyframes rs-block-flash-anim {
+  0% {
+    background-color: rgba(253, 224, 71, 0.55);
+    box-shadow: 0 0 0 4px rgba(253, 224, 71, 0.35);
+  }
+  70% {
+    background-color: rgba(253, 224, 71, 0.18);
+    box-shadow: 0 0 0 2px rgba(253, 224, 71, 0.18);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+@media print {
+  .rs-block-flash {
+    animation: none;
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+/* ── Editor-side reverse-locate flash (US8) ──
+ *
+ * Triggered when the user clicks a rendered block in the preview.
+ * The parent (ResumeEditor) sets highlightedBlockId on QuickEditor and
+ * auto-clears it after 1.5s. We keep the animation here so PDF export
+ * never includes it (the class lives on the editor list, not the preview).
+ */
+
+.rs-editor-block-flash {
+  animation: rs-editor-block-flash-anim 1.5s ease-out;
+}
+
+@keyframes rs-editor-block-flash-anim {
+  0% {
+    background-color: rgba(253, 224, 71, 0.55);
+    box-shadow: 0 0 0 4px rgba(253, 224, 71, 0.35);
+  }
+  70% {
+    background-color: rgba(253, 224, 71, 0.18);
+    box-shadow: 0 0 0 2px rgba(253, 224, 71, 0.18);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}

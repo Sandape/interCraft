@@ -23,6 +23,20 @@ export interface RenderResult {
   html: string
 }
 
+export interface BlockRenderInput {
+  /** Stable block id from backend (`ResumeBlock.id`). */
+  id: string
+  /** Markdown source for this block. */
+  content_md: string
+}
+
+export interface RenderBlocksResult {
+  /** Concatenated HTML wrapped in `<section data-block-id="…">` per block. */
+  html: string
+  /** Ids in the order they were rendered (used by callers to build mappings). */
+  blockIds: string[]
+}
+
 const DEFAULT_ACCENT_COLOR = '#39393a'
 
 /**
@@ -54,6 +68,38 @@ export function sanitizeHtml(html: string): string {
     .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
     .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
     .replace(/javascript:/gi, '')
+}
+
+/**
+ * Render a list of blocks separately and wrap each in `<section data-block-id="…">`.
+ *
+ * Used by the live preview to expose block identity to the bidirectional
+ * locator (US8). Each section has `data-block-id` so reverse-locate (preview
+ * → block list) and forward-locate (block list → preview scroll + highlight)
+ * both work without re-parsing markdown.
+ */
+export function renderBlocksToHtml(
+  blocks: BlockRenderInput[],
+  opts: RenderOptions = {},
+): RenderBlocksResult {
+  const accentColor = opts.accentColor ?? DEFAULT_ACCENT_COLOR
+  const parts: string[] = []
+  const blockIds: string[] = []
+  for (const b of blocks) {
+    const raw = renderToHtml(b.content_md)
+    const styled = colorPlugin(raw, { color: accentColor })
+    parts.push(
+      `<section class="rs-block" data-block-id="${escapeAttr(b.id)}">${styled}</section>`,
+    )
+    blockIds.push(b.id)
+  }
+  return { html: parts.join('\n'), blockIds }
+}
+
+function escapeAttr(v: string): string {
+  return v.replace(/[&"<>]/g, (c) =>
+    c === '&' ? '&amp;' : c === '"' ? '&quot;' : c === '<' ? '&lt;' : '&gt;',
+  )
 }
 
 export { default as svgMap, ICON_NAMES } from './icons/svg-map'

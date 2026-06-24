@@ -24,6 +24,16 @@ export interface QuickEditorProps {
   onMoveUp: (blockId: string) => void
   onMoveDown: (blockId: string) => void
   onPatchMeta: (blockId: string, meta: Record<string, unknown> | null) => void
+  /**
+   * US8 forward-locate: clicking a block header scrolls the preview to the
+   * matching rendered block and triggers the 1.5s yellow flash.
+   */
+  onPreviewLocate?: (blockId: string) => void
+  /**
+   * US8 reverse-locate: when set, the matching block pulses for 1.5s.
+   * Parent auto-clears the value after the duration.
+   */
+  highlightedBlockId?: string | null
   isReadonly?: boolean
 }
 
@@ -36,6 +46,8 @@ export function QuickEditor({
   onMoveUp,
   onMoveDown,
   onPatchMeta,
+  onPreviewLocate,
+  highlightedBlockId,
   isReadonly = false,
 }: QuickEditorProps) {
   return (
@@ -51,6 +63,8 @@ export function QuickEditor({
           onMoveUp={() => onMoveUp(b.id)}
           onMoveDown={() => onMoveDown(b.id)}
           onPatchMeta={(meta) => onPatchMeta(b.id, meta)}
+          onPreviewLocate={onPreviewLocate ? () => onPreviewLocate(b.id) : undefined}
+          highlighted={highlightedBlockId === b.id}
           readOnly={isReadonly}
         />
       ))}
@@ -67,6 +81,8 @@ export function BlockRow({
   onMoveUp,
   onMoveDown,
   onPatchMeta,
+  onPreviewLocate,
+  highlighted,
   readOnly = false,
 }: {
   block: ResumeBlock
@@ -77,6 +93,10 @@ export function BlockRow({
   onMoveUp: () => void
   onMoveDown: () => void
   onPatchMeta: (meta: Record<string, unknown> | null) => void
+  /** US8: clicking the block header scrolls the preview to this block. */
+  onPreviewLocate?: () => void
+  /** US8 reverse-locate: when true, the card pulses yellow for 1.5s. */
+  highlighted?: boolean
   readOnly?: boolean
 }) {
   const [value, setValue] = useState(block.content_md)
@@ -97,19 +117,47 @@ export function BlockRow({
   )
 
   return (
-    <Card padding="md" data-testid={`block-${block.id}`}>
+    <Card
+      padding="md"
+      data-testid={`block-${block.id}`}
+      className={highlighted ? 'rs-editor-block-flash' : undefined}
+    >
       <div className="flex items-center gap-2 mb-2">
-        <GripVertical className="h-3.5 w-3.5 text-ink-muted" />
-        <button
-          onClick={onToggleCollapse}
-          className="text-ink-2 hover:text-ink-1"
-          aria-label={collapsed ? '展开' : '折叠'}
+        <div
+          className={
+            onPreviewLocate
+              ? 'flex items-center gap-2 flex-1 min-w-0 cursor-pointer rounded -mx-1 px-1 hover:bg-surface-muted/60'
+              : 'flex items-center gap-2 flex-1 min-w-0'
+          }
+          onClick={onPreviewLocate}
+          role={onPreviewLocate ? 'button' : undefined}
+          tabIndex={onPreviewLocate ? 0 : undefined}
+          onKeyDown={
+            onPreviewLocate
+              ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onPreviewLocate()
+                  }
+                }
+              : undefined
+          }
+          data-testid={`block-header-${block.id}`}
         >
-          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        </button>
-        <Badge variant="default">{typeLabel}</Badge>
-        {block.title && <span className="text-sm font-medium text-ink-1 truncate">{block.title}</span>}
-        <div className="flex-1" />
+          <GripVertical className="h-3.5 w-3.5 text-ink-muted" />
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleCollapse()
+            }}
+            className="text-ink-2 hover:text-ink-1"
+            aria-label={collapsed ? '展开' : '折叠'}
+          >
+            {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+          <Badge variant="default">{typeLabel}</Badge>
+          {block.title && <span className="text-sm font-medium text-ink-1 truncate">{block.title}</span>}
+        </div>
         {!readOnly && (
           <>
             <button

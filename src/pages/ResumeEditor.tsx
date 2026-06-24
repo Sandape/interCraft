@@ -104,10 +104,47 @@ export default function ResumeEditor() {
     },
   })
 
+  // US8 — bidirectional locator state. forward: editor → preview; reverse: preview → editor.
+  const [scrollToBlockId, setScrollToBlockId] = useState<string | null>(null)
+  const [editorHighlightedBlockId, setEditorHighlightedBlockId] = useState<string | null>(null)
+
+  // Auto-clear editor highlight 1.5s after reverse-locate.
+  useEffect(() => {
+    if (!editorHighlightedBlockId) return
+    const t = window.setTimeout(() => setEditorHighlightedBlockId(null), 1500)
+    return () => window.clearTimeout(t)
+  }, [editorHighlightedBlockId])
+
+  // Reverse-locate: scroll editor list to the block the user clicked in the preview.
+  useEffect(() => {
+    if (!editorHighlightedBlockId) return
+    const el = document.querySelector<HTMLElement>(
+      `[data-testid="block-${editorHighlightedBlockId}"]`,
+    )
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [editorHighlightedBlockId])
+
   // Style selection state — default from branch or system default
   const [styleSelectorOpen, setStyleSelectorOpen] = useState(false)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false)
+
+  // Sidebar drawer
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Locator interactions are suspended while any modal/drawer is open so
+  // click-to-locate never reaches through to a hidden preview.
+  const locatorSuspended =
+    saveOpen ||
+    versionDrawerOpen ||
+    viewVersionNo !== null ||
+    rollbackTarget !== null ||
+    addBlockOpen ||
+    editBranchOpen ||
+    avatarDialogOpen ||
+    styleSelectorOpen ||
+    exportMenuOpen ||
+    sidebarOpen
 
   // Split pane state
   const [splitRatio, setSplitRatio] = useState(50)
@@ -138,9 +175,6 @@ export default function ResumeEditor() {
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
   }, [])
-
-  // Sidebar drawer
-  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const styleId =
     branch?.style_preference && getStyleById(branch.style_preference)
@@ -414,6 +448,8 @@ export default function ResumeEditor() {
                   onMoveUp={(id) => moveBlock(id, -1)}
                   onMoveDown={(id) => moveBlock(id, 1)}
                   onPatchMeta={(id, meta) => patchBlock.mutate({ id, input: { meta } })}
+                  onPreviewLocate={setScrollToBlockId}
+                  highlightedBlockId={editorHighlightedBlockId}
                   isReadonly={isReadonly}
                 />
                 {!isReadonly && (
@@ -456,6 +492,11 @@ export default function ResumeEditor() {
               avatarSize={branch.avatar_size ?? null}
               avatarPosition={branch.avatar_position ?? null}
               avatarShape={branch.avatar_shape ?? null}
+              blocks={mode === 'quick' ? blocks : undefined}
+              scrollToBlockId={scrollToBlockId}
+              onScrollToBlockHandled={() => setScrollToBlockId(null)}
+              onBlockClick={setEditorHighlightedBlockId}
+              locatorSuspended={locatorSuspended}
             />
           </div>
         </div>
