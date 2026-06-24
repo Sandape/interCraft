@@ -582,6 +582,7 @@ export default function ResumeEditor() {
                   onDelete={(id) => deleteBlock.mutate(id)}
                   onMoveUp={(id) => moveBlock(id, -1)}
                   onMoveDown={(id) => moveBlock(id, 1)}
+                  onReorder={(id, prevId, nextId) => reorder.mutate({ id, input: { prev_id: prevId, next_id: nextId } })}
                   onPatchMeta={(id, meta) => patchBlock.mutate({ id, input: { meta } })}
                   onPreviewLocate={setScrollToBlockId}
                   highlightedBlockId={editorHighlightedBlockId}

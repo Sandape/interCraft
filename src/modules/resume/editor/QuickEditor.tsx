@@ -1,8 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { GripVertical, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Input, Textarea } from '@/components/ui/Input'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { ResumeBlock, BlockType } from '@/modules/resume/api/types'
 
 const BLOCK_TYPES: { value: BlockType; label: string }[] = [
@@ -23,6 +26,7 @@ export interface QuickEditorProps {
   onDelete: (blockId: string) => void
   onMoveUp: (blockId: string) => void
   onMoveDown: (blockId: string) => void
+  onReorder?: (blockId: string, prevId: string | null, nextId: string | null) => void
   onPatchMeta: (blockId: string, meta: Record<string, unknown> | null) => void
   /**
    * US8 forward-locate: clicking a block header scrolls the preview to the
@@ -45,12 +49,35 @@ export function QuickEditor({
   onDelete,
   onMoveUp,
   onMoveDown,
+  onReorder,
   onPatchMeta,
   onPreviewLocate,
   highlightedBlockId,
   isReadonly = false,
 }: QuickEditorProps) {
-  return (
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const oldIndex = blocks.findIndex((b) => b.id === active.id)
+      const newIndex = blocks.findIndex((b) => b.id === over.id)
+      if (oldIndex === -1 || newIndex === -1) return
+      const moved = blocks[oldIndex]
+      if (!moved) return
+      const reordered = [...blocks]
+      reordered.splice(oldIndex, 1)
+      reordered.splice(newIndex, 0, moved)
+      const pos = reordered.findIndex((b) => b.id === moved.id)
+      const prevBlock = pos > 0 ? reordered[pos - 1] : null
+      const nextBlock = pos < reordered.length - 1 ? reordered[pos + 1] : null
+      onReorder?.(moved.id, prevBlock?.id ?? null, nextBlock?.id ?? null)
+    },
+    [blocks, onReorder],
+  )
+
+  const content = (
     <div className="space-y-3">
       {blocks.map((b) => (
         <BlockRow
@@ -70,6 +97,72 @@ export function QuickEditor({
       ))}
     </div>
   )
+
+  if (!onReorder || isReadonly) return content
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+        {blocks.map((b) => (
+          <SortableBlockRow
+            key={b.id}
+            block={b}
+            collapsed={collapsedBlockIds.has(b.id)}
+            onToggleCollapse={() => onToggleCollapse(b.id)}
+            onAutoSave={(content) => onAutoSave(b.id, content)}
+            onDelete={() => onDelete(b.id)}
+            onMoveUp={() => onMoveUp(b.id)}
+            onMoveDown={() => onMoveDown(b.id)}
+            onPatchMeta={(meta) => onPatchMeta(b.id, meta)}
+            onPreviewLocate={onPreviewLocate ? () => onPreviewLocate(b.id) : undefined}
+            highlighted={highlightedBlockId === b.id}
+            readOnly={isReadonly}
+          />
+        ))}
+      </SortableContext>
+    </DndContext>
+  )
+}
+
+function SortableBlockRow(props: {
+  block: ResumeBlock
+  collapsed: boolean
+  onToggleCollapse: () => void
+  onAutoSave: (content_md: string) => void
+  onDelete: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onPatchMeta: (meta: Record<string, unknown> | null) => void
+  onPreviewLocate?: () => void
+  highlighted?: boolean
+  readOnly?: boolean
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.block.id,
+  })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : undefined,
+  }
+  return (
+    <div ref={setNodeRef} style={style}>
+      <BlockRow
+        block={props.block}
+        collapsed={props.collapsed}
+        onToggleCollapse={props.onToggleCollapse}
+        onAutoSave={props.onAutoSave}
+        onDelete={props.onDelete}
+        onMoveUp={props.onMoveUp}
+        onMoveDown={props.onMoveDown}
+        onPatchMeta={props.onPatchMeta}
+        onPreviewLocate={props.onPreviewLocate}
+        highlighted={props.highlighted}
+        readOnly={props.readOnly}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
+    </div>
+  )
 }
 
 export function BlockRow({
@@ -84,6 +177,7 @@ export function BlockRow({
   onPreviewLocate,
   highlighted,
   readOnly = false,
+  dragHandleProps,
 }: {
   block: ResumeBlock
   collapsed: boolean
@@ -98,6 +192,7 @@ export function BlockRow({
   /** US8 reverse-locate: when true, the card pulses yellow for 1.5s. */
   highlighted?: boolean
   readOnly?: boolean
+  dragHandleProps?: Record<string, unknown>
 }) {
   const [value, setValue] = useState(block.content_md)
 
@@ -144,7 +239,10 @@ export function BlockRow({
           }
           data-testid={`block-header-${block.id}`}
         >
-          <GripVertical className="h-3.5 w-3.5 text-ink-muted" />
+          <GripVertical
+            className="h-3.5 w-3.5 text-ink-muted cursor-grab active:cursor-grabbing"
+            {...(dragHandleProps as React.HTMLAttributes<SVGSVGElement>)}
+          />
           <button
             onClick={(e) => {
               e.stopPropagation()

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useRef, useCallback, useEffect, useState } from 'react'
 import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
