@@ -24,6 +24,8 @@ class ResumeRepository(BaseRepository[ResumeBranch]):
         is_main: bool | None = None,
         is_pinned: bool | None = None,
         status: str | None = None,
+        search: str | None = None,
+        sort: str | None = None,
         limit: int = 50,
     ) -> list[ResumeBranch]:
         # 022: list_branches does not serialize branch.versions / branch.blocks
@@ -45,12 +47,41 @@ class ResumeRepository(BaseRepository[ResumeBranch]):
         if is_pinned is not None:
             stmt = stmt.where(ResumeBranch.is_pinned == is_pinned)
         if status is not None:
-            stmt = stmt.where(ResumeBranch.status == status)
-        stmt = stmt.order_by(
-            ResumeBranch.is_pinned.desc(),
-            ResumeBranch.is_main.desc(),
-            ResumeBranch.last_edited_at.desc(),
-        ).limit(limit)
+            # 027 US6: support comma-separated multi-status filter
+            statuses = [s.strip() for s in status.split(",") if s.strip()]
+            if len(statuses) == 1:
+                stmt = stmt.where(ResumeBranch.status == statuses[0])
+            elif len(statuses) > 1:
+                stmt = stmt.where(ResumeBranch.status.in_(statuses))
+        if search is not None:
+            # 027 US6 T086: ILIKE search across name/company/position
+            like = f"%{search.lower()}%"
+            stmt = stmt.where(
+                func.lower(ResumeBranch.name).like(like)
+                | func.lower(ResumeBranch.company).like(like)
+                | func.lower(ResumeBranch.position).like(like)
+            )
+        # 027 US6 T086: sort selector
+        sort_key = (sort or "edited").lower()
+        if sort_key == "created":
+            order_cols = (
+                ResumeBranch.is_pinned.desc(),
+                ResumeBranch.is_main.desc(),
+                ResumeBranch.created_at.desc(),
+            )
+        elif sort_key == "match_score":
+            order_cols = (
+                ResumeBranch.is_pinned.desc(),
+                ResumeBranch.is_main.desc(),
+                ResumeBranch.match_score.desc().nullslast(),
+            )
+        else:  # "edited" (default)
+            order_cols = (
+                ResumeBranch.is_pinned.desc(),
+                ResumeBranch.is_main.desc(),
+                ResumeBranch.last_edited_at.desc(),
+            )
+        stmt = stmt.order_by(*order_cols).limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 

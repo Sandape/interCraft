@@ -9,8 +9,14 @@ import type {
   ResumeBranch,
 } from '@/modules/resume/api/types'
 
+export interface ListBranchesQuery {
+  search?: string
+  status_filter?: string
+  sort?: 'edited' | 'created' | 'match_score'
+}
+
 export interface ResumeRepository {
-  list(): Promise<ResumeBranch[]>
+  list(query?: ListBranchesQuery): Promise<ResumeBranch[]>
   get(branchId: string): Promise<ResumeBranch>
   create(input: CreateBranchInput): Promise<ResumeBranch>
   patch(branchId: string, input: PatchBranchInput): Promise<ResumeBranch>
@@ -19,10 +25,17 @@ export interface ResumeRepository {
 }
 
 export class HttpResumeRepository implements ResumeRepository {
-  async list(): Promise<ResumeBranch[]> {
+  async list(query?: ListBranchesQuery): Promise<ResumeBranch[]> {
     const res = await apiClient.request<{ data: ResumeBranch[] }>({
       method: 'GET',
       path: '/api/v1/resume-branches',
+      query: query
+        ? {
+            search: query.search,
+            status_filter: query.status_filter,
+            sort: query.sort,
+          }
+        : undefined,
     })
     return res.data
   }

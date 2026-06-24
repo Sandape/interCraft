@@ -45,6 +45,8 @@ async def list_branches(
     is_main: bool | None = None,
     is_pinned: bool | None = None,
     status_filter: str | None = None,
+    search: str | None = None,
+    sort: str | None = None,
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(db_session_user_dep),
 ):
@@ -54,6 +56,8 @@ async def list_branches(
         is_main=is_main,
         is_pinned=is_pinned,
         status=status_filter,
+        search=search,
+        sort=sort,
     )
     # 022: batch counts (2 SQL roundtrips total, vs 2N before).
     counts_map = await svc.repo.get_counts_batch([b.id for b in branches])

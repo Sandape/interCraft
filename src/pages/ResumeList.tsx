@@ -18,6 +18,7 @@ import { useBindBranchToJob } from '@/hooks/mutations/useJobMutations'
 import { timeAgo, cn } from '@/lib/utils'
 import type { BranchStatus, ResumeBranch } from '@/modules/resume/api/types'
 import PrimaryResumeCard from '@/modules/resume/list/PrimaryResumeCard'
+import ResumeListToolbar, { type SortKey } from '@/modules/resume/list/ResumeListToolbar'
 import ImportModal from '@/modules/resume/import/ImportModal'
 
 const STATUS_LABEL: Record<BranchStatus, string> = {
@@ -39,7 +40,15 @@ const STATUS_VARIANT: Record<BranchStatus, 'default' | 'success' | 'warning' | '
 export default function ResumeList() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { data: branches = [], isLoading } = useResumeBranches()
+  // 027 US6 T085: search/filter/sort state drives useResumeBranches
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<BranchStatus[]>([])
+  const [sort, setSort] = useState<SortKey>('edited')
+  const { data: branches = [], isLoading } = useResumeBranches({
+    search: search || undefined,
+    status_filter: statusFilter.length > 0 ? statusFilter.join(',') : undefined,
+    sort,
+  })
   const createBranch = useCreateBranch()
   const deleteBranch = useDeleteBranch()
   const patchBranch = usePatchBranch()
@@ -190,6 +199,16 @@ export default function ResumeList() {
           <p className="text-2xs text-ink-3 mt-1">点击「新建分支」创建第一份简历</p>
         </Card>
       ) : (
+        <>
+          <ResumeListToolbar
+            search={search}
+            onSearchChange={setSearch}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+            sort={sort}
+            onSortChange={setSort}
+            resultCount={branches.length}
+          />
         <div className="space-y-4">
           {/* Primary resume card */}
           {main && (
@@ -329,6 +348,7 @@ export default function ResumeList() {
           ))}
         </div>
         </div>
+        </>
       )}
 
       {/* Create branch modal */}
