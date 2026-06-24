@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { downloadMarkdown, downloadBlob } from '@/lib/export/markdown-export'
 import { exportResume, type ExportFormat } from '@/api/export'
 import { blocksToMarkdown } from '@/lib/markdown-converter'
+import { renderMarkdown } from '@/lib/resume-renderer'
 import type { ResumeBlock, ResumeBranch } from '@/api/types'
 
 interface ExportMenuProps {
@@ -51,9 +52,13 @@ export default function ExportMenu({
       if (format === 'markdown') {
         downloadMarkdown(branch, blocks)
       } else {
+        // US1: render markdown → HTML via the unified engine before sending.
+        // The same renderMarkdown function powers the live preview, so preview
+        // and exported PDF share an identical HTML generator (no drift).
+        const accentColor = branch.accent_color ?? '#39393a'
+        const { html } = renderMarkdown(md, { accentColor })
         const { blob, filename } = await exportResume({
-          markdown: md,
-          style_id: styleId,
+          html,
           format,
         })
         downloadBlob(blob, filename)

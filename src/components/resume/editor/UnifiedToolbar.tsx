@@ -2,6 +2,9 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Save, History, Download, Upload, Palette, Code, List, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import type { EditorMode } from './useModeToggle'
+import type { ThemeId } from '@/lib/resume-themes'
+import ThemeSelector from './ThemeSelector'
+import ColorPicker from './ColorPicker'
 
 interface UnifiedToolbarProps {
   branchName: string
@@ -15,6 +18,14 @@ interface UnifiedToolbarProps {
   onStyleSelect?: () => void
   onToggleSidebar?: () => void
   lockStatus?: React.ReactNode
+  /** Current theme id (spec 027 US3). */
+  themeId?: string
+  /** Called when user selects a new theme. */
+  onThemeSelect?: (themeId: ThemeId) => void | Promise<void>
+  /** Current accent color HEX (spec 027 US3). */
+  accentColor?: string
+  /** Called when user picks a new accent color. */
+  onAccentColorChange?: (hex: string) => void | Promise<void>
 }
 
 export default function UnifiedToolbar({
@@ -29,6 +40,10 @@ export default function UnifiedToolbar({
   onStyleSelect,
   onToggleSidebar,
   lockStatus,
+  themeId,
+  onThemeSelect,
+  accentColor,
+  onAccentColorChange,
 }: UnifiedToolbarProps) {
   return (
     <div className="flex items-center gap-3 px-4 py-2 border-b border-surface-border dark:border-dark-surface-border bg-surface dark:bg-dark-surface sticky top-0 z-10">
@@ -84,6 +99,22 @@ export default function UnifiedToolbar({
         >
           <span className="hidden sm:inline">样式</span>
         </Button>
+      )}
+
+      {/* Theme selector (spec 027 US3) */}
+      {onThemeSelect && themeId && (
+        <ThemeSelector
+          currentThemeId={themeId}
+          onSelect={onThemeSelect}
+        />
+      )}
+
+      {/* Color picker (spec 027 US3) */}
+      {onAccentColorChange && accentColor && (
+        <ColorPicker
+          currentColor={accentColor}
+          onColorChange={onAccentColorChange}
+        />
       )}
 
       {/* Export button placeholder */}

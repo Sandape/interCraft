@@ -8,9 +8,14 @@ const EXPORT_BASE = '/api/v1/export'
 export type ExportFormat = 'pdf' | 'png' | 'jpeg'
 
 export interface ExportRequest {
-  markdown: string
-  style_id: string
+  /**
+   * Pre-rendered HTML (output of `renderMarkdown` from `@/lib/resume-renderer`).
+   * The backend wraps this in a full HTML document and feeds it to Playwright.
+   * Must be non-empty and ≤1MB after UTF-8 encoding.
+   */
+  html: string
   format: ExportFormat
+  /** Optional locale hint (default 'zh'). */
   locale?: string
 }
 

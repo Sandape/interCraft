@@ -64,6 +64,12 @@ class ResumeBranch(
     style_preference: Mapped[str] = mapped_column(
         String(64), nullable=False, default="compact-one-page"
     )
+    theme_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="default"
+    )
+    accent_color: Mapped[str] = mapped_column(
+        String(7), nullable=False, default="#39393a"
+    )
 
     blocks: Mapped[list[ResumeBlock]] = relationship(
         "ResumeBlock",
@@ -97,6 +103,14 @@ class ResumeBranch(
         CheckConstraint(
             "match_score IS NULL OR (match_score >= 0 AND match_score <= 100)",
             name="resume_branches_match_score_chk",
+        ),
+        CheckConstraint(
+            "theme_id IN ('default', 'blue', 'orange', 'pupple')",
+            name="ck_resume_branches_theme_id",
+        ),
+        CheckConstraint(
+            "accent_color ~ '^#[0-9a-fA-F]{6}$'",
+            name="ck_resume_branches_accent_color",
         ),
     )
 

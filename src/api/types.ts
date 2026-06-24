@@ -76,6 +76,10 @@ export interface ResumeBranch {
   is_main: boolean
   is_pinned: boolean
   style_preference: string | null
+  /** Theme id (default | blue | orange | pupple). Spec 027 US3. */
+  theme_id: string
+  /** HEX accent color (e.g. '#39393a'). Spec 027 US3. */
+  accent_color: string
   last_edited_at: string
   created_at: string
   updated_at: string
@@ -112,6 +116,10 @@ export interface PatchBranchInput {
   status?: BranchStatus
   is_pinned?: boolean
   style_preference?: string | null
+  /** Theme id (default | blue | orange | pupple). Spec 027 US3. */
+  theme_id?: string
+  /** HEX accent color (e.g. '#39393a'). Spec 027 US3. */
+  accent_color?: string
 }
 
 export interface CreateBlockInput {

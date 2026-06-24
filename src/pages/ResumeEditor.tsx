@@ -40,6 +40,7 @@ import ResumePreview from '@/components/resume/editor/ResumePreview'
 import StyleSelector from '@/components/resume/editor/StyleSelector'
 import EditorSidebar from '@/components/resume/editor/EditorSidebar'
 import ExportMenu from '@/components/resume/export/ExportMenu'
+import { loadTheme, applyColor } from '@/lib/resume-themes'
 
 const STATUS_LABEL: Record<BranchStatus, string> = {
   draft: '草稿',
@@ -151,6 +152,16 @@ export default function ResumeEditor() {
       input: { style_preference: newStyleId },
     })
   }
+
+  // Load theme + apply accent color when branch changes (spec 027 US3)
+  useEffect(() => {
+    if (!branch) return
+    const themeId = branch.theme_id ?? 'default'
+    const accent = branch.accent_color ?? '#39393a'
+    void loadTheme(themeId)
+      .then(() => applyColor(accent))
+      .catch((err) => console.error('Failed to load theme:', err))
+  }, [branch?.id, branch?.theme_id, branch?.accent_color])
 
   // Mode toggle: Quick ↔ Code
   const { mode, setMode, markdownContent, setMarkdownContent, switchToCode, switchToQuick } =
@@ -324,6 +335,14 @@ export default function ResumeEditor() {
         onStyleSelect={() => setStyleSelectorOpen(true)}
         onExport={() => setExportMenuOpen(true)}
         onToggleSidebar={() => setSidebarOpen(true)}
+        themeId={branch.theme_id ?? 'default'}
+        onThemeSelect={(themeId) => {
+          patchBranch.mutate({ id: branch.id, input: { theme_id: themeId } })
+        }}
+        accentColor={branch.accent_color ?? '#39393a'}
+        onAccentColorChange={(hex) => {
+          patchBranch.mutate({ id: branch.id, input: { accent_color: hex } })
+        }}
         lockStatus={
           <LockIndicator
             status={lock.status}
@@ -425,7 +444,11 @@ export default function ResumeEditor() {
 
           {/* Right: Resume Preview */}
           <div className="overflow-hidden flex-1" style={{ width: `${100 - splitRatio}%` }}>
-            <ResumePreview markdown={previewMarkdown} styleId={styleId} />
+            <ResumePreview
+              markdown={previewMarkdown}
+              styleId={styleId}
+              accentColor={branch.accent_color ?? '#39393a'}
+            />
           </div>
         </div>
 
