@@ -1,0 +1,31 @@
+{
+  "case_id": "interview_score_02_mid_chinese",
+  "node": "interview.score",
+  "label": "中分中文 feedback — 候选人回答有基本理解但有明显缺口，LLM 返回 score=6 + 中文 feedback",
+  "source": "manual",
+  "input_state": {
+    "questions": [
+      {
+        "question": "请解释 React 的 diff 算法，包括 key 的作用、同层比较策略和 reconciliation 流程。",
+        "dimension": "tech_depth"
+      }
+    ],
+    "scores": [],
+    "current_question": 1,
+    "messages": [
+      {
+        "role": "user",
+        "content": "React 的 diff 我知道是用 key 来比较的，key 帮助 React 识别哪些元素变了。具体算法细节我不太确定。"
+      }
+    ],
+    "difficulty": "medium",
+    "user_id": "00000000-0000-0000-0000-000000000001",
+    "thread_id": "00000000-0000-0000-0000-000000000002"
+  },
+  "llm_response": "{\"score\": 6, \"dimension\": \"tech_depth\", \"feedback\": \"候选人对 React diff 算法有基本了解，知道 key 在比较中的作用，但对同层比较策略和 reconciliation 流程缺乏深入理解。建议系统学习虚拟 DOM 的工作原理。\", \"sub_scores\": {\"clarity\": 7, \"depth\": 5, \"relevance\": 6}}",
+  "expected_language": "zh-CN",
+  "expected_contains": ["React", "diff"],
+  "expected_score_range": [4, 7],
+  "expected_fidelity_pass": true,
+  "status": "active"
+}

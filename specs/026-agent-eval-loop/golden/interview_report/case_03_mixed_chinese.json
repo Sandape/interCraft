@@ -1,0 +1,33 @@
+{
+  "case_id": "interview_report_03_mixed_chinese",
+  "node": "interview.report",
+  "label": "混合表现报告 — 3 高 2 低，LLM 返回中文 summary_md + 明确优势/劣势对比",
+  "source": "manual",
+  "input_state": {
+    "scores": [
+      {"question_no": 0, "dimension": "tech_depth", "score": 9, "feedback": "理解深入", "question_text": "解释 React diff", "user_answer": "..."},
+      {"question_no": 1, "dimension": "system_design", "score": 4, "feedback": "设计有缺口", "question_text": "设计短链服务", "user_answer": "..."},
+      {"question_no": 2, "dimension": "communication", "score": 8, "feedback": "表达清晰", "question_text": "介绍项目", "user_answer": "..."},
+      {"question_no": 3, "dimension": "problem_solving", "score": 3, "feedback": "思路不清", "question_text": "排查 OOM", "user_answer": "..."},
+      {"question_no": 4, "dimension": "culture_fit", "score": 7, "feedback": "价值观基本契合", "question_text": "为什么选我们", "user_answer": "..."}
+    ],
+    "questions": [
+      {"question": "解释 React diff"},
+      {"question": "设计短链服务"},
+      {"question": "介绍项目"},
+      {"question": "排查 OOM"},
+      {"question": "为什么选我们"}
+    ],
+    "position": "前端工程师",
+    "company": "InterCraft",
+    "difficulty": "medium",
+    "user_id": "00000000-0000-0000-0000-000000000001",
+    "thread_id": "00000000-0000-0000-0000-000000000002"
+  },
+  "llm_response": "{\"overall_score\": 6.2, \"per_question_score\": [{\"question_no\": 0, \"dimension\": \"tech_depth\", \"score\": 9, \"feedback\": \"理解深入\"}, {\"question_no\": 1, \"dimension\": \"system_design\", \"score\": 4, \"feedback\": \"设计有缺口\"}], \"dimension_scores\": {\"tech_depth\": 9, \"system_design\": 4, \"communication\": 8, \"problem_solving\": 3, \"culture_fit\": 7}, \"strengths\": [{\"dimension\": \"tech_depth\", \"score\": 9, \"detail\": \"候选人对前端底层原理掌握扎实，能清晰解释虚拟 DOM 与 diff 算法的工作机制。\"}, {\"dimension\": \"communication\", \"score\": 8, \"detail\": \"表达逻辑清晰，能够使用合适的示例辅助说明。\"}], \"improvements\": [{\"dimension\": \"problem_solving\", \"score\": 3, \"detail\": \"问题排查思路不够系统，缺少方法论。\", \"suggestions\": [\"学习系统化的故障排查流程\", \"练习从现象到根因的推导\", \"积累常见线上问题的处理经验\"]}, {\"dimension\": \"system_design\", \"score\": 4, \"detail\": \"系统设计能力有待加强。\", \"suggestions\": [\"学习常见的分布式系统设计模式\", \"通过实际项目练习架构拆分\"]}], \"summary_md\": \"候选人技术功底扎实但能力分布不均衡。前端底层原理和沟通能力是显著优势，但系统设计与问题排查能力需要重点提升。建议针对薄弱维度做专项训练，以便在更复杂的工作场景中独立承担。\"}",
+  "expected_language": "zh-CN",
+  "expected_contains": ["overall_score"],
+  "expected_overall_score_range": [5.5, 7.0],
+  "expected_fidelity_pass": true,
+  "status": "active"
+}

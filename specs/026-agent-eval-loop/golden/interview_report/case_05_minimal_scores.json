@@ -1,0 +1,27 @@
+{
+  "case_id": "interview_report_05_minimal_scores",
+  "node": "interview.report",
+  "label": "边缘 case — 仅 2 轮 scores（提前结束的面试），LLM 返回中文 summary_md + 完整结构",
+  "source": "manual",
+  "input_state": {
+    "scores": [
+      {"question_no": 0, "dimension": "tech_depth", "score": 7, "feedback": "理解到位", "question_text": "解释 React diff", "user_answer": "..."},
+      {"question_no": 1, "dimension": "communication", "score": 6, "feedback": "表达尚可", "question_text": "介绍项目", "user_answer": "..."}
+    ],
+    "questions": [
+      {"question": "解释 React diff"},
+      {"question": "介绍项目"}
+    ],
+    "position": "前端工程师",
+    "company": "InterCraft",
+    "difficulty": "medium",
+    "user_id": "00000000-0000-0000-0000-000000000001",
+    "thread_id": "00000000-0000-0000-0000-000000000002"
+  },
+  "llm_response": "{\"overall_score\": 6.5, \"per_question_score\": [{\"question_no\": 0, \"dimension\": \"tech_depth\", \"score\": 7, \"feedback\": \"理解到位\"}, {\"question_no\": 1, \"dimension\": \"communication\", \"score\": 6, \"feedback\": \"表达尚可\"}], \"dimension_scores\": {\"tech_depth\": 7, \"communication\": 6}, \"strengths\": [{\"dimension\": \"tech_depth\", \"score\": 7, \"detail\": \"候选人对前端核心技术有基本掌握，能够解释关键概念。\"}], \"improvements\": [{\"dimension\": \"communication\", \"score\": 6, \"detail\": \"表达可以更精炼。\", \"suggestions\": [\"练习结构化表达\", \"使用 STAR 法则描述项目经历\"]}], \"summary_md\": \"本次面试因故提前结束，仅完成两轮问答。基于已有信息，候选人技术基础尚可，表达能力有提升空间。建议补充更多维度的考察以便全面评估。\"}",
+  "expected_language": "zh-CN",
+  "expected_contains": ["overall_score"],
+  "expected_overall_score_range": [5.5, 7.5],
+  "expected_fidelity_pass": true,
+  "status": "active"
+}

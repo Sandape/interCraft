@@ -1,0 +1,31 @@
+{
+  "case_id": "interview_score_04_english_regression",
+  "node": "interview.score",
+  "label": "回归 case — DeepSeek 偶发返回英文 feedback（违反 zh-CN prompt 要求）。eval suite 应捕获此回归，expected_fidelity_pass=false 验证 checker 真能抓到。",
+  "source": "manual",
+  "input_state": {
+    "questions": [
+      {
+        "question": "请解释 React 的 diff 算法，包括 key 的作用、同层比较策略和 reconciliation 流程。",
+        "dimension": "tech_depth"
+      }
+    ],
+    "scores": [],
+    "current_question": 3,
+    "messages": [
+      {
+        "role": "user",
+        "content": "React 的 diff 算法采用同层比较策略，通过 key 标识节点身份。"
+      }
+    ],
+    "difficulty": "medium",
+    "user_id": "00000000-0000-0000-0000-000000000001",
+    "thread_id": "00000000-0000-0000-0000-000000000002"
+  },
+  "llm_response": "{\"score\": 8, \"dimension\": \"tech_depth\", \"feedback\": \"The candidate demonstrated solid understanding of React diff algorithm, correctly explaining the key role and tree-walking strategy. Areas for improvement include deeper explanation of reconciliation internals.\", \"sub_scores\": {\"clarity\": 8, \"depth\": 7, \"relevance\": 8}}",
+  "expected_language": "zh-CN",
+  "expected_contains": ["React", "diff"],
+  "expected_score_range": [8, 8],
+  "expected_fidelity_pass": false,
+  "status": "active"
+}

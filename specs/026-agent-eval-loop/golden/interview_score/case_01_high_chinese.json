@@ -1,0 +1,31 @@
+{
+  "case_id": "interview_score_01_high_chinese",
+  "node": "interview.score",
+  "label": "高分中文 feedback — 候选人回答扎实，LLM 返回 score=9 + 中文 feedback + 完整 sub_scores",
+  "source": "manual",
+  "input_state": {
+    "questions": [
+      {
+        "question": "请解释 React 的 diff 算法，包括 key 的作用、同层比较策略和 reconciliation 流程。",
+        "dimension": "tech_depth"
+      }
+    ],
+    "scores": [],
+    "current_question": 0,
+    "messages": [
+      {
+        "role": "user",
+        "content": "React 的 diff 算法采用同层比较策略，通过 key 标识节点身份，避免不必要的重建。reconciliation 流程从根节点开始递归比较新旧虚拟 DOM 树，遇到不同类型的节点直接替换，遇到同类型节点则更新属性并继续比较子节点。key 在列表渲染时帮助识别哪些元素是新增、删除或移动的，从而最小化 DOM 操作。"
+      }
+    ],
+    "difficulty": "medium",
+    "user_id": "00000000-0000-0000-0000-000000000001",
+    "thread_id": "00000000-0000-0000-0000-000000000002"
+  },
+  "llm_response": "{\"score\": 9, \"dimension\": \"tech_depth\", \"feedback\": \"候选人对 React diff 算法的理解非常深入，能够准确解释同层比较、key 的作用以及 reconciliation 策略。回答结构清晰，技术细节到位，展示了扎实的底层原理功底。\", \"sub_scores\": {\"clarity\": 9, \"depth\": 9, \"relevance\": 9}}",
+  "expected_language": "zh-CN",
+  "expected_contains": ["React", "diff"],
+  "expected_score_range": [9, 10],
+  "expected_fidelity_pass": true,
+  "status": "active"
+}

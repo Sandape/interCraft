@@ -1,0 +1,33 @@
+{
+  "case_id": "interview_report_01_strong_chinese",
+  "node": "interview.report",
+  "label": "强表现报告 — 5 轮均 8+ 分，LLM 返回中文 summary_md + 完整结构化报告",
+  "source": "manual",
+  "input_state": {
+    "scores": [
+      {"question_no": 0, "dimension": "tech_depth", "score": 9, "feedback": "理解深入", "question_text": "解释 React diff", "user_answer": "..."},
+      {"question_no": 1, "dimension": "system_design", "score": 8, "feedback": "设计合理", "question_text": "设计一个短链服务", "user_answer": "..."},
+      {"question_no": 2, "dimension": "communication", "score": 9, "feedback": "表达清晰", "question_text": "介绍一个项目", "user_answer": "..."},
+      {"question_no": 3, "dimension": "problem_solving", "score": 8, "feedback": "思路正确", "question_text": "排查 OOM", "user_answer": "..."},
+      {"question_no": 4, "dimension": "culture_fit", "score": 9, "feedback": "价值观契合", "question_text": "为什么选我们", "user_answer": "..."}
+    ],
+    "questions": [
+      {"question": "解释 React diff"},
+      {"question": "设计一个短链服务"},
+      {"question": "介绍一个项目"},
+      {"question": "排查 OOM"},
+      {"question": "为什么选我们"}
+    ],
+    "position": "前端工程师",
+    "company": "InterCraft",
+    "difficulty": "medium",
+    "user_id": "00000000-0000-0000-0000-000000000001",
+    "thread_id": "00000000-0000-0000-0000-000000000002"
+  },
+  "llm_response": "{\"overall_score\": 8.6, \"per_question_score\": [{\"question_no\": 0, \"dimension\": \"tech_depth\", \"score\": 9, \"feedback\": \"理解深入\"}, {\"question_no\": 1, \"dimension\": \"system_design\", \"score\": 8, \"feedback\": \"设计合理\"}], \"dimension_scores\": {\"tech_depth\": 9, \"system_design\": 8, \"communication\": 9, \"problem_solving\": 8, \"culture_fit\": 9}, \"strengths\": [{\"dimension\": \"tech_depth\", \"score\": 9, \"detail\": \"候选人对前端底层原理掌握扎实，能够清晰解释 diff 算法与虚拟 DOM 工作机制。\"}, {\"dimension\": \"communication\", \"score\": 9, \"detail\": \"表达逻辑清晰，能用恰当的示例说明技术问题。\"}], \"improvements\": [{\"dimension\": \"system_design\", \"score\": 8, \"detail\": \"系统设计能力良好但有提升空间。\", \"suggestions\": [\"加强高并发场景下的架构设计实践\", \"学习分布式系统的常见权衡\"]}], \"summary_md\": \"候选人在本次面试中整体表现优秀，技术功底扎实，沟通清晰。核心优势在于前端底层原理的深入理解和良好的表达能力。建议在系统设计的复杂度评估上继续打磨，以便应对更高阶的架构挑战。\"}",
+  "expected_language": "zh-CN",
+  "expected_contains": ["overall_score"],
+  "expected_overall_score_range": [8.0, 9.5],
+  "expected_fidelity_pass": true,
+  "status": "active"
+}

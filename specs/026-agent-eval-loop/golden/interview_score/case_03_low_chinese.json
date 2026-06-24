@@ -1,0 +1,31 @@
+{
+  "case_id": "interview_score_03_low_chinese",
+  "node": "interview.score",
+  "label": "低分中文 feedback — 候选人回答有根本性误解，LLM 返回 score=2 + 中文 feedback（验证低分场景下 fidelity 仍正确）",
+  "source": "manual",
+  "input_state": {
+    "questions": [
+      {
+        "question": "请解释 React 的 diff 算法，包括 key 的作用、同层比较策略和 reconciliation 流程。",
+        "dimension": "tech_depth"
+      }
+    ],
+    "scores": [],
+    "current_question": 2,
+    "messages": [
+      {
+        "role": "user",
+        "content": "diff 算法就是每次都把整个 DOM 树全部删掉重新渲染一遍，这样最简单。"
+      }
+    ],
+    "difficulty": "medium",
+    "user_id": "00000000-0000-0000-0000-000000000001",
+    "thread_id": "00000000-0000-0000-0000-000000000002"
+  },
+  "llm_response": "{\"score\": 2, \"dimension\": \"tech_depth\", \"feedback\": \"候选人对 React diff 算法的理解存在根本性误解。diff 算法的核心是通过同层比较最小化 DOM 操作，而非每次全量重建。建议从虚拟 DOM 的基本概念重新学习，理解 React 为什么要做 diff 以及它的优化目标。\", \"sub_scores\": {\"clarity\": 3, \"depth\": 1, \"relevance\": 2}}",
+  "expected_language": "zh-CN",
+  "expected_contains": ["React", "diff"],
+  "expected_score_range": [0, 3],
+  "expected_fidelity_pass": true,
+  "status": "active"
+}
