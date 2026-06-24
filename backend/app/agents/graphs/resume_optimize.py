@@ -90,11 +90,23 @@ class ResumeOptimizeGraph(BaseAgent):
         self,
         thread_id: str,
         decision: str,
+        accepted_patch_indices: list[int] | None = None,
     ) -> dict[str, Any]:
-        """Resolve interrupt with user decision (apply/discard)."""
+        """Resolve interrupt with user decision (apply/discard).
+
+        accepted_patch_indices: when decision='apply', pass list of patch indices
+        to accept (US5 per-patch). None = apply all patches.
+        """
         config = await get_graph_config(thread_id)
 
-        await retry_graph_op(self.build_graph, config, "aupdate_state", {"decision": decision, "thread_aborted": decision == "discard"})
+        update: dict[str, Any] = {
+            "decision": decision,
+            "thread_aborted": decision == "discard",
+        }
+        if decision == "apply" and accepted_patch_indices is not None:
+            update["accepted_patch_indices"] = accepted_patch_indices
+
+        await retry_graph_op(self.build_graph, config, "aupdate_state", update)
         result = await retry_graph_op(self.build_graph, config, "ainvoke", None, state_first=True)
         return result
 

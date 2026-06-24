@@ -37,6 +37,11 @@ class StartResponse(BaseModel):
 
 class ConfirmRequest(BaseModel):
     decision: str = Field(..., pattern="^(apply|discard)$")
+    # US5: per-patch selection. None or omitted = apply all patches.
+    accepted_patch_indices: list[int] | None = Field(
+        None,
+        description="Indices of patches to apply (0-based). None = apply all. Only valid with decision=apply.",
+    )
 
 
 class ConfirmResponse(BaseModel):
@@ -117,7 +122,11 @@ async def resume_optimize_confirm(
 
     graph = get_resume_optimize_graph()
     try:
-        result = await graph.confirm(thread_id, body.decision)
+        result = await graph.confirm(
+            thread_id,
+            body.decision,
+            accepted_patch_indices=body.accepted_patch_indices,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

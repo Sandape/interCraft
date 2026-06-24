@@ -16,6 +16,8 @@ export interface StartResponse {
 
 export interface ConfirmInput {
   decision: 'apply' | 'discard'
+  /** US5 per-patch accept/reject. Indices of patches to apply. Omit = apply all. */
+  accepted_patch_indices?: number[] | null
 }
 
 export interface ConfirmResponse {
@@ -40,8 +42,16 @@ export class ResumeOptimizeRepository {
     return request('POST', BASE + '/start', input)
   }
 
-  async confirm(threadId: string, decision: 'apply' | 'discard'): Promise<ConfirmResponse> {
-    return request('POST', `${BASE}/${threadId}/confirm`, { decision })
+  async confirm(
+    threadId: string,
+    decision: 'apply' | 'discard',
+    acceptedPatchIndices?: number[] | null,
+  ): Promise<ConfirmResponse> {
+    const body: ConfirmInput = { decision }
+    if (decision === 'apply' && acceptedPatchIndices !== undefined) {
+      body.accepted_patch_indices = acceptedPatchIndices
+    }
+    return request('POST', `${BASE}/${threadId}/confirm`, body)
   }
 
   async getState(threadId: string): Promise<StateResponse> {

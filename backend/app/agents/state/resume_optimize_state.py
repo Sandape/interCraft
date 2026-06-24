@@ -33,6 +33,8 @@ class ResumeOptimizeState(TypedDict, total=False):
     summary: str | None
     decision: Literal["apply", "discard"] | None
     thread_aborted: bool
+    # US5: per-patch accept/reject. None = apply all; otherwise apply only these indices.
+    accepted_patch_indices: list[int] | None
 
 
 __all__ = ["ResumeOptimizeState"]
