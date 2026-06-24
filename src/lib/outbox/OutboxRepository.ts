@@ -45,11 +45,23 @@ export const outboxRepo = {
     })
   },
 
+  async revertToPending(ids: number[]): Promise<void> {
+    await outboxDb.outbox_entries.bulkUpdate(
+      ids.map((id) => ({ key: id, changes: { status: 'pending' as const } })),
+    )
+  },
+
   async incrementRetry(id: number): Promise<void> {
     const entry = await outboxDb.outbox_entries.get(id)
     if (entry) {
+      // 024 — must reset status to 'pending' so the next getPending() pass
+      // picks this entry up again. Without the reset, the entry stays in
+      // 'syncing' forever, the replay loop exits after one iteration, and
+      // the entry never reaches the MAX_RETRY dead-letter path — which
+      // means the user never sees an inline error for failed writes.
       await outboxDb.outbox_entries.update(id, {
         retry_count: (entry.retry_count ?? 0) + 1,
+        status: 'pending' as const,
       })
     }
   },

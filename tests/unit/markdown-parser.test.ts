@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { markdownToBlocks } from '@/lib/markdown-converter'
+import { markdownToBlocks } from '@/modules/resume/converter/markdown-converter'
 
 describe('markdownToBlocks — import scenarios', () => {
   it('maps # heading to heading block', () => {

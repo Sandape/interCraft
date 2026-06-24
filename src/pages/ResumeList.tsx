@@ -16,9 +16,9 @@ import { useCreateBranch, useDeleteBranch, usePatchBranch } from '@/hooks/mutati
 import { useJob } from '@/hooks/queries/useJobs'
 import { useBindBranchToJob } from '@/hooks/mutations/useJobMutations'
 import { timeAgo, cn } from '@/lib/utils'
-import type { BranchStatus, ResumeBranch } from '@/api/types'
-import PrimaryResumeCard from '@/components/resume/list/PrimaryResumeCard'
-import ImportModal from '@/components/resume/import/ImportModal'
+import type { BranchStatus, ResumeBranch } from '@/modules/resume/api/types'
+import PrimaryResumeCard from '@/modules/resume/list/PrimaryResumeCard'
+import ImportModal from '@/modules/resume/import/ImportModal'
 
 const STATUS_LABEL: Record<BranchStatus, string> = {
   draft: '草稿',

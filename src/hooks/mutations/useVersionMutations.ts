@@ -3,7 +3,7 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { getResumeVersionRepository } from '../../repositories/types'
-import type { CreateVersionInput, ResumeVersionSummary, RollbackResponse } from '../../api/types'
+import type { CreateVersionInput, ResumeVersionSummary, RollbackResponse } from '@/modules/resume/api/types'
 import { VERSIONS_KEY } from '../queries/useResumeVersions'
 
 export function useSaveVersion(branchId: string) {

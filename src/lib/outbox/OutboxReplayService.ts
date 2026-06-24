@@ -5,8 +5,20 @@ Calls `POST /api/v1/outbox/replay` to flush pending entries.
 */
 import { outboxRepo } from './OutboxRepository'
 import type { OutboxEntry } from './db'
+import { getAccessToken } from '../../api/token-storage'
 
 export type ConflictCallback = (entry: OutboxEntry, serverEntity: Record<string, unknown>, conflictFields: string[]) => void
+
+export interface ReplayFailure {
+  entity_id: string
+  entity_type: string
+  operation: string
+  error: string
+}
+
+export interface ReplayResult {
+  failures: ReplayFailure[]
+}
 
 const MAX_RETRY = 3
 const REPLAY_BATCH_SIZE = 30
@@ -46,8 +58,9 @@ export class OutboxReplayService {
     }
   }
 
-  async replay(): Promise<void> {
-    if (!navigator.onLine) return
+  async replay(): Promise<ReplayResult> {
+    const failures: ReplayFailure[] = []
+    if (!navigator.onLine) return { failures }
 
     let pending = await outboxRepo.getPending(REPLAY_BATCH_SIZE)
     while (pending.length > 0) {
@@ -65,7 +78,11 @@ export class OutboxReplayService {
       }))
 
       try {
-        const token = localStorage.getItem('access_token') ?? ''
+        // 024 — read token from canonical sessionStorage via getAccessToken().
+        // Was `localStorage['access_token']` which was never written by the
+        // app's auth flow, so every replay request 401'd and left entries
+        // stuck in pending — which made the entire jobs module look broken.
+        const token = getAccessToken() ?? ''
         const res = await fetch('/api/v1/outbox/replay', {
           method: 'POST',
           headers: {
@@ -76,12 +93,13 @@ export class OutboxReplayService {
         })
 
         if (!res.ok) {
-          // Mark all as pending for retry
-          // Revert to pending for retry
-          await outboxRepo.markSynced(
+          // 024 — revert to pending so the next replay() / 30s poll
+          // retries the batch. Was `markSynced` (status='synced'), which
+          // permanently hides the entries — they'd never be retried.
+          await outboxRepo.revertToPending(
             pending.map((e) => e.id!).filter(Boolean),
           )
-          return
+          return { failures }
         }
 
         const data = await res.json()
@@ -110,6 +128,14 @@ export class OutboxReplayService {
                 result.client_entry_id,
                 result.error ?? 'Unknown error',
               )
+              // Surface the failure to the caller so the UI can show
+              // an inline error on the affected row.
+              failures.push({
+                entity_id: entry.entity_id,
+                entity_type: entry.entity_type,
+                operation: entry.operation,
+                error: result.error ?? 'Unknown error',
+              })
             } else {
               await outboxRepo.incrementRetry(result.client_entry_id)
             }
@@ -125,6 +151,7 @@ export class OutboxReplayService {
 
     // Cleanup old synced entries
     await outboxRepo.cleanup(50)
+    return { failures }
   }
 }
 

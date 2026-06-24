@@ -7,7 +7,7 @@ import type {
   ResumeVersionDetail,
   ResumeVersionSummary,
   RollbackResponse,
-} from '../api/types'
+} from '@/modules/resume/api/types'
 
 export interface ResumeVersionRepository {
   list(branchId: string): Promise<ResumeVersionSummary[]>

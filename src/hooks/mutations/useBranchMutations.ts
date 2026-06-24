@@ -11,7 +11,7 @@ import type {
   ReorderBlocksInput,
   ResumeBlock,
   ResumeBranch,
-} from '../../api/types'
+} from '@/modules/resume/api/types'
 import { BLOCKS_KEY, BRANCHES_KEY, BRANCH_KEY } from '../queries/useResumeBranches'
 
 export function useCreateBranch() {

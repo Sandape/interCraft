@@ -4,7 +4,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getResumeRepository } from '../../repositories/types'
 import { getResumeBlockRepository } from '../../repositories/types'
-import type { BlockType, ResumeBlock, ResumeBranch } from '../../api/types'
+import type { BlockType, ResumeBlock, ResumeBranch } from '@/modules/resume/api/types'
 
 export const BRANCHES_KEY = ['resumes', 'branches'] as const
 export const BRANCH_KEY = (id: string) => ['resumes', 'branches', id] as const

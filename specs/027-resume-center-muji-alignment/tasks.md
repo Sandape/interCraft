@@ -13,6 +13,23 @@ description: "Task list for 027-resume-center-muji-alignment feature implementat
 
 **Organization**: Tasks grouped by user story (7 stories). Each story independently implementable and testable.
 
+## 2026-06-24 更新: 4 Phase 工作链路 (用户授权 "已实现功能也要转向木及版本")
+
+详见 plan.md "实施策略: 激进重写 + Library-First 边界"。本文档保留原 13 Phase 详细任务清单,新增顶层导读:
+
+| 新 Phase | 旧 Phase 映射 | 目标 | 估算 |
+|---|---|---|---|
+| **Phase A: 模块化重构** (A1-A8) | 新增 | 把现有 7 lib + 12 组件 + hooks + store 全部移到 `src/modules/resume/` 单一模块边界 | 1-2 天 |
+| **Phase B: Muji UX 借鉴** (B1-B5) | 新增 | UnifiedToolbar / MarkdownEditor / WysiwygEditor / QuickEditor 借鉴 Muji 对应组件重写;1:1 搬 Square.tsx 静态模板 | 2-3 天 |
+| **Phase C: 新功能** (C1-C6) | 原 Phase 6/7/8/9/11/12 | US4 Icon + US5 AI + US6 DnD + US7 diff + US8 双向定位 + US9 头像 | 9-13 天 |
+| **Phase D: 验证收尾** (D1-D3) | 原 Phase 13 | 全量 e2e + 单元 + typecheck + build + 文档 + memory | 1-2 天 |
+
+**P1 优先** (在 Phase C 内): C2 (US5 AI 优化) + C5 (US8 双向定位) + C6 (US9 头像)
+**P2 锦上添花**: C1 (US4 Icon) + C3 (US6 DnD) + C4 (US7 diff)
+**P3 (Square 模板)**: 在 Phase B 一起做,纯 1:1 搬木及
+
+**重要**: 用户明确要求"已经实现了的功能,也要转向木及实现的版本"。Phase A 负责把现有 US1-US3 代码(lib 形式)重组为模块形式 + 借鉴 Muji 实现风格;Phase B 在此基础上大块改写 UI。
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
@@ -279,11 +296,102 @@ description: "Task list for 027-resume-center-muji-alignment feature implementat
 - [ ] T113 Verify backend migration reversible: `cd backend && uv run alembic downgrade -1 && uv run alembic upgrade head` — assert clean
 - [ ] T114 [P] Update `specs/README.md` — add 027 row to Done table after implementation
 - [ ] T115 [P] Create feature README: `specs/027-resume-center-muji-alignment/README.md` — summary + evidence links
-- [ ] T116 [P] Create `requirements-status.md`: `specs/027-resume-center-muji-alignment/requirements-status.md` — 7 US + 63 FR + 15 SC status table
-- [ ] T117 Run quickstart.md validation scenarios 1-7 end-to-end — all pass
+- [ ] T116 [P] Create `requirements-status.md`: `specs/027-resume-center-muji-alignment/requirements-status.md` — 9 US + 80 FR + 17 SC status table
+- [ ] T117 Run quickstart.md validation scenarios 1-9 end-to-end — all pass
 - [ ] T118 [P] Memory: update `C:\Users\30803\.claude\projects\D--Project-eGGG\memory\` — add 027 feature memory (scope, decisions, gotchas)
-- [ ] T119 Security review: verify no HMAC keys in client code; verify HTML sanitizer covers XSS vectors; verify `accepted_patches` path validation prevents injection
-- [ ] T120 Performance: profile render engine on 50KB Markdown; assert < 500ms; profile pagination on 5-page content; assert < 300ms
+- [ ] T119 Security review: verify no HMAC keys in client code; verify HTML sanitizer covers XSS vectors; verify `accepted_patches` path validation prevents injection; verify avatar upload file type/size validation
+- [ ] T120 Performance: profile render engine on 50KB Markdown; assert < 500ms; profile pagination on 5-page content; assert < 300ms; profile bidirectional nav click→scroll < 200ms
+
+---
+
+## Phase 11: User Story 8 - 内容 ↔ 预览双向定位 (Priority: P1)
+
+**Goal**: 编辑器 block 点击 → 预览滚动+高亮；预览区点击 → 编辑器 block 定位。
+
+**Independent Test**: 点击 Quick 第 3 block 确认预览滚动并高亮；点击预览区 block 确认 Quick 展开对应 block；Code 模式 Monaco 行号点击同样工作；导出 PDF 确认无 `data-block-id` 残留。
+
+### Tests for User Story 8 (Test-First)
+
+- [ ] T121 [P] [US8] Unit test: `src/lib/resume-renderer/__tests__/data-block-id.test.ts` — assert each block 渲染后根元素有 `data-block-id` 属性（值=block UUID）；assert Code 模式下 heading 行号映射表生成
+- [ ] T122 [P] [US8] Unit test: `src/lib/resume-nav/__tests__/scroll-highlight.test.ts` — assert `scrollToBlock(id)` 平滑滚动到目标；assert `highlightBlock(id)` 添加 1.5s 黄色动画 class；assert cancel old animation when new triggered
+- [ ] T123 [P] [US8] Component test: `src/components/resume/editor/__tests__/QuickEditor-bidir.test.tsx` — mock `data-block-id` DOM；click block item; assert scrollIntoView called with correct target; assert highlight class added to preview block
+- [ ] T124 [P] [US8] Component test: `src/components/resume/editor/__tests__/ResumePreview-bidir.test.tsx` — click preview block; assert Quick block item get highlight + scroll into view; assert Code editor cursor定位
+- [ ] T125 [P] [US8] Component test: `src/components/resume/editor/__tests__/CodeMirror-bidir.test.tsx` — click heading 行号 gutter; assert preview scroll; assert `data-line-to-block-id` mapping used
+- [ ] T126 [P] [US8] Backend test: `backend/app/modules/resumes/tests/test_pdf_strip_data_block_id.py` — assert PDF export sanitizes `data-block-id` attribute (not leaked to PDF HTML)
+- [ ] T127 [P] [US8] E2E: `tests/e2e/027-resume-muji/bidirectional-nav.spec.ts` — click Quick block 1/2/3; assert preview scrolls to each; assert highlight visible; click preview block 4; assert Quick block 4 expanded; switch to Code mode; click preview; assert Monaco cursor positioned
+
+### Implementation for User Story 8
+
+- [ ] T128 [US8] Extend `src/lib/resume-renderer/markdown-it-plugins/heading-block.ts` — each block 包装 div 时添加 `attrSet('data-block-id', block.uuid)`（从 env 传入 block metadata）
+- [ ] T129 [US8] Create `src/lib/resume-nav/scroll-highlight.ts` — `scrollToBlock(id, opts)` 调 `element.scrollIntoView({behavior: 'smooth', block: 'start'})` + 80px 顶部偏移; `highlightBlock(id)` 加 class `.rs-highlight-pulse` (1.5s 动画); `cancelHighlight()` 清掉旧 class
+- [ ] T130 [US8] Create `src/lib/resume-nav/index.ts` — orchestrator: `navigateToBlock(id, direction)` 处理 editor→preview 和 preview→editor 双向; 含 modal 状态检测（暂停时返回）
+- [ ] T131 [US8] Create `src/lib/resume-nav/block-line-map.ts` — `buildBlockLineMap(md, blocks) → Map<blockId, startLine>` 解析 Markdown 找 heading 行号（Code 模式用）; cache 到 Zustand store 避免重算
+- [ ] T132 [US8] Create `src/styles/resume-bidir.css` — `.rs-highlight-pulse` keyframes（黄色背景 1.5s 脉冲）; `.rs-block-focus` 焦点高亮（Quick 模式 block 项）
+- [ ] T133 [US8] Wire Quick mode bidir: `src/components/resume/editor/QuickEditor.tsx` block item onClick → `navigateToBlock(blockId, 'editor-to-preview')`
+- [ ] T134 [US8] Wire Code mode bidir: `src/components/resume/editor/MarkdownEditor.tsx` Monaco onMouseDown gutter → `navigateToBlock(lineToBlockIdMap.get(line), 'editor-to-preview')`
+- [ ] T135 [US8] Wire Preview→Editor reverse: `src/components/resume/editor/ResumePreview.tsx` onClick handler 读 `e.target.closest('[data-block-id]')` → `navigateToBlock(blockId, 'preview-to-editor')`; Quick mode 展开 + scroll; Code mode 跳光标
+- [ ] T136 [US8] Pause nav when modal open: `src/components/resume/editor/ResumeEditor.tsx` 检测是否有 Modal/Drawer 打开（zustand store `uiModalOpen` flag），打开时 `navigateToBlock` 直接 return
+- [ ] T137 [US8] Sanitize `data-block-id` from PDF: `backend/src/services/pdf_renderer/sanitize.py` 添加 strip 规则: HTML 解析后 `querySelectorAll('[data-block-id]')` → 移除该属性（不影响子节点）
+- [ ] T138 [US8] [P] Add `data-block-id` CSS attribute to public/themes/*.css whitelist（如有需要）
+
+**Checkpoint**: US8 complete. Bidirectional nav works. Run T121-T127 tests.
+
+---
+
+## Phase 12: User Story 9 - 头像/证件照调整 (Priority: P1)
+
+**Goal**: 上传 + 5 位置 + 50-200 尺寸 + 3 形状 + 持久化 + PDF 渲染。
+
+**Independent Test**: 上传图片, 调整尺寸/位置/形状, 确认实时反映; 切主题保持; 派生分支独立; 导出 PDF 含头像; 删除头像确认预览无头像。
+
+### Tests for User Story 9 (Test-First)
+
+- [ ] T139 [P] [US9] Backend test: `backend/app/modules/resumes/tests/test_avatar_upload.py` — upload PNG/JPG/WEBP 成功; upload > 2MB 失败 413; upload non-image 失败 415; compress to ≤ 500KB 验证
+- [ ] T140 [P] [US9] Backend test: `backend/app/modules/resumes/tests/test_avatar_field.py` — PATCH branch with avatar fields; GET returns persisted; invalid size 422; invalid position 422; invalid shape 422; missing url but other fields OK
+- [ ] T141 [P] [US9] Component test: `src/components/resume/editor/__tests__/AvatarDialog.test.tsx` — open dialog; upload image; assert preview reflects; change size slider; assert live update; change position; change shape; delete avatar
+- [ ] T142 [P] [US9] Component test: `src/components/resume/editor/__tests__/AvatarRender.test.tsx` — render with branch.avatar_url; assert `<img>` tag with correct style; assert position class; assert shape class
+- [ ] T143 [P] [US9] Component test: `src/components/resume/editor/__tests__/AvatarInherit.test.tsx` — 派生分支"从父级继承" 按钮点击; assert 5 字段复制
+- [ ] T144 [P] [US9] E2E: `tests/e2e/027-resume-muji/avatar.spec.ts` — upload 1.5MB PNG; assert 压缩后; assert 预览显示; 拖动 size slider; assert 实时; 切换 5 位置; 切换 3 形状; 切主题保持; 派生分支独立; 导出 PDF 含头像
+
+### Implementation for User Story 9
+
+- [ ] T145 [US9] Backend: extend Alembic migration `add_theme_and_avatar_to_resume_branch.py` — 合并 T018 的 theme_id/accent_color 与 US9 的 4 列 avatar 字段, 一次迁移（避免两次 schema 变更）
+- [ ] T146 [US9] Backend: extend `backend/app/modules/resumes/models.py` ResumeBranch — 5 字段映射; 加 CHECK 约束（avatar_size, position, shape）
+- [ ] T147 [US9] Backend: extend `backend/app/modules/resumes/schemas.py` — ResumeBranchOut + PatchBranchInput 加 5 字段; validator 验 size/position/shape
+- [ ] T148 [US9] Backend: create `backend/app/modules/resumes/api_avatar.py` — `POST /api/v1/avatar/upload` (multipart, file + branch_id) + `DELETE /api/v1/avatar/:branch_id` + `POST /api/v1/avatar/:branch_id/inherit-from-parent`
+- [ ] T149 [US9] Backend: create `backend/app/modules/resumes/avatar_service.py` — `upload_avatar(file, user_id, branch_id) → url`: 校验类型/大小 → Pillow 压缩到 ≤ 500KB → 保存到 `backend/static/uploads/avatars/{user_id}/{branch_id}.{ext}` → 返回 `/static/uploads/avatars/...` URL
+- [ ] T150 [US9] Frontend: create `src/api/avatar.ts` — `uploadAvatar(file, branchId)`, `deleteAvatar(branchId)`, `inheritAvatarFromParent(branchId)`; use TanStack Query mutations
+- [ ] T151 [US9] Frontend: create `src/components/resume/editor/AvatarDialog.tsx` — Modal with: upload dropzone, size slider (50-200), 5 position buttons, 3 shape buttons, delete button, inherit-from-parent button (if branch has parent)
+- [ ] T152 [US9] Frontend: create `src/components/resume/editor/AvatarImage.tsx` — 渲染 `<img>` with inline style `width: ${size}px; height: ${size}px; border-radius: ${shape === 'circle' ? '50%' : shape === 'rounded' ? '8px' : '0'}` + position class
+- [ ] T153 [US9] Frontend: integrate AvatarImage into `ResumePreview.tsx` — 在 `.rs-view-inner` 顶部（或按 position 注入到 header-block 内）插入头像 img
+- [ ] T154 [US9] Frontend: extend `renderMarkdown` opts — `renderMarkdown(md, {avatar, ...})` 在 HTML 头部插入 `<div class="rs-avatar rs-avatar--${position}"><img ...></div>` if avatar.url
+- [ ] T155 [US9] Frontend: extend export pipeline — `ExportMenu.tsx` 调 `renderMarkdown` 包含 avatar opts → 后端 PDF 渲染头像
+- [ ] T156 [US9] Frontend: add avatar button in `UnifiedToolbar.tsx` — 打开 AvatarDialog
+- [ ] T157 [US9] Frontend: handle 派生分支 inherit — `useInheritAvatar` mutation; 成功后 setQueryData 刷新 branch
+- [ ] T158 [US9] Frontend: handle avatar URL 失效 — onError img 显示破图占位（不抛错）; PDF 渲染时剥离失效 URL（`if avatar_url and HEAD request returns 200, else skip`）
+- [ ] T159 [US9] [P] Add avatar position CSS to public/themes/*.css — `.rs-avatar--left` / `--right` / `--top` / `--center` / `--bottom` flex position rules
+- [ ] T160 [US9] Backend: extend avatar_service 删除 — `delete_avatar(branch_id)`: avatar_url 设为 NULL, size/position/shape 保留（用户偏好）, 物理文件保留（防止误删恢复）
+
+**Checkpoint**: US9 complete. Avatar full workflow works. Run T139-T144 tests.
+
+---
+
+## Phase 13: Final Polish & Cross-Cutting (Post-US8/US9)
+
+**Purpose**: Final regression, cleanup, validation, after all 9 user stories done.
+
+- [ ] T161 [P] Run full regression: `npm run e2e` — assert round-1 + round-2 + 002/017/019/M16 + 027 (now 9 US coverage) all pass
+- [ ] T162 [P] Run full unit: `npm run test` + `cd backend && uv run pytest -q` — assert all pass
+- [ ] T163 [P] Run typecheck: `npm run typecheck` — assert 0 errors
+- [ ] T164 [P] Run build: `npm run build` — assert success; `dist/themes/*.css` 4 套就位
+- [ ] T165 Verify backend migration reversible: `cd backend && uv run alembic downgrade -1 && uv run alembic upgrade head` — assert clean
+- [ ] T166 [P] Update `specs/README.md` — add 027 row to Done table after all 9 US complete
+- [ ] T167 [P] Create feature README: `specs/027-resume-center-muji-alignment/README.md` — summary + evidence links
+- [ ] T168 [P] Create `requirements-status.md`: `specs/027-resume-center-muji-alignment/requirements-status.md` — 9 US + 80 FR + 17 SC status table
+- [ ] T169 Run quickstart.md validation scenarios 1-9 end-to-end — all pass
+- [ ] T170 [P] Memory: update `C:\Users\30803\.claude\projects\D--Project-eGGG\memory\v2_027_resume_muji.md` — add US8/US9 总结, decisions, gotchas
+- [ ] T171 Security review: verify no HMAC keys in client code; verify HTML sanitizer covers XSS vectors; verify `accepted_patches` path validation; verify avatar file type/size; verify avatar URL 失效 graceful degradation
+- [ ] T172 Performance: profile render engine on 50KB Markdown < 500ms; pagination 5-page < 300ms; bidir nav < 200ms; avatar slider 实时 < 50ms; PDF export 含 avatar < 5s
 
 ---
 

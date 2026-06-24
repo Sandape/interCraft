@@ -4,6 +4,39 @@
 
 **Input**: Feature specification from `/specs/027-resume-center-muji-alignment/spec.md`
 
+## 实施策略: 激进重写 + Library-First 边界 (用户 2026-06-24 决策)
+
+用户在 review 后选择**激进重写策略**,授权在 US4-US9 范围内允许更大块的编辑器重写(不只是增量修改),但仍受以下边界约束:
+
+**允许的激进重写 (per US)**:
+
+| US | 允许重写的组件 | 重写原因 |
+|---|---|---|
+| US4 | IconPicker / IconCheatsheet / MarkdownEditor (工具栏部分) | 木及 icon 体系 14 图标需要独立的 UI 选择器,工具栏重组 |
+| US5 | AiOptimizePanel (整重写) | 当前 panel 只有 stub,需重写为完整状态机 UI |
+| US6 | QuickEditor (整重写,卡片化) + MarkdownEditor (工具栏) + ResumeListToolbar (新) | ↑/↓ 按钮换 DnD + 工具栏化 + 列表 search/filter/sort |
+| US7 | VersionDiffView (新) + ResumeEditor 抽屉扩展 | 新增组件,整合 diff + 历史 |
+| US8 | WysiwygEditor (整重写) + QuickEditor (整合双向定位) + MarkdownEditor (Monaco 行号交互) | 双向定位需要在编辑器侧栏重设计,Code 模式 Monaco 行号点击是核心交互 |
+| US9 | AvatarDialog (新) + AvatarImage (新) + ResumePreview (集成头像) | 头像是全新组件,需在预览中集成渲染 |
+
+**Library-First 边界 (强制保留,不能违反)**:
+
+1. 每个新库/组件**自包含**: 有 `index.ts` 入口 + README + 类型 + 测试夹具
+2. **Test-First 强制**: 每个 US 测试任务先于实现,宪章 NON-NEGOTIABLE
+3. **TypeScript 严格模式**: 任何新代码无 `any` 逃逸,木及 `.ts` 改写时加类型注解
+4. **不污染全局状态**: 不修改 Zustand 全局 store 字段(可新增 store,不修改现有);不引入全局 CSS 变量
+5. **不改其他模块**: auth / jobs / interviews / errors / ability_profile / settings 全部不动
+6. **不改全局基础设施**: Tailwind config / Vite config / 路由 schema / FastAPI app / ARQ worker 全部不动
+7. **每个 US 独立 PR**: 单 US 完成 (测试通过 + 不回归) 才合入 master,避免大爆炸合并
+8. **数据契约稳定**: `resume_branches` 新增 6 列 (theme+avatar) 一次合并迁移,不拆分
+9. **木及"不搬运"清单严格遵守**: 硬编码 HMAC 密钥 / OnePage clip / MobX / AntD 4 / CodeMirror / Webpack 全部不搬
+
+**激进重写风险与回退**:
+
+- **风险**: 激进重写可能引入新 bug,需要更彻底的回归测试
+- **缓解**: 每个 US 完成后跑 `npm run e2e` 全量 + `npm run test` 单元 + `npm run typecheck` + 人工 spot check;若回归 > 5 个 case 失败则回退到增量方案
+- **回退**: 每个 US 提交单独 commit,若激进方案失败可 `git revert` 回增量方案
+
 ## Summary
 
 参照木及简历（`D:\Project\react-resume-site`）全面优化 InterCraft 简历中心。核心改造：
@@ -15,8 +48,10 @@
 5. **AI 优化增强**（US5, P1）— pollState 真轮询（指数退避 + 60s 超时）/ per-patch 接受拒绝 / diff 视图 / 确认对话框。
 6. **编辑器交互增强**（US6, P2）— DnD 拖拽排序 / 列表搜索筛选排序 / refresh-from-parent 确认 / Markdown 工具栏 / 键盘快捷键。
 7. **版本对比与本地历史**（US7, P2）— 版本 diff 视图 / localStorage 8 条 FIFO 历史 / 模式+分屏+滚动持久化。
+8. **内容 ↔ 预览双向定位**（US8, P1）⏳ pending — 弥补木及"可视化定位"特性。Quick 模式 block 点击 → 预览滚动+1.5s 黄色高亮;预览区点击 → 编辑器 block 定位（Code 模式跳光标,Quick 模式展开+滚动）。`data-block-id` 渲染时属性,PDF 渲染时 sanitize 剥离。
+9. **头像/证件照调整**（US9, P1）⏳ pending — 弥补木及"📎 证件照位置及大小可修改"特性。5 位置 (left/right/top/center/bottom) + 50-200 尺寸滑块 + 3 形状 (circle/square/rounded) + 分支级持久化 + 上传压缩 ≤ 500KB + 派生分支"从父级继承"+ PDF 正确渲染。
 
-**保留 eGGG 结构化优势**：block 模型 + version 快照 + COW 分支 + AI 优化（木及没有，因是 localStorage 单机应用）。改动局限在简历中心，不动全局基础设施与其他模块。
+**保留 eGGG 结构化优势**：block 模型 + version 快照 + COW 分支 + AI 优化（木及没有，因是 localStorage 单机应用）。改动局限在简历中心,不动全局基础设施与其他模块。
 
 ## Technical Context
 
@@ -62,7 +97,7 @@
 - 宪法"安全与隐私"：密钥从环境变量读取，严禁入仓
 - 宪法"Test-First"：测试先于实现
 
-**Scale/Scope**: 7 用户故事 / 63 FR / 15 SC / ~20 新增或重写前端文件 / ~5 后端文件 / 1 Alembic 迁移 / ~10 新增 E2E 测试用例
+**Scale/Scope**: 9 用户故事 / 80 FR / 17 SC / ~30 新增或重写前端文件 / ~10 后端文件 / 1 合并 Alembic 迁移 (theme+avatar) / 9 新增 E2E spec (US1-9) + 现有不回归
 
 ## Constitution Check
 
@@ -72,7 +107,7 @@
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Library-First | ✅ PASS | 渲染引擎（`src/lib/resume-renderer/`）、主题系统（`src/lib/resume-themes/`）、分页（`src/lib/resume-pagination/`）、AI 优化状态机（`src/hooks/useResumeOptimize.ts` 增强）、版本 diff（`src/lib/version-diff/`）各自作为自包含库，有 README + 公开 API + 测试夹具 |
+| I. Library-First | ✅ PASS | 8 个库:`resume-renderer`(US1)/`resume-pagination`(US2)/`resume-themes`(US3)/`resume-nav`(US8 双向定位:scroll+highlight+line map)/`version-diff`(US7)/`local-history`(US7)/`resume-ui-pref`(US7)/`resume-styles`(保留)。后端独立服务:`avatar_service`(US9 上传+压缩+存盘+inherit)。每个库有 README + 公开 API + 测试夹具 |
 | II. CLI Interface | ✅ PASS | 渲染引擎可被 Node CLI 调用（`src/lib/resume-renderer/cli.ts`）从 Markdown 生成 HTML，用于 E2E 测试夹具与本地调试；后端 PDF 渲染器已有 CLI（`python -m pdf_renderer`） |
 | III. Test-First (NON-NEGOTIABLE) | ✅ PASS | 每个 US 先写测试：渲染引擎单元测试（markdown-it 插件输出）→ 分页单元测试（rs-md-html-parser 输出）→ 主题切换组件测试 → AI 轮询 hook 测试 → DnD 集成测试 → E2E 故事 |
 | IV. Integration & Sync Testing | ✅ PASS | preview↔PDF 一致性契约测试（同 HTML 输入，前端生成 + 后端渲染对比）；AI 优化端到端（mock LLM）；版本 diff 跨快照对比；DnD 网络断开重试 |
@@ -233,6 +268,11 @@ tests/e2e/
 | resume_branches 表新增 theme_id + accent_color 列 | 主题与颜色需分支级持久化（spec FR-018/019），localStorage 无法跨设备同步 | 仅用 localStorage — 用户换设备登录后主题丢失，违背"远端存储"承诺 |
 | 搬运木及 svgMap.ts 14 个品牌图标 SVG | 木及已验证的图标集，重新设计成本高且视觉不一致 | 用 iconfont 或 SVG sprite — 需额外构建步骤，且木及图标已是内联 SVG 零依赖 |
 | 引入 rs-md-html-parser 依赖 | 木及验证过的 DOM 分页算法，自研需重写 A4 边界检测 + 块级元素切断避免逻辑 | 自研分页 — 木及 OnePage 只是 CSS clip 不算真分页，自研正确分页需 2-3 周且易出 bug |
+| 新增 `src/lib/resume-nav/` 库 (US8 双向定位) | scrollIntoView / 高亮动画 / Monaco line-to-blockId 映射是独立关注点,需独立测试 | 内联到 ResumePreview — 不可测, 与渲染逻辑耦合,破坏 Library-First |
+| 后端 `avatar_service.py` + `api_avatar.py` 独立 (US9) | 头像上传 + Pillow 压缩 + 物理存盘 + inherit 父级是独立业务流程 | 内联到 resumes/api.py — 上传/压缩/inherit 与字段 PATCH 混在一起难维护 |
+| resume_branches 新增 6 列 (theme 2 + avatar 4) | US3+US9 共需 6 列;一次迁移减 alembic upgrade 次数,部署更安全 | 两次迁移 — 多一次 schema 变更,部署时需两次 restart |
+| US8 引入 `data-block-id` 运行时属性 | 双向定位需要 block UUID 在 DOM 上可识别 | 通过 block title 文本匹配 — 文本相似但 ID 不同的 block 误识别,不可靠 |
+| US9 引入本地 `static/uploads/avatars/` 存盘 | 开发环境简单可靠,无外部依赖 | S3/OSS 对象存储 — v2 阶段引入,提前引入增加配置复杂度 |
 
 *所有违规均为"靠拢木及"的必要技术决策，已在 spec Clarifications 与 Assumptions 中记录用户授权。*
 
@@ -243,3 +283,64 @@ tests/e2e/
 ## Phase 1: Design (data-model.md, contracts/, quickstart.md)
 
 （详见对应文件）
+
+## Phase 2: Implementation Workflow (4-Phase — 用户授权 "已实现功能也要转向木及版本")
+
+用户在 2026-06-24 明确要求"已经实现了的功能也要转向木及实现的版本",并要求"自己安排一个合理的工作链路"。本 plan 后续执行按 4 个阶段推进,A→D 顺序依赖:
+
+### 总览
+
+| Phase | 子阶段 | 目标 | 估算 | 风险 |
+|---|---|---|---|---|
+| **A. 模块化重构** | A1-A8 | 把现有 7 lib + 12 组件 + hooks + store 全部移到 `src/modules/resume/` 单一模块边界,清理 `src/lib/resume-*` 与 `src/components/resume/` 旧位置 | 1-2 天 | 低(纯物理移动) |
+| **B. Muji UX 借鉴** | B1-B5 | UnifiedToolbar / MarkdownEditor / WysiwygEditor / QuickEditor / ExportMenu 借鉴 Muji 风格重写;Square.tsx 静态模板 1:1 搬运 | 2-3 天 | 中(改 UI) |
+| **C. 新功能** | C1-C6 | US4 IconPicker + US5 AI 增强 + US6 DnD + US7 diff + US8 双向定位 + US9 头像 | 9-13 天 | 中-高(新能力) |
+| **D. 验证收尾** | D1-D3 | 全量 e2e + 单元 + typecheck + build + 文档 + memory | 1-2 天 | 低 |
+| **合计** | | | **13-20 天** | |
+
+### P1 优先 (在 Phase C 内)
+
+- **C2 (US5 AI 优化增强)**: pollState 真轮询 + per-patch + diff 视图 + 确认
+- **C5 (US8 内容↔预览双向定位)**: 弥补木及"可视化定位"
+- **C6 (US9 头像/证件照调整)**: 弥补木及"证件照位置/大小"
+
+### P2 锦上添花 (在 Phase C 内)
+
+- **C1 (US4 木及自定义语法)**: IconPicker + Cheatsheet
+- **C3 (US6 编辑器交互)**: DnD + 搜索 + 工具栏 + 快捷键
+- **C4 (US7 版本对比 + 本地历史)**: VersionDiffView + 抽屉 + 8 条 FIFO
+
+### Phase A 详细 (模块化重构 — 1-2 天)
+
+| 步骤 | 文件 | 操作 |
+|---|---|---|
+| A1 | `src/modules/resume/` | 新建目录骨架:`index.ts` 公开 API + `README.md` + 11 个子目录(renderer/pagination/themes/styles/editor/list/avatar/nav/version-diff/local-history/ui-pref/api/hooks/stores/styles) |
+| A2 | 7 lib | `git mv src/lib/resume-{renderer,pagination,themes,styles,ui-pref,version-diff,local-history}` → `src/modules/resume/` 对应子目录 |
+| A3 | 12 组件 | `git mv src/components/resume/{editor,list,export,import}/*` + `AiOptimizePanel.tsx` → `src/modules/resume/{editor,list,export,import}/` |
+| A4 | hooks/stores | `git mv src/hooks/useResumeOptimize.ts` → `src/modules/resume/hooks/`;`git mv src/stores/useResumeUIStore.ts` → `src/modules/resume/stores/`;`src/api/avatar.ts` + `src/api/types.ts` 中 resume 相关类型 → `src/modules/resume/api/` |
+| A5 | 4 CSS | `git mv src/styles/resume-*.css` → `src/modules/resume/styles/`;`public/themes/*.css` 保留位置(资源目录不动) |
+| A6 | 12 import site | 更新 `src/pages/ResumeEditor.tsx` + `src/pages/ResumeList.tsx` + `src/components/resume/**`(如未删除) + `src/api/export.ts` 的 import 路径 |
+| A7 | 验证 | `npm run typecheck` + `npm run test` + `npm run e2e --list`;无回归 |
+| A8 | 清理 | 确认 `src/lib/resume-*`、`src/components/resume/` 旧位置已空,删除 |
+
+**关键不变量**: A 阶段不做任何功能/接口/UI 变化,只是物理重组。
+
+### Phase B 详细 (Muji UX 借鉴 — 2-3 天)
+
+| 步骤 | 文件 | 操作 |
+|---|---|---|
+| B1 | 读 Muji 源码 | 读 `D:\Project\react-resume-site\src\components/` (Editor/Main/View/Preview/HeaderBar/OnePage/Shortcuts/FeedBack/History) + `D:\Project\react-resume-site\src/utils/` (changeThemes/window-event) + `D:\Project\react-resume-site\src/pages/Square.tsx` 全部记录到 docs |
+| B2 | UnifiedToolbar | 借鉴 Muji `HeaderBar` 重写,整合 主题/颜色/单页/导出 按钮 |
+| B3 | MarkdownEditor | 借鉴 Muji `Editor` + 工具栏(粗体/斜体/标题/列表/链接/icon:xxx) |
+| B4 | WysiwygEditor + QuickEditor | 借鉴 Muji `View` + `Main`,卡片化 + DnD 手柄 |
+| B5 | Square (1:1 搬) | `git mv D:\Project\react-resume-site\src/pages/Square.tsx` → `src/modules/resume/marketplace/Square.tsx`;1:1 搬 `data/template.json`;加路由跳转;**禁止** 1:1 搬 MobX/AntD 4/CodeMirror |
+
+### Phase C/D 详细
+
+见 `tasks.md` 中 Phase 6-13 (US4-US9) + Phase 14 (D1-D3)。
+
+### 风险与回退
+
+- 激进重写可能引入新 bug → 每个 US 跑全量 e2e + 单元 + typecheck;若回归 > 5 个 case 失败则回退到增量方案
+- 每个 US 独立 commit + 独立 PR,失败可 `git revert` 单独回退
+- Phase A 是纯物理移动,回退成本极低(就是再 mv 回去)

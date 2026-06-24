@@ -167,6 +167,53 @@
 
 ---
 
+### User Story 8 - 内容 ↔ 预览双向定位 (Priority: P1)
+
+用户在编辑简历时获得"内容 - 视图"双向可寻迹体验：点击左侧编辑区（Quick 模式 block 列表项或 Code 模式 Markdown 标题行）时，右侧预览区平滑滚动到对应 block 的位置并加短暂高亮（动画 1.5s 黄色背景脉冲）；反向点击预览区中任一渲染后的 block（识别为 `data-block-id` 属性）时，左侧编辑区对应的 block 自动展开/滚动到视野内，Code 模式下则将光标定位到对应标题行。
+
+**Why this priority**: 这是木及简历 README 中明确承诺的"可视化定位，「内容 - 视图」双向可寻迹"——当用户编辑 10+ 简历模块时，从左侧列表跳转到右侧预览对应位置、再从预览定位回左侧待编辑的 block，是日常编辑的高频操作路径。当前系统 preview 与 editor 没有任何联动：用户必须肉眼搜索，体验差。P1 因为这是木及简历作为"用户最简单方式"的核心差异化能力，且实现依赖前序 US1（统一渲染引擎，在渲染时插入 `data-block-id`）。
+
+**Independent Test**: 编辑含 5+ block 的简历，在 Quick 模式点击第 3 个 block，确认预览滚动到第 3 block 位置且黄色高亮 1.5 秒；点击预览区第 3 block 内容，确认 Quick 模式第 3 block 展开/高亮；切换到 Code 模式，点击预览中第 2 block（标题 `## 项目经验`），确认编辑器光标定位到 `## 项目经验` 行；导出 PDF，确认 PDF 仍包含全部内容（双向定位是 UI 行为，不影响 PDF 输出）。
+
+**Acceptance Scenarios**:
+
+1. **Given** 用户在 Quick 模式有 5+ block，**When** 点击第 3 个 block 项，**Then** 预览区滚动到第 3 block 对应位置（block 顶部距预览视口顶部 80px 偏移），且该 block 渲染区域出现 1.5 秒黄色背景脉冲高亮
+2. **Given** 用户在 Code 模式编辑 Markdown，**When** 点击 Monaco 编辑器中某个 `# 标题` 行号 gutter，**Then** 预览区滚动到该标题对应 block 位置并高亮
+3. **Given** 用户在预览区看到渲染后的简历，**When** 点击预览区中任一 block 区域（识别 `data-block-id`），**Then** 左侧 Quick 模式对应 block 自动展开（如被折叠）并滚动到视野内，被点击的 Quick 模式 block 也有 1.5 秒高亮
+4. **Given** 用户在 Code 模式下点击预览区某 block，**Then** Monaco 编辑器光标定位到对应 Markdown 起始行（如 block 起始于第 12 行），并滚动到该行可见
+5. **Given** 用户在预览中点击的 block 跨越分页线（被分到第 2 页），**Then** 滚动目标为该 block 起始页的顶部（不是 block 中部），避免分页线遮挡高亮
+6. **Given** 用户连续快速点击不同 block，**Then** 取消上一次的高亮动画并启动新一次的高亮（避免多个 block 同时高亮造成混乱）
+7. **Given** 用户在多页模式下点击第 3 页中的 block，**Then** 预览区自动滚动到第 3 页对应位置（不是第 1 页），高亮位置正确
+8. **Given** 用户点击"同步父级"或"AI 优化"等弹窗打开时，**Then** 双向定位功能暂停（避免弹窗被滚动错位）
+9. **Given** 用户在双向定位后导出 PDF，**Then** 导出的 PDF 包含完整内容（双向定位是 UI 行为，不影响渲染管线；`data-block-id` 是 HTML 属性，PDF 渲染器不消费）
+
+---
+
+### User Story 9 - 头像/证件照调整 (Priority: P1)
+
+用户可以为简历分支上传并自定义头像/证件照：（1）支持上传 PNG/JPG/WEBP 图片（最大 2MB，自动压缩到 ≤ 500KB）；（2）调整位置（左/右/中-上/中-中/中-下，5 个位置）；（3）调整尺寸（50-200px 滑块）；（4）调整形状（圆形/方形/圆角矩形）；（5）所有调整实时反映到预览区；（6）头像设置持久化到分支级别（与 theme_id / accent_color 同级）；（7）导出 PDF 时头像按当前设置渲染。当前系统没有头像/证件照定制能力，用户需手动用 `<img>` 标签嵌入，灵活性差。
+
+**Why this priority**: 这是木及简历 README 明确列出的"📎 证件照位置及大小可修改，打破传统模板约束"特性。简历作为个人名片，证件照是视觉焦点（HR 筛简历时第一眼看到的元素），且位置/大小/形状对不同行业审美差异大（金融偏好左上方、技术偏好右上方圆形）。P1 因为这是木及简历作为视觉简历编辑器的标志性差异化能力，且实现不复杂（block 复用 + 字段扩展），投入产出比极高。
+
+**Independent Test**: 在 Quick 模式添加 avatar block 或在 UnifiedToolbar 打开"头像设置"对话框，上传图片，拖动尺寸滑块到 120px、选圆形、左上位置，确认预览实时反映；切换主题后头像仍在原位置；导出 PDF 确认头像按当前设置正确渲染；切换到派生分支编辑，确认头像设置独立（不继承父级）；切回主分支确认头像仍存在。
+
+**Acceptance Scenarios**:
+
+1. **Given** 用户在 UnifiedToolbar 点击"头像设置"按钮或在 Quick 模式添加 avatar block，**When** 上传一张 PNG 图片（最大 2MB），**Then** 图片显示在预览区，按当前默认设置（120px / 圆形 / 中-上）渲染
+2. **Given** 用户已上传头像，**When** 调整尺寸滑块从 50 拖到 200px，**Then** 预览区头像尺寸实时跟随变化（拖动过程中即更新，< 50ms 响应）
+3. **Given** 用户已上传头像，**When** 选择 5 个位置之一（左/右/中-上/中-中/中-下），**Then** 预览区头像位置立即跳转
+4. **Given** 用户已上传头像，**When** 切换形状（圆形/方形/圆角矩形），**Then** 预览区头像形状立即改变（border-radius 切换）
+5. **Given** 用户已上传头像，**When** 切换主题或样式，**Then** 头像保持当前设置（位置/尺寸/形状）不变，仅主题视觉变化
+6. **Given** 用户已上传头像，**When** 切换到派生分支编辑，**Then** 派生分支头像独立（不继承父级），但支持"从父级继承"按钮一键复制父级头像
+7. **Given** 用户上传超过 2MB 的图片，**When** 选择图片，**Then** 系统提示"图片过大，请压缩到 2MB 以内"并拒绝上传
+8. **Given** 用户上传非图片文件（如 .pdf），**When** 选择文件，**Then** 系统提示"仅支持 PNG/JPG/WEBP"并拒绝
+9. **Given** 用户已上传头像，**When** 删除头像，**Then** 预览区头像消失，PDF 导出不含头像
+10. **Given** 用户已上传头像，**When** 导出 PDF，**Then** 头像按当前设置（位置/尺寸/形状）在 PDF 中正确渲染
+11. **Given** 用户首次访问简历分支，**When** 未上传头像，**Then** 预览区无头像占位（不显示默认头像），导出 PDF 不含头像
+12. **Given** 用户在 avatar block 上传图片后，**When** 离开编辑器再返回，**Then** 头像设置（图片 URL + 位置 + 尺寸 + 形状）持久化恢复
+
+---
+
 ### Edge Cases
 
 - Markdown 内容为空时，预览区显示空状态提示，导出按钮禁用并提示"简历内容为空"
@@ -180,6 +227,11 @@
 - 颜色拾取器输入无效颜色（如 `#ZZZ`）时，保留上一个有效颜色
 - 分页计算在内容频繁变化时防抖（避免每次按键都重算分页导致卡顿）
 - 用户在派生分支编辑后未保存版本就点击"同步父级"，确认对话框明确提示"未保存的修改将丢失"
+- 双向定位时预览区未渲染（如 Markdown 为空或渲染中），点击不触发滚动，仅控制台记录"preview not ready"
+- 双向定位时点击 preview 中没有 `data-block-id` 的区域（如分隔线、空白），无操作响应（不报错）
+- 头像上传后用户立即切换分支，图片上传请求可能在新分支下完成 → 服务端以"上传时 branch_id"为准记录，新分支无头像（不串台）
+- 头像 URL 失效（图片被删除或对象存储 URL 过期），预览区显示破图占位，导出 PDF 跳过该图（不阻塞导出）
+- 双向定位在单页模式下，点击第 2 页 block 仍正确滚动到第 2 页位置（即使第 2 页被裁剪不可见，滚动到顶部后第 2 页内容仍可达）
 
 ## Requirements *(mandatory)*
 
@@ -272,9 +324,32 @@
 - **FR-062**: 简历分支的 COW（copy-on-write）派生机制 MUST 保持可用
 - **FR-063**: 简历中心的改动 MUST NOT 影响其他模块（auth/jobs/interviews/errors/ability_profile 等）
 
+**内容↔预览双向定位（US8）**
+
+- **FR-064**: 渲染引擎 MUST 在每个 block 渲染的根元素上设置 `data-block-id` 属性，值为 block 的 UUID
+- **FR-065**: Quick 模式 block 列表项 MUST 在点击时驱动预览区滚动到该 block 位置并触发 1.5 秒黄色高亮动画
+- **FR-066**: Code 模式 Monaco 编辑器 MUST 在点击标题行（`#`/`##`/`###`）行号 gutter 时驱动预览区滚动到该 block 位置
+- **FR-067**: 预览区点击 MUST 通过 `data-block-id` 反向定位到 Quick 模式对应 block 项（展开/滚动）或 Code 模式对应行（光标定位）
+- **FR-068**: 双向定位 MUST 处理分页边界：点击跨页 block 时滚动到该 block 起始页顶部（不是中部），避免分页线遮挡
+- **FR-069**: 双向定位 MUST 取消上一次高亮后启动新高亮（避免多个 block 同时高亮）
+- **FR-070**: 双向定位 MUST 在弹窗打开（同步父级/AI 优化/版本对比等）时暂停，避免弹窗被滚动错位
+- **FR-071**: `data-block-id` MUST 作为 HTML 属性输出但不携带在 PDF 导出结果中（PDF 渲染器剥离该属性），保证 PDF 不显示该内部标识
+
+**头像/证件照调整（US9）**
+
+- **FR-072**: 系统 MUST 支持上传 PNG/JPG/WEBP 头像图片，单文件 ≤ 2MB（前端预检 + 后端再次校验）
+- **FR-073**: 头像上传后 MUST 自动压缩到 ≤ 500KB（如原图 ≤ 500KB 不压缩），压缩后保存到对象存储并返回 URL
+- **FR-074**: `resume_branches` 表 MUST 新增 `avatar_url`（VARCHAR 512）、`avatar_size`（INTEGER 50-200）、`avatar_position`（VARCHAR 16，枚举 left/right/top/center/bottom）、`avatar_shape`（VARCHAR 16，枚举 circle/square/rounded）5 列
+- **FR-075**: 头像调整 UI MUST 提供尺寸滑块（50-200px 步进 10）、5 个位置选择按钮、3 个形状切换按钮，所有调整 < 50ms 即时反映到预览
+- **FR-076**: 头像设置 MUST 持久化到分支级（每份简历分支独立记忆），离开返回恢复
+- **FR-077**: 头像 MUST 支持上传、删除、查看当前图片三个操作；删除时 avatar_url 设为 NULL 但其他 3 个字段保留（用户可重新上传而不丢失位置/尺寸/形状偏好）
+- **FR-078**: 派生分支 MUST 支持"从父级继承头像"按钮，一键复制父级头像所有 5 个字段
+- **FR-079**: 头像 MUST 渲染为 `<img>` 标签（带 `border-radius` 和 `width/height` 内联 style），与统一渲染引擎兼容
+- **FR-080**: 头像 MUST 在 PDF 导出时按当前设置（位置/尺寸/形状）正确渲染
+
 ### Key Entities *(include if feature involves data)*
 
-- **ResumeBranch**: 简历分支（主简历或派生版本），新增字段 `theme_id`（主题标识，如 default/blue/orange/pupple）、`accent_color`（主题强调色 HEX）。保留现有字段（name、company、position、status、match_score、is_main、is_pinned、style_preference、parent_id 等）。
+- **ResumeBranch**: 简历分支（主简历或派生版本），新增字段 `theme_id`（主题标识，如 default/blue/orange/pupple）、`accent_color`（主题强调色 HEX）、`avatar_url`（头像 URL）/ `avatar_size`（50-200px）/ `avatar_position`（left/right/top/center/bottom）/ `avatar_shape`（circle/square/rounded）。保留现有字段（name、company、position、status、match_score、is_main、is_pinned、style_preference、parent_id 等）。
 - **ResumeBlock**: 简历模块（heading/summary/experience/project/skill/education/custom），结构与现有保持一致。`meta` JSONB 字段扩展支持 project（tech_stack/timeframe）、education（school/degree/year）、skill（proficiency）等结构化元数据。
 - **ResumeVersion**: 简历版本快照，新增 `diff_patch` 支持（已有字段但未实现），实现 diff 快照以支持版本对比。
 - **ResumeTheme**: 主题资源（CSS 文件 + 元数据），作为独立资源加载，不内嵌到应用 bundle。
@@ -300,6 +375,8 @@
 - **SC-013**: 单页模式导出的 PDF 只包含第一页内容；多页模式导出的 PDF 分页与预览一致
 - **SC-014**: 编辑器 UI 偏好（模式、分屏比例）持久化，刷新后恢复
 - **SC-015**: localStorage 历史正确维护 8 条 FIFO，恢复功能可用
+- **SC-016**: 双向定位点击响应 < 200ms（从点击到预览滚动+高亮完成的端到端延迟），高亮动画持续 1.5 秒
+- **SC-017**: 头像调整实时反映延迟 < 50ms（拖动滑块过程中即更新），PDF 导出头像按设置正确渲染（位置/尺寸/形状无视觉偏差）
 
 ## Assumptions
 

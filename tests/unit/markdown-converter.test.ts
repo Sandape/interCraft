@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { blocksToMarkdown, markdownToBlocks } from '@/lib/markdown-converter'
-import type { ResumeBlock } from '@/api/types'
+import { blocksToMarkdown, markdownToBlocks } from '@/modules/resume/converter/markdown-converter'
+import type { ResumeBlock } from '@/modules/resume/api/types'
 
 const makeBlock = (overrides: Partial<ResumeBlock> = {}): ResumeBlock => ({
   id: overrides.id ?? 'block-1',

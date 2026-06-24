@@ -2,7 +2,7 @@
  * ResumeBlockRepository — block CRUD + reorder.
  */
 import { apiClient } from '../api/client'
-import type { BlockType, CreateBlockInput, PatchBlockInput, ReorderBlocksInput, ResumeBlock } from '../api/types'
+import type { BlockType, CreateBlockInput, PatchBlockInput, ReorderBlocksInput, ResumeBlock } from '@/modules/resume/api/types'
 
 export interface ResumeBlockRepository {
   list(branchId: string, type?: BlockType): Promise<ResumeBlock[]>

@@ -3,7 +3,7 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { getResumeVersionRepository } from '../../repositories/types'
-import type { ResumeVersionDetail, ResumeVersionSummary } from '../../api/types'
+import type { ResumeVersionDetail, ResumeVersionSummary } from '@/modules/resume/api/types'
 
 export const VERSIONS_KEY = (branchId: string) => ['versions', branchId] as const
 export const VERSION_KEY = (branchId: string, no: number) => ['versions', branchId, no] as const

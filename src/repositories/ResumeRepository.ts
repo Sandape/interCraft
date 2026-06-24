@@ -7,7 +7,7 @@ import type {
   PatchBranchInput,
   RefreshFromParentResponse,
   ResumeBranch,
-} from '../api/types'
+} from '@/modules/resume/api/types'
 
 export interface ResumeRepository {
   list(): Promise<ResumeBranch[]>
