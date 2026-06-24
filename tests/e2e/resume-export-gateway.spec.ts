@@ -8,9 +8,12 @@ test.describe('Resume export gateway', () => {
 
     await page.route('**/api/v1/export/render', async (route) => {
       const body = route.request().postDataJSON()
-      expect(body.markdown).toContain('#')
-      expect(body.style_id).toBeTruthy()
+      // US1: frontend now sends HTML (not markdown) — verify contract
+      expect(body.html).toBeTruthy()
       expect(body.format).toBe('pdf')
+      // Old fields should be absent
+      expect(body.markdown).toBeUndefined()
+      expect(body.style_id).toBeUndefined()
       await route.fulfill({
         status: 200,
         contentType: 'application/pdf',

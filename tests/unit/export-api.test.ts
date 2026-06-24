@@ -20,8 +20,7 @@ describe('exportResume', () => {
     )
 
     const result = await exportResume({
-      markdown: '# Candidate',
-      style_id: 'compact-one-page',
+      html: '<div><h1>Candidate</h1></div>',
       format: 'pdf',
     })
 
@@ -34,8 +33,7 @@ describe('exportResume', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Blob(['png']), { status: 200 }))
 
     const result = await exportResume({
-      markdown: '# Candidate',
-      style_id: 'compact-one-page',
+      html: '<div><h1>Candidate</h1></div>',
       format: 'png',
     })
 
@@ -56,8 +54,7 @@ describe('exportResume', () => {
 
     await expect(
       exportResume({
-        markdown: '',
-        style_id: 'compact-one-page',
+        html: '   ',
         format: 'pdf',
       }),
     ).rejects.toThrow(/^Resume content is empty\.$/)
@@ -77,8 +74,7 @@ describe('exportResume', () => {
 
     await expect(
       exportResume({
-        markdown: '# Candidate',
-        style_id: 'compact-one-page',
+        html: '<div><h1>Candidate</h1></div>',
         format: 'pdf',
       }),
     ).rejects.toThrow('PDF 导出服务暂不可用，请稍后重试')
@@ -89,8 +85,7 @@ describe('exportResume', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Blob(['pdf']), { status: 200 }))
 
     await exportResume({
-      markdown: '# Candidate',
-      style_id: 'compact-one-page',
+      html: '<div><h1>Candidate</h1></div>',
       format: 'pdf',
     })
 
@@ -103,5 +98,25 @@ describe('exportResume', () => {
         }),
       }),
     )
+  })
+
+  it('posts html + format only (no markdown/style_id — spec 027 US1)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Blob(['pdf']), { status: 200 }),
+    )
+
+    await exportResume({
+      html: '<div class="resume-style-classic"><h1>Hi</h1></div>',
+      format: 'pdf',
+    })
+
+    const call = fetchSpy.mock.calls[0]
+    const body = JSON.parse((call[1] as RequestInit).body as string)
+    expect(body.html).toBe('<div class="resume-style-classic"><h1>Hi</h1></div>')
+    expect(body.format).toBe('pdf')
+    // Old fields must NOT be sent — backend rejects unknown fields gracefully
+    // but we want the contract to be explicit.
+    expect(body.markdown).toBeUndefined()
+    expect(body.style_id).toBeUndefined()
   })
 })
