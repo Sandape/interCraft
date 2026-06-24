@@ -24,7 +24,8 @@
 |---|---|---|
 | Phase 1-2 | Setup + Foundational (markdown-it 插件 + 主题 + 迁移) | ✅ done |
 | Phase A | 模块化重构 (50 文件 → `src/modules/resume/`) | ✅ done |
-| Phase B | Muji UX 借鉴 (UI 重写) | ⏸ deferred (纯视觉精修) |
+| Phase B B5 | Square 模板市场 (1:1 搬木及) | ✅ done |
+| Phase B B2-B4 | UnifiedToolbar/MarkdownEditor/QuickEditor Muji 风格重写 | ⏸ deferred (纯视觉精修) |
 | Phase C | 新功能 (US4-US9) | ✅ done |
 | Phase D | 验证收尾 | ✅ done |
 
@@ -32,7 +33,7 @@
 
 | 测试类型 | 数量 | 状态 |
 |---|---|---|
-| 前端单测 | 295 | ✅ 49 文件 0 失败 |
+| 前端单测 | 300 | ✅ 52 文件 0 失败 |
 | 后端单测 | 560 pass / 26 skip | ✅ 0 失败 |
 | Round-1 E2E (chromium) | 40/40 | ✅ |
 | Round-2 E2E (chromium, workers=1) | 18/21 | ⚠ 3 个 error-coach mock 测试因 .env LLM_MOCK_MODE=0 失败 |
