@@ -117,6 +117,7 @@ export default function ResumeEditor() {
       qc.invalidateQueries({ queryKey: BRANCHES_KEY })
     },
   })
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false)
 
   // US8 — bidirectional locator state. forward: editor → preview; reverse: preview → editor.
   const [scrollToBlockId, setScrollToBlockId] = useState<string | null>(null)
@@ -159,7 +160,8 @@ export default function ResumeEditor() {
     styleSelectorOpen ||
     exportMenuOpen ||
     sidebarOpen ||
-    diffOpen
+    diffOpen ||
+    refreshConfirmOpen
 
   // Split pane state
   const [splitRatio, setSplitRatio] = useState(50)
@@ -553,7 +555,7 @@ export default function ResumeEditor() {
             variant="ghost"
             size="sm"
             leftIcon={<RefreshCw className="h-3 w-3" />}
-            onClick={() => refreshFromParent.mutate()}
+            onClick={() => setRefreshConfirmOpen(true)}
             disabled={refreshFromParent.isPending}
           >
             {refreshFromParent.isPending ? '同步中…' : '同步父级'}
@@ -949,6 +951,37 @@ export default function ResumeEditor() {
         }
       >
         <p className="text-sm text-ink-2">新分支名称：回滚 v{rollbackTarget}</p>
+      </Modal>
+
+      {/* Refresh from parent confirm dialog (US6 FR-044) */}
+      <Modal
+        open={refreshConfirmOpen}
+        onClose={() => setRefreshConfirmOpen(false)}
+        title="确认同步父级"
+        description="此操作将覆盖当前分支的所有本地修改，是否继续？"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRefreshConfirmOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              disabled={refreshFromParent.isPending}
+              onClick={() => {
+                setRefreshConfirmOpen(false)
+                refreshFromParent.mutate()
+              }}
+              data-testid="refresh-parent-confirm"
+            >
+              {refreshFromParent.isPending ? '同步中…' : '确认同步'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-2">
+          当前分支的所有本地修改将被父分支的最新内容覆盖。此操作不可撤销。
+        </p>
       </Modal>
 
       {/* Edit branch modal */}

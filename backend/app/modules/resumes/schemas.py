@@ -174,7 +174,6 @@ class PatchBlockInput(BaseModel):
 
 
 class ReorderBlocksInput(BaseModel):
-    block_id: str
     prev_id: str | None = None
     next_id: str | None = None
 

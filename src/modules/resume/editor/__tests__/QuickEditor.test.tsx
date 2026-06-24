@@ -15,21 +15,29 @@ import type { ResumeBlock } from '../../api/types'
 const fakeBlocks: ResumeBlock[] = [
   {
     id: 'b1',
+    branch_id: '',
     type: 'experience',
     title: '字节跳动',
     content_md: '前端开发',
+    content_html: null,
     meta: null,
-    order: 0,
+    order_index: '0',
     collapsed: false,
+    created_at: '',
+    updated_at: '',
   },
   {
     id: 'b2',
+    branch_id: '',
     type: 'skill',
     title: null,
     content_md: 'TypeScript / React',
+    content_html: null,
     meta: null,
-    order: 1,
+    order_index: '1',
     collapsed: false,
+    created_at: '',
+    updated_at: '',
   },
 ]
 

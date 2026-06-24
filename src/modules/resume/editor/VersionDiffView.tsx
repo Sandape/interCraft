@@ -55,7 +55,7 @@ function BlockDiffRow({ block }: { block: BlockDiff }) {
         className="w-full flex items-center gap-2 px-3 py-2 text-left hover:opacity-80"
       >
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${colors.dot}`} />
-        <Badge variant={block.op === 'removed' ? 'error' : block.op === 'added' ? 'success' : 'default'}>
+        <Badge variant={block.op === 'removed' ? 'danger' : block.op === 'added' ? 'success' : 'default'}>
           {block.type}
         </Badge>
         <span className="text-sm font-medium text-ink-1 truncate">{block.title ?? '（无标题）'}</span>
