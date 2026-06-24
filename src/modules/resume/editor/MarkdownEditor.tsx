@@ -4,6 +4,7 @@ import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import type { editor } from 'monaco-editor'
 import MarkdownToolbar from './MarkdownToolbar'
+import IconPicker from './IconPicker'
 
 const monacoGlobal = globalThis as typeof globalThis & {
   MonacoEnvironment?: { getWorker: () => Worker }
@@ -55,6 +56,7 @@ export default function MarkdownEditor({
   className = '',
 }: MarkdownEditorProps) {
   const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null)
+  const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleMount: OnMount = useCallback(
@@ -116,9 +118,31 @@ export default function MarkdownEditor({
     }
   }, [])
 
+  // 027 US4 T065 / US6 FR-046: icon picker inserts `icon:<name> ` at cursor.
+  // The MarkdownEditor owns the Monaco instance, so it can directly insert.
+  function handleIconInsert(text: string) {
+    if (!editorInstance) return
+    const selection = editorInstance.getSelection()
+    if (!selection) return
+    editorInstance.executeEdits('icon-picker', [{ range: selection, text }])
+    editorInstance.focus()
+  }
+
+  function handleOpenIconPicker() {
+    // 027 US6: external callback takes precedence (parent-managed picker);
+    // otherwise use the internal IconPicker modal.
+    if (onOpenIconPicker) {
+      onOpenIconPicker()
+    } else {
+      setIconPickerOpen(true)
+    }
+  }
+
   return (
     <div className={`h-full w-full flex flex-col ${className}`}>
-      {!readOnly && <MarkdownToolbar editor={editorInstance} onOpenIconPicker={onOpenIconPicker} />}
+      {!readOnly && (
+        <MarkdownToolbar editor={editorInstance} onOpenIconPicker={handleOpenIconPicker} />
+      )}
       <div className="flex-1 min-h-0">
         <Editor
           height="100%"
@@ -131,6 +155,13 @@ export default function MarkdownEditor({
           theme="vs-light"
         />
       </div>
+      {!readOnly && (
+        <IconPicker
+          open={iconPickerOpen}
+          onClose={() => setIconPickerOpen(false)}
+          onInsert={handleIconInsert}
+        />
+      )}
     </div>
   )
 }

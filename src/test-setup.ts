@@ -7,6 +7,12 @@
 import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
 
+// 027 US6: monaco-editor's clipboard module probes document.queryCommandSupported
+// during contribution registration. jsdom lacks this API; polyfill it.
+if (typeof document !== 'undefined' && !document.queryCommandSupported) {
+  document.queryCommandSupported = () => true
+}
+
 // env must be mocked BEFORE any module that imports it loads.
 vi.mock('./api/env', async () => {
   return {
