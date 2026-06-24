@@ -30,8 +30,18 @@ git history only for old context is specifically needed.
 
 ## Active
 
-No active specs. All features have been reconciled against code and moved to
-Done below. The trial-launch baseline is complete.
+v2 iteration — eval/memory/cost/trace/diagnosis/multi-agent enhancement specs.
+Specify phase complete; plan/tasks pending.
+
+| ID | Feature | Status | Source Of Truth | Notes |
+|---|---|---|---|---|
+| 026 | Agent Eval-Driven Self-Improvement Loop | in_progress (US1 + US2 partial) | [spec.md](./026-agent-eval-loop/spec.md) | Chinese fidelity checker + golden dataset loader (10 cases) + pytest eval plugin shipped. US3 trace / US4 DSPy / US5 self-evolution / US2 其余 4 graph 全部 ⏳ 后续. Closes the "prompt changes ship without eval" gap. |
+| 027 | Prompt Caching & Token Cost Engineering | active / draft | [spec.md](./027-prompt-caching-cost/spec.md) | DeepSeek V4 context caching + prompt layering + cache-hit observability + quota model alignment. Targets ≥40% input cost reduction. |
+| 027 (resume) | Resume Center Muji Alignment | ✅ Done (9 US) | [spec.md](./027-resume-center-muji-alignment/spec.md) | 参照木及简历优化简历中心。9 US 全部完成：统一渲染引擎 + 智能分页 + 主题系统 + 木及自定义语法 + AI 优化增强 + 编辑器交互 + 版本对比 + 双向定位 + 头像系统。295 前端 + 560 后端 + 40 E2E 绿。Phase B (Muji UX 借鉴) deferred。 |
+| 028 | Long-Term Memory Layer for Agents | in_progress (US1) | [spec.md](./028-long-term-memory/spec.md) | US1 semantic memory shipped: `agent_memory` module + `semantic_memories` table (RLS) + rule-based extractor + token-budget retriever + interview planner_context integration + ARQ `extract_memories` task. 59 tests pass (47 unit + 12 integration). US2/US3/US4 + pgvector embedding + LangMem/Mem0 eval deferred — see `tasks.md`. |
+| 029 | OpenTelemetry & LangGraph Distributed Trace | active / draft | [spec.md](./029-otel-langgraph-trace/spec.md) | OTLP export; 5 graphs → 1 trace; cross HTTP/WS/ARQ propagation; logs/metrics join to traces. |
+| 030 | IRT-Based Adaptive Ability Diagnosis | active / draft | [spec.md](./030-irt-adaptive-diagnosis/spec.md) | 2-PL/3-PL IRT; θ per dimension; adaptive question selection; retest reliability 0.5 → ≥0.85. |
+| 031 | A2A Multi-Agent Generalization | active / draft | [spec.md](./031-a2a-multi-agent-generalize/spec.md) | Extract 025 Supervisor+subgraph pattern into reusable framework; apply to error_coach + resume_optimize. |
 
 ## In Progress
 
