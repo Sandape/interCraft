@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Save, History, Download, Upload, Palette, Code, List, PanelRight } from 'lucide-react'
+import { ArrowLeft, Save, History, Download, Upload, Palette, Code, List, PanelRight, UserCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { cn } from '@/lib/utils'
 import type { EditorMode } from './useModeToggle'
 import type { ThemeId } from '@/modules/resume/themes'
 import ThemeSelector from './ThemeSelector'
@@ -26,6 +27,10 @@ interface UnifiedToolbarProps {
   accentColor?: string
   /** Called when user picks a new accent color. */
   onAccentColorChange?: (hex: string) => void | Promise<void>
+  /** Whether the branch has an avatar (spec 027 US9). */
+  hasAvatar?: boolean
+  /** Called when user clicks the avatar button. */
+  onOpenAvatar?: () => void
 }
 
 export default function UnifiedToolbar({
@@ -44,6 +49,8 @@ export default function UnifiedToolbar({
   onThemeSelect,
   accentColor,
   onAccentColorChange,
+  hasAvatar,
+  onOpenAvatar,
 }: UnifiedToolbarProps) {
   return (
     <div className="flex items-center gap-3 px-4 py-2 border-b border-surface-border dark:border-dark-surface-border bg-surface dark:bg-dark-surface sticky top-0 z-10">
@@ -115,6 +122,20 @@ export default function UnifiedToolbar({
           currentColor={accentColor}
           onColorChange={onAccentColorChange}
         />
+      )}
+
+      {/* Avatar button (spec 027 US9) */}
+      {onOpenAvatar && (
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={<UserCircle2 className={cn('h-3.5 w-3.5', hasAvatar && 'text-brand-500')} />}
+          onClick={onOpenAvatar}
+          data-testid="open-avatar-dialog"
+          className="flex-shrink-0"
+        >
+          <span className="hidden sm:inline">头像</span>
+        </Button>
       )}
 
       {/* Export button placeholder */}

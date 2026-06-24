@@ -5,7 +5,8 @@ import { downloadMarkdown, downloadBlob } from '@/modules/resume/converter/markd
 import { exportResume, type ExportFormat } from '@/api/export'
 import { blocksToMarkdown } from '@/modules/resume/converter/markdown-converter'
 import { renderMarkdown } from '@/modules/resume/renderer'
-import type { ResumeBlock, ResumeBranch } from '@/modules/resume/api/types'
+import { fetchBranchAvatarBlob } from '@/modules/resume/api/avatar'
+import type { AvatarPosition, AvatarShape, ResumeBlock, ResumeBranch } from '@/modules/resume/api/types'
 
 interface ExportMenuProps {
   branch: ResumeBranch
@@ -57,8 +58,11 @@ export default function ExportMenu({
         // and exported PDF share an identical HTML generator (no drift).
         const accentColor = branch.accent_color ?? '#39393a'
         const { html } = renderMarkdown(md, { accentColor })
+        // US9: inline the avatar as a base64 data URL so the headless browser
+        // does not have to authenticate against /api/v1/.../avatar.
+        const exportHtml = await wrapHtmlWithAvatar(html, branch)
         const { blob, filename } = await exportResume({
-          html,
+          html: exportHtml,
           format,
         })
         downloadBlob(blob, filename)
@@ -154,4 +158,39 @@ export default function ExportMenu({
       </div>
     </div>
   )
+}
+
+/**
+ * Inline the branch avatar into the rendered HTML as a base64 data URL so
+ * the headless export browser does not need to authenticate. Returns the
+ * original HTML untouched when there is no avatar.
+ *
+ * US9.
+ */
+async function wrapHtmlWithAvatar(html: string, branch: ResumeBranch): Promise<string> {
+  if (!branch.avatar_url) return html
+  try {
+    const blob = await fetchBranchAvatarBlob(branch.id)
+    if (!blob) return html
+    const dataUrl = await blobToDataUrl(blob)
+    const size = Math.max(50, Math.min(200, branch.avatar_size ?? 100))
+    const position: AvatarPosition = branch.avatar_position ?? 'right'
+    const shape: AvatarShape = branch.avatar_shape ?? 'circle'
+    const radius = shape === 'circle' ? '50%' : shape === 'rounded' ? '8px' : '0'
+    const img = `<img src="${dataUrl}" alt="头像" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:${radius};display:block;" />`
+    const wrapper = `<div class="rs-avatar rs-avatar-${position}" style="margin:8px 0;text-align:${position === 'left' ? 'left' : position === 'right' ? 'right' : 'center'};">${img}</div>`
+    return wrapper + html
+  } catch {
+    // Best-effort: if avatar embedding fails, export without avatar.
+    return html
+  }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
 }

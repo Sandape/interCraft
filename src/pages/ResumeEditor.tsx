@@ -40,6 +40,7 @@ import ResumePreview from '@/modules/resume/editor/ResumePreview'
 import StyleSelector from '@/modules/resume/editor/StyleSelector'
 import EditorSidebar from '@/modules/resume/editor/EditorSidebar'
 import ExportMenu from '@/modules/resume/export/ExportMenu'
+import AvatarDialog from '@/modules/resume/editor/AvatarDialog'
 import { loadTheme, applyColor } from '@/modules/resume/themes'
 
 const STATUS_LABEL: Record<BranchStatus, string> = {
@@ -106,6 +107,7 @@ export default function ResumeEditor() {
   // Style selection state — default from branch or system default
   const [styleSelectorOpen, setStyleSelectorOpen] = useState(false)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false)
 
   // Split pane state
   const [splitRatio, setSplitRatio] = useState(50)
@@ -335,6 +337,8 @@ export default function ResumeEditor() {
         onStyleSelect={() => setStyleSelectorOpen(true)}
         onExport={() => setExportMenuOpen(true)}
         onToggleSidebar={() => setSidebarOpen(true)}
+        onOpenAvatar={() => setAvatarDialogOpen(true)}
+        hasAvatar={Boolean(branch.avatar_url)}
         themeId={branch.theme_id ?? 'default'}
         onThemeSelect={(themeId) => {
           patchBranch.mutate({ id: branch.id, input: { theme_id: themeId } })
@@ -448,6 +452,10 @@ export default function ResumeEditor() {
               markdown={previewMarkdown}
               styleId={styleId}
               accentColor={branch.accent_color ?? '#39393a'}
+              avatarUrl={branch.avatar_url ?? null}
+              avatarSize={branch.avatar_size ?? null}
+              avatarPosition={branch.avatar_position ?? null}
+              avatarShape={branch.avatar_shape ?? null}
             />
           </div>
         </div>
@@ -790,6 +798,16 @@ export default function ResumeEditor() {
         markdown={mode === 'code' ? markdownContent : undefined}
         open={exportMenuOpen}
         onClose={() => setExportMenuOpen(false)}
+      />
+
+      {/* Avatar dialog (spec 027 US9) */}
+      <AvatarDialog
+        open={avatarDialogOpen}
+        onClose={() => setAvatarDialogOpen(false)}
+        branch={branch}
+        onSave={(patch) => {
+          patchBranch.mutate({ id: branch.id, input: patch })
+        }}
       />
     </div>
   )

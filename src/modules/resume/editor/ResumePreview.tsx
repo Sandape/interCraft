@@ -3,6 +3,8 @@ import { getStyleById, DEFAULT_STYLE_ID } from '@/modules/resume/styles'
 import { renderMarkdown, sanitizeHtml } from '@/modules/resume/renderer'
 import { paginateDom, applySinglePageMode, attachWindowScaleListener } from '@/modules/resume/pagination'
 import PageIndicator from './PageIndicator'
+import AvatarImage from './AvatarImage'
+import type { AvatarPosition, AvatarShape } from '../api/types'
 
 interface ResumePreviewProps {
   markdown: string
@@ -12,6 +14,11 @@ interface ResumePreviewProps {
   className?: string
   /** Optional callback when page count changes (for parent toolbar display). */
   onPageCountChange?: (count: number) => void
+  /** Optional avatar URL (branch.avatar_url). When set, renders <AvatarImage />. */
+  avatarUrl?: string | null
+  avatarSize?: number | null
+  avatarPosition?: AvatarPosition | null
+  avatarShape?: AvatarShape | null
 }
 
 /** Default accent color when branch.accent_color is not yet exposed (US1). */
@@ -35,6 +42,10 @@ export default function ResumePreview({
   accentColor,
   className = '',
   onPageCountChange,
+  avatarUrl,
+  avatarSize,
+  avatarPosition,
+  avatarShape,
 }: ResumePreviewProps) {
   const style = useMemo(() => getStyleById(styleId) ?? getStyleById(DEFAULT_STYLE_ID)!, [styleId])
   const accent = accentColor ?? DEFAULT_ACCENT_COLOR
@@ -159,8 +170,33 @@ export default function ResumePreview({
         </div>
       ) : style.layoutType === 'two-column' ? (
         <div className={style.cssClass} data-testid="resume-preview-root">
+          {/* Avatar — top / center / bottom sit above/below content; left/right float beside it */}
+          {avatarUrl && (avatarPosition === 'top' || avatarPosition === 'center') && (
+            <div className={`rs-avatar rs-avatar-${avatarPosition}`}>
+              <AvatarImage
+                avatarUrl={avatarUrl}
+                size={avatarSize ?? 100}
+                position={avatarPosition}
+                shape={avatarShape ?? 'circle'}
+                block={false}
+                className="rs-avatar-img"
+              />
+            </div>
+          )}
           {(sidebarMd.trim() || mainMd.trim()) ? (
             <>
+              {avatarUrl && (avatarPosition === 'left' || avatarPosition === 'right') && (
+                <div className={`rs-avatar rs-avatar-${avatarPosition}`}>
+                  <AvatarImage
+                    avatarUrl={avatarUrl}
+                    size={avatarSize ?? 100}
+                    position={avatarPosition}
+                    shape={avatarShape ?? 'circle'}
+                    block={false}
+                    className="rs-avatar-img"
+                  />
+                </div>
+              )}
               <div
                 ref={viewRef}
                 className="resume-sidebar rs-view rs-view-inner"
@@ -170,22 +206,99 @@ export default function ResumePreview({
                 className="resume-main rs-view rs-view-inner"
                 dangerouslySetInnerHTML={{ __html: mainHtml }}
               />
+              {avatarUrl && avatarPosition === 'bottom' && (
+                <div className={`rs-avatar rs-avatar-${avatarPosition}`}>
+                  <AvatarImage
+                    avatarUrl={avatarUrl}
+                    size={avatarSize ?? 100}
+                    position={avatarPosition}
+                    shape={avatarShape ?? 'circle'}
+                    block={false}
+                    className="rs-avatar-img"
+                  />
+                </div>
+              )}
             </>
           ) : (
+            <>
+              {avatarUrl && (avatarPosition === 'left' || avatarPosition === 'right') && (
+                <div className={`rs-avatar rs-avatar-${avatarPosition}`}>
+                  <AvatarImage
+                    avatarUrl={avatarUrl}
+                    size={avatarSize ?? 100}
+                    position={avatarPosition}
+                    shape={avatarShape ?? 'circle'}
+                    block={false}
+                    className="rs-avatar-img"
+                  />
+                </div>
+              )}
+              <div
+                ref={viewRef}
+                className="rs-view rs-view-inner"
+                dangerouslySetInnerHTML={{ __html: fullHtml }}
+              />
+              {avatarUrl && avatarPosition === 'bottom' && (
+                <div className={`rs-avatar rs-avatar-${avatarPosition}`}>
+                  <AvatarImage
+                    avatarUrl={avatarUrl}
+                    size={avatarSize ?? 100}
+                    position={avatarPosition}
+                    shape={avatarShape ?? 'circle'}
+                    block={false}
+                    className="rs-avatar-img"
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className={style.cssClass} data-testid="resume-preview-root">
+          {/* Avatar — top/center above content, bottom below, left/right float beside */}
+          {avatarUrl && (avatarPosition === 'top' || avatarPosition === 'center') && (
+            <div className={`rs-avatar rs-avatar-${avatarPosition}`}>
+              <AvatarImage
+                avatarUrl={avatarUrl}
+                size={avatarSize ?? 100}
+                position={avatarPosition}
+                shape={avatarShape ?? 'circle'}
+                block={false}
+                className="rs-avatar-img"
+              />
+            </div>
+          )}
+          <div className="rs-content-row">
+            {avatarUrl && (avatarPosition === 'left' || avatarPosition === 'right') && (
+              <div className={`rs-avatar rs-avatar-${avatarPosition}`}>
+                <AvatarImage
+                  avatarUrl={avatarUrl}
+                  size={avatarSize ?? 100}
+                  position={avatarPosition}
+                  shape={avatarShape ?? 'circle'}
+                  block={false}
+                  className="rs-avatar-img"
+                />
+              </div>
+            )}
             <div
               ref={viewRef}
               className="rs-view rs-view-inner"
               dangerouslySetInnerHTML={{ __html: fullHtml }}
             />
+          </div>
+          {avatarUrl && avatarPosition === 'bottom' && (
+            <div className={`rs-avatar rs-avatar-${avatarPosition}`}>
+              <AvatarImage
+                avatarUrl={avatarUrl}
+                size={avatarSize ?? 100}
+                position={avatarPosition}
+                shape={avatarShape ?? 'circle'}
+                block={false}
+                className="rs-avatar-img"
+              />
+            </div>
           )}
-        </div>
-      ) : (
-        <div className={style.cssClass} data-testid="resume-preview-root">
-          <div
-            ref={viewRef}
-            className="rs-view rs-view-inner"
-            dangerouslySetInnerHTML={{ __html: fullHtml }}
-          />
         </div>
       )}
     </div>

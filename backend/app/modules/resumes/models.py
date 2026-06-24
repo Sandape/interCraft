@@ -70,6 +70,15 @@ class ResumeBranch(
     accent_color: Mapped[str] = mapped_column(
         String(7), nullable=False, default="#39393a"
     )
+    # US9: avatar upload + placement (left/right/top/center/bottom × 50-200 px
+    # × circle/rounded/square). avatar_url nullable = no avatar.
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_size: Mapped[int | None] = mapped_column(nullable=True)
+    avatar_position: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    avatar_shape: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    avatar_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     blocks: Mapped[list[ResumeBlock]] = relationship(
         "ResumeBlock",
@@ -111,6 +120,19 @@ class ResumeBranch(
         CheckConstraint(
             "accent_color ~ '^#[0-9a-fA-F]{6}$'",
             name="ck_resume_branches_accent_color",
+        ),
+        CheckConstraint(
+            "avatar_size IS NULL OR (avatar_size >= 50 AND avatar_size <= 200)",
+            name="ck_resume_branches_avatar_size",
+        ),
+        CheckConstraint(
+            "avatar_position IS NULL OR avatar_position IN "
+            "('left', 'right', 'top', 'center', 'bottom')",
+            name="ck_resume_branches_avatar_position",
+        ),
+        CheckConstraint(
+            "avatar_shape IS NULL OR avatar_shape IN ('circle', 'rounded', 'square')",
+            name="ck_resume_branches_avatar_shape",
         ),
     )
 

@@ -14,6 +14,7 @@ from app.modules.locks.api import router as locks_router
 from app.modules.locks.ws_handler import router as locks_ws_router
 from app.modules.outbox.api import router as outbox_router
 from app.modules.resumes.api import router as resumes_router
+from app.modules.resumes.api_avatar import router as resumes_avatar_router
 from app.modules.sessions.api import router as sessions_router
 from app.modules.tasks.api import router as tasks_router
 from app.modules.versions.api import router as versions_router
@@ -28,6 +29,7 @@ router.include_router(auth_router, prefix="/auth", tags=["auth"])
 router.include_router(users_router, prefix="/users", tags=["users"])
 router.include_router(sessions_router, prefix="/users/me/sessions", tags=["sessions"])
 router.include_router(resumes_router, tags=["resumes"])
+router.include_router(resumes_avatar_router, tags=["resumes-avatar"])
 router.include_router(versions_router, tags=["versions"])
 router.include_router(abilities_router, tags=["abilities"])
 router.include_router(errors_router, tags=["error-questions"])

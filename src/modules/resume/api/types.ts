@@ -2,6 +2,21 @@
 
 export type BranchStatus = 'draft' | 'optimizing' | 'ready' | 'submitted' | 'archived'
 
+/** Avatar position spec (027 US9). */
+export type AvatarPosition = 'left' | 'right' | 'top' | 'center' | 'bottom'
+/** Avatar shape spec (027 US9). */
+export type AvatarShape = 'circle' | 'rounded' | 'square'
+/** Avatar pixel size range 50..200. */
+export type AvatarSize = number
+
+export const AVATAR_POSITIONS: readonly AvatarPosition[] = ['left', 'right', 'top', 'center', 'bottom']
+export const AVATAR_SHAPES: readonly AvatarShape[] = ['circle', 'rounded', 'square']
+export const AVATAR_SIZE_MIN = 50
+export const AVATAR_SIZE_MAX = 200
+export const AVATAR_DEFAULT_SIZE = 100
+export const AVATAR_DEFAULT_POSITION: AvatarPosition = 'right'
+export const AVATAR_DEFAULT_SHAPE: AvatarShape = 'circle'
+
 export type BlockType =
   | 'heading'
   | 'summary'
@@ -26,6 +41,16 @@ export interface ResumeBranch {
   theme_id: string
   /** HEX accent color (e.g. '#39393a'). Spec 027 US3. */
   accent_color: string
+  /** Avatar URL (API endpoint); null = no avatar (spec 027 US9). */
+  avatar_url: string | null
+  /** Avatar display size in px (50..200). */
+  avatar_size: number | null
+  /** Avatar layout position. */
+  avatar_position: AvatarPosition | null
+  /** Avatar border shape. */
+  avatar_shape: AvatarShape | null
+  /** Avatar upload timestamp. */
+  avatar_updated_at: string | null
   last_edited_at: string
   created_at: string
   updated_at: string
@@ -66,6 +91,12 @@ export interface PatchBranchInput {
   theme_id?: string
   /** HEX accent color (e.g. '#39393a'). Spec 027 US3. */
   accent_color?: string
+  /** Avatar pixel size (50..200). */
+  avatar_size?: number | null
+  /** Avatar position. */
+  avatar_position?: AvatarPosition | null
+  /** Avatar shape. */
+  avatar_shape?: AvatarShape | null
 }
 
 export interface CreateBlockInput {

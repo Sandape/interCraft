@@ -1,0 +1,68 @@
+/* ── Avatar layout for resume preview & export (spec 027 US9) ──
+ *
+ * The avatar wrapper `.rs-avatar` is a sibling of `.rs-view-inner` so it
+ * never participates in pagination. Each position variant lays it out
+ * inside the parent `.resume-style-*` page block.
+ *
+ * Respects `--avatar-size` (CSS custom property) set by <AvatarImage />.
+ */
+
+.rs-avatar {
+  display: block;
+  line-height: 0; /* avoid baseline gap under <img> */
+}
+
+.rs-avatar .rs-avatar-img {
+  display: inline-block;
+  vertical-align: top;
+  object-fit: cover;
+}
+
+/* top: above the resume content, centered */
+.rs-avatar-top {
+  text-align: center;
+  margin: 6mm auto 4mm;
+}
+
+/* center: middle of the page (single-column styles) */
+.rs-avatar-center {
+  text-align: center;
+  margin: 30% auto;
+}
+
+/* bottom: under the resume content */
+.rs-avatar-bottom {
+  text-align: right;
+  margin: 4mm 0 0;
+}
+
+/* left/right: float beside the content so the avatar sits in the gutter */
+.rs-avatar-left,
+.rs-avatar-right {
+  display: inline-block;
+  vertical-align: top;
+}
+
+.rs-avatar-left {
+  float: left;
+  margin: 2mm 4mm 2mm 0;
+}
+
+.rs-avatar-right {
+  float: right;
+  margin: 2mm 0 2mm 4mm;
+}
+
+/* For single-column layouts we wrap content + avatar in a row when needed.
+ * The wrapping div is `.rs-content-row`; keep avatar flow sane there.
+ */
+.rs-content-row {
+  display: flow-root;
+}
+
+/* Print: ensure avatar survives pagination boundaries sensibly. */
+@media print {
+  .rs-avatar {
+    page-break-inside: avoid;
+  }
+}

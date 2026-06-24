@@ -27,22 +27,16 @@ router = APIRouter()
 
 
 async def _branch_out(branch, block_count: int, version_count: int) -> ResumeBranchOut:
-    return ResumeBranchOut(
-        id=str(branch.id),
-        parent_id=str(branch.parent_id) if branch.parent_id else None,
-        name=branch.name,
-        company=branch.company,
-        position=branch.position,
-        status=branch.status,
-        match_score=float(branch.match_score) if branch.match_score is not None else None,
-        is_main=branch.is_main,
-        is_pinned=branch.is_pinned,
-        style_preference=branch.style_preference,
-        last_edited_at=branch.last_edited_at,
-        created_at=branch.created_at,
-        updated_at=branch.updated_at,
-        version_count=version_count,
-        block_count=block_count,
+    # Use model_validate (from_attributes) so every column on ResumeBranch
+    # is auto-mapped; only override computed fields that aren't on the model.
+    out = ResumeBranchOut.model_validate(branch)
+    return out.model_copy(
+        update={
+            "id": str(branch.id),
+            "parent_id": str(branch.parent_id) if branch.parent_id else None,
+            "version_count": version_count,
+            "block_count": block_count,
+        }
     )
 
 
