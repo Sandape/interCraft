@@ -98,9 +98,7 @@ describe('Square marketplace (Phase B B5)', () => {
     const revokeUrlStub = vi.fn()
     const origCreate = URL.createObjectURL
     const origRevoke = URL.revokeObjectURL
-    // @ts-expect-error — jsdom lacks these
     URL.createObjectURL = createUrlStub
-    // @ts-expect-error — jsdom lacks these
     URL.revokeObjectURL = revokeUrlStub
 
     renderSquare()
