@@ -1,0 +1,1 @@
+"""A2A library internal tests — routing, schemas, delegation, supervisor."""
