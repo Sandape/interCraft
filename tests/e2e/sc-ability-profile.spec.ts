@@ -10,6 +10,10 @@
  */
 import { test, expect } from '@playwright/test'
 
+// Run serially: shared test@example.com account + login rate limit means
+// parallel workers cause intermittent waitForURL timeouts in beforeEach.
+test.describe.configure({ mode: 'serial' })
+
 test.describe('Ability Profile E2E', () => {
   test.beforeEach(async ({ page }) => {
     // Login as test user
