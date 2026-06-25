@@ -1,0 +1,459 @@
+/* Resume editor shell: preview stage, theme modal, marketplace.
+   Editor chrome (toolbar / split pane / block cards) uses project design tokens
+   via Tailwind classes directly on the components. */
+
+.resume-preview-container {
+  color-scheme: light;
+}
+
+.resume-preview-container > .resume-style-classic,
+.resume-preview-container > .resume-style-compact,
+.resume-preview-container > .resume-style-modern,
+.resume-preview-container > .resume-style-editorial {
+  margin: 40px auto;
+  box-shadow: 0 12px 24px -4px rgba(15, 23, 42, 0.10), 0 4px 8px -2px rgba(15, 23, 42, 0.04);
+}
+
+.resume-preview-container .rs-view-inner {
+  transform-origin: left top;
+}
+
+.rs-color-wrapper {
+  position: fixed;
+  top: 100px;
+  right: 20px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.rs-color-btn {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #fff;
+  border-radius: 5px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+
+.rs-color-panel {
+  margin-top: 8px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 24%);
+}
+
+.rs-color-panel .chrome-picker {
+  font-family: inherit !important;
+}
+
+.resume-muji-template-wrapper {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  padding: 4px 2px 12px;
+}
+
+.resume-muji-template-card {
+  width: 250px;
+  flex: 0 0 250px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.resume-muji-template-card:focus-visible {
+  outline: 2px solid #00c091;
+  outline-offset: 3px;
+}
+
+.resume-muji-template-card.active .resume-muji-template-preview {
+  box-shadow: 0 0 5px 3px #888080;
+}
+
+.resume-muji-template-preview {
+  width: 250px;
+  height: 345px;
+  overflow: hidden;
+  border: 1px solid #d8dee4;
+  background: #fff;
+}
+
+.resume-muji-template-page {
+  width: 100%;
+  min-height: 100%;
+  background: #fff;
+  color: #222;
+  font-size: 10px;
+}
+
+.resume-muji-template-head {
+  padding: 18px 24px;
+  background: var(--preview-color);
+  color: #fff;
+}
+
+.resume-muji-template-head strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 18px;
+}
+
+.resume-muji-template-line {
+  display: block;
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 65%);
+}
+
+.resume-muji-template-section {
+  margin: 18px 24px 0;
+}
+
+.resume-muji-template-section b {
+  display: block;
+  width: 42%;
+  margin: 0 auto 8px;
+  padding: 3px 8px;
+  border-radius: 16px;
+  background: #eee;
+  text-align: center;
+}
+
+.resume-muji-template-section i {
+  display: block;
+  height: 5px;
+  margin: 6px 0;
+  border-radius: 99px;
+  background: #e7e7e7;
+}
+
+.resume-muji-template-title {
+  margin: 8px 0 0;
+  color: #46505a;
+  font-size: 14px;
+  text-align: center;
+}
+
+.resume-muji-template-description {
+  margin: 5px auto 0;
+  max-width: 230px;
+  color: #8a949e;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.resume-muji-template-page-two-column {
+  display: flex;
+  min-height: 100%;
+}
+
+.resume-muji-template-sidebar {
+  width: 33%;
+  min-height: 345px;
+  padding: 24px 14px;
+  background: var(--preview-color);
+}
+
+.resume-muji-template-sidebar strong,
+.resume-muji-template-sidebar span,
+.resume-muji-template-sidebar b,
+.resume-muji-template-sidebar i {
+  display: block;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 68%);
+}
+
+.resume-muji-template-sidebar strong {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+}
+
+.resume-muji-template-sidebar span {
+  height: 5px;
+  margin: 6px 0;
+}
+
+.resume-muji-template-sidebar b {
+  height: 8px;
+  margin: 24px 0 10px;
+}
+
+.resume-muji-template-sidebar i {
+  height: 5px;
+  margin: 7px 0;
+  opacity: 0.72;
+}
+
+.resume-muji-template-main {
+  flex: 1;
+  padding: 30px 18px;
+}
+
+.resume-muji-template-main b,
+.resume-muji-template-main i {
+  display: block;
+  border-radius: 99px;
+}
+
+.resume-muji-template-main b {
+  width: 50%;
+  height: 10px;
+  margin: 0 0 12px;
+  background: var(--preview-color);
+}
+
+.resume-muji-template-main i {
+  height: 6px;
+  margin: 8px 0;
+  background: #e7e7e7;
+}
+
+.resume-muji-template-page-editorial .resume-muji-template-head {
+  padding-top: 28px;
+  background: #fff;
+  color: #232323;
+}
+
+.resume-muji-template-page-editorial .resume-muji-template-head strong {
+  color: var(--preview-color);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 28px;
+  font-style: italic;
+}
+
+.resume-muji-template-page-editorial .resume-muji-template-line {
+  background: #d7d7d7;
+}
+
+.resume-muji-template-page-compact .resume-muji-template-section {
+  margin-top: 13px;
+}
+
+.resume-muji-square-page {
+  min-height: calc(100vh - 30px);
+  padding: 20px;
+  background: #f0f9ff;
+}
+
+.resume-muji-square-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.resume-muji-square-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 14px;
+}
+
+.resume-muji-square-card.card {
+  position: relative;
+  width: 200px;
+  height: 311px;
+  padding: 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.resume-muji-square-card.card:hover {
+  transform: translate3d(0, 10px, 0);
+  box-shadow: 0 0 5px 1px #af9d9d;
+}
+
+.resume-muji-square-card img,
+.resume-muji-square-thumb-fallback {
+  display: block;
+  width: 100%;
+  height: 260px;
+}
+
+.resume-muji-square-card img {
+  object-fit: cover;
+}
+
+.resume-muji-square-thumb-fallback {
+  padding: 24px 20px;
+  border: 1px solid #d8dee4;
+  background: #fff;
+  color: #39393a;
+}
+
+.resume-muji-square-thumb-fallback span,
+.resume-muji-square-thumb-fallback b,
+.resume-muji-square-thumb-fallback i {
+  display: block;
+  border-radius: 99px;
+}
+
+.resume-muji-square-thumb-fallback span {
+  margin-bottom: 18px;
+  color: #39393a;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.resume-muji-square-thumb-fallback b {
+  width: 50%;
+  height: 9px;
+  margin: 16px 0 10px;
+  background: #39393a;
+}
+
+.resume-muji-square-thumb-fallback i {
+  height: 6px;
+  margin: 8px 0;
+  background: #e6e8ea;
+}
+
+.resume-muji-square-thumb-fallback.is-modal {
+  width: 300px;
+  height: 420px;
+  padding: 34px 30px;
+}
+
+.resume-muji-square-thumb-fallback.is-modal span {
+  font-size: 18px;
+}
+
+.resume-muji-square-thumb-fallback.is-modal b {
+  height: 11px;
+}
+
+.resume-muji-square-thumb-fallback.is-modal i {
+  height: 7px;
+}
+
+.resume-muji-square-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgb(0 0 0 / 60%);
+}
+
+.resume-muji-square-card:hover .resume-muji-square-overlay {
+  display: flex;
+}
+
+.resume-muji-square-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  height: 25px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: #00c091;
+  color: #fff;
+  font-size: 13px;
+  line-height: 25px;
+}
+
+.resume-muji-square-info {
+  position: relative;
+  padding: 10px 0;
+  color: #46505a;
+  font-size: 12px;
+}
+
+.resume-muji-square-info > span {
+  display: block;
+  max-width: 126px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-muji-square-use.btn-secondary {
+  position: absolute;
+  right: 0;
+  bottom: 7px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: #00c091;
+  color: #fff;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.resume-muji-square-use.btn-secondary:hover {
+  background: #00aa81;
+}
+
+.resume-muji-square-modal {
+  display: flex;
+  gap: 72px;
+  align-items: flex-start;
+}
+
+.resume-muji-square-modal-image img {
+  max-width: 300px;
+}
+
+.resume-muji-square-detail {
+  width: 250px;
+  color: #999;
+  font-size: 12px;
+}
+
+.resume-muji-square-author {
+  position: relative;
+  min-height: 60px;
+  padding-left: 80px;
+}
+
+.resume-muji-square-author img,
+.resume-muji-square-author svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.resume-muji-square-author span {
+  display: block;
+  margin: 8px 0 6px;
+}
+
+.resume-muji-square-detail-list {
+  margin-top: 20px;
+}
+
+.resume-muji-square-detail-list span {
+  display: flex;
+  align-items: center;
+  height: 60px;
+  border-bottom: 1px solid #e9e9e9;
+}
+
+.resume-muji-square-detail-list b {
+  color: #999;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.resume-muji-square-detail-list strong {
+  margin-left: auto;
+  color: #999;
+  font-size: 14px;
+  font-weight: 400;
+}
