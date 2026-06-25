@@ -119,6 +119,13 @@ async function abortSession(
 }
 
 test.describe('021 — Error Coach 3-correct E2E', () => {
+  // Three tests share the backend's MockLLMClient singleton (scenarios file
+  // + global evaluate_index counter). Running them in parallel corrupts
+  // each other's scenario reads and score sequence. Force serial execution
+  // so each test sees a fresh singleton built from its own active.json.
+  test.describe.configure({ mode: 'serial' })
+
+
   test('HAPPY-01 — 3 correct in a row completes session, frequency 3 → 2', async ({
     request,
   }) => {

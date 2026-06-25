@@ -8,7 +8,7 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test'
 
 export const PASSWORD = 'P@ssw0rd1234'
 export const API_BASE = process.env.E2E_API_BASE ?? 'http://127.0.0.1:8000'
-export const FRONTEND_BASE = process.env.E2E_FRONTEND_BASE ?? 'http://127.0.0.1:5173'
+export const FRONTEND_BASE = process.env.E2E_FRONTEND_BASE ?? 'http://localhost:5173'
 
 export interface User {
   email: string
