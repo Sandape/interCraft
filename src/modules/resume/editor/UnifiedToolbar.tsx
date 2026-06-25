@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Save, History, Download, Upload, Palette, Code, List, PanelRight, UserCircle2 } from 'lucide-react'
+import { ArrowLeft, Save, History, Download, Palette, Code, List, PanelRight, UserCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import type { EditorMode } from './useModeToggle'
@@ -53,42 +53,47 @@ export default function UnifiedToolbar({
   onOpenAvatar,
 }: UnifiedToolbarProps) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2 border-b border-surface-border dark:border-dark-surface-border bg-surface dark:bg-dark-surface sticky top-0 z-10">
+    <div className="h-12 flex items-center gap-1 px-4 bg-surface dark:bg-dark-surface border-b border-surface-border dark:border-dark-surface-border shadow-notion-sm">
       {/* Back + Title */}
       <Link
         to="/resume"
-        className="flex items-center gap-1 text-xs text-ink-3 hover:text-ink-1 flex-shrink-0 mr-1"
+        className="btn-base btn-ghost btn-sm flex-shrink-0 gap-1"
+        data-testid="toolbar-back"
       >
-        <ArrowLeft className="h-3 w-3" />
-        <span className="hidden sm:inline">简历中心</span>
+        <ArrowLeft className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline text-xs">简历中心</span>
       </Link>
 
-      <div className="flex-1 min-w-0">
-        <h2 className="text-sm font-semibold text-ink-1 truncate">{branchName}</h2>
+      <div className="text-sm font-semibold text-ink-1 dark:text-dark-ink-primary truncate flex-1 min-w-0 px-2">
+        {branchName}
       </div>
 
-      {/* Mode Toggle */}
-      <div className="flex rounded-md border border-surface-border dark:border-dark-surface-border overflow-hidden flex-shrink-0">
+      {/* Mode Toggle — Tabs style */}
+      <div className="flex items-center gap-0.5 bg-surface-muted dark:bg-dark-surface-muted rounded-md p-0.5 flex-shrink-0">
         <button
           onClick={() => onModeChange('quick')}
-          className={`px-2.5 py-1.5 text-xs flex items-center gap-1 transition-colors ${
-            mode === 'quick'
-              ? 'bg-brand-500 text-white'
-              : 'bg-surface dark:bg-dark-surface text-ink-2 hover:bg-surface-muted'
-          }`}
+          aria-pressed={mode === 'quick'}
           aria-label="快捷模式"
+          className={cn(
+            'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+            mode === 'quick'
+              ? 'bg-surface dark:bg-dark-surface text-ink-1 dark:text-dark-ink-primary shadow-notion-sm'
+              : 'text-ink-3 dark:text-dark-ink-tertiary hover:text-ink-1 dark:hover:text-dark-ink-primary',
+          )}
         >
           <List className="h-3 w-3" />
           <span className="hidden sm:inline">快捷</span>
         </button>
         <button
           onClick={() => onModeChange('code')}
-          className={`px-2.5 py-1.5 text-xs flex items-center gap-1 transition-colors ${
-            mode === 'code'
-              ? 'bg-brand-500 text-white'
-              : 'bg-surface dark:bg-dark-surface text-ink-2 hover:bg-surface-muted'
-          }`}
+          aria-pressed={mode === 'code'}
           aria-label="代码模式"
+          className={cn(
+            'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-xs font-medium transition-colors',
+            mode === 'code'
+              ? 'bg-surface dark:bg-dark-surface text-ink-1 dark:text-dark-ink-primary shadow-notion-sm'
+              : 'text-ink-3 dark:text-dark-ink-tertiary hover:text-ink-1 dark:hover:text-dark-ink-primary',
+          )}
         >
           <Code className="h-3 w-3" />
           <span className="hidden sm:inline">代码</span>
@@ -104,7 +109,7 @@ export default function UnifiedToolbar({
           onClick={onStyleSelect}
           className="flex-shrink-0"
         >
-          <span className="hidden sm:inline">样式</span>
+          <span className="hidden sm:inline">选择模板</span>
         </Button>
       )}
 
@@ -148,17 +153,9 @@ export default function UnifiedToolbar({
           data-testid="open-export-menu"
           className="flex-shrink-0"
         >
-          <span className="hidden sm:inline">导出</span>
+          <span className="hidden sm:inline">导出 pdf</span>
         </Button>
       )}
-
-      {/* Import button placeholder */}
-      <Button
-        variant="ghost"
-        size="sm"
-        leftIcon={<Upload className="h-3.5 w-3.5" />}
-        className="flex-shrink-0 hidden"
-      />
 
       {/* Sidebar toggle */}
       {onToggleSidebar && (
@@ -183,8 +180,8 @@ export default function UnifiedToolbar({
         data-testid="open-versions"
         className="flex-shrink-0"
       >
-        <span className="hidden sm:inline">版本</span>
-        <span className="text-2xs text-ink-3 ml-1">({versionCount})</span>
+        <span className="hidden sm:inline">历史</span>
+        <span className="text-2xs text-ink-3 dark:text-dark-ink-tertiary ml-1 tabular-nums">({versionCount})</span>
       </Button>
 
       <Button

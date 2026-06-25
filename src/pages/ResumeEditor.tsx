@@ -486,7 +486,7 @@ export default function ResumeEditor() {
   const isReadonly = lock.status === 'readonly'
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col bg-surface-subtle dark:bg-dark-surface-subtle">
       <UnifiedToolbar
         branchName={branch.name}
         branchId={branch.id}
@@ -526,7 +526,7 @@ export default function ResumeEditor() {
       />
 
       {/* Branch meta bar (edit pencil, company, status) */}
-      <div className="px-4 py-1.5 border-b border-surface-border dark:border-dark-surface-border flex items-center gap-3 text-xs text-ink-3">
+      <div className="h-9 flex items-center gap-3 px-6 text-xs text-ink-3 dark:text-dark-ink-tertiary border-b border-surface-border dark:border-dark-surface-border bg-surface dark:bg-dark-surface">
         {branch.is_main && (
           <Badge variant="brand">主简历</Badge>
         )}
@@ -564,13 +564,13 @@ export default function ResumeEditor() {
       </div>
 
       {/* Editor area with sidebar */}
-      <div className="flex-1 min-h-0 flex relative">
+      <div className="flex-1 min-h-0 flex relative bg-surface-subtle dark:bg-dark-surface-subtle">
         {/* Main split pane */}
         <div ref={splitContainerRef} className="flex-1 min-w-0 flex">
           {/* Left: Editor */}
-          <div className="min-h-0 overflow-y-auto" style={{ width: `${splitRatio}%` }}>
+          <div className="min-h-0 overflow-y-auto bg-surface dark:bg-dark-surface" style={{ width: `${splitRatio}%` }}>
             {mode === 'quick' ? (
-              <div className="px-6 py-4">
+              <div className="px-6 py-4 bg-surface dark:bg-dark-surface">
                 <QuickEditor
                   blocks={blocks}
                   collapsedBlockIds={collapsedBlockIds}
@@ -615,12 +615,12 @@ export default function ResumeEditor() {
           {/* Drag handle */}
           <div
             onMouseDown={handleSplitDrag}
-            className="w-2 cursor-col-resize bg-surface-border dark:bg-dark-surface-border hover:bg-brand-500/30 transition-colors flex-shrink-0"
+            className="w-1 flex-shrink-0 cursor-col-resize bg-surface-border dark:bg-dark-surface-border hover:bg-brand-500/40 transition-colors"
             data-testid="split-handle"
           />
 
           {/* Right: Resume Preview */}
-          <div className="overflow-hidden flex-1" style={{ width: `${100 - splitRatio}%` }}>
+          <div className="overflow-hidden flex-1 bg-surface-muted dark:bg-dark-surface-muted" style={{ width: `${100 - splitRatio}%` }}>
             <ResumePreview
               markdown={previewMarkdown}
               styleId={styleId}
