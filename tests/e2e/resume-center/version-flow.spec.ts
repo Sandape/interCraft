@@ -20,8 +20,9 @@ test.describe('Resume Center — Version history', () => {
     await page.waitForTimeout(800)
 
     await page.getByTestId('open-versions').click()
-    await expect(page.getByTestId('version-1')).toBeVisible()
-    await expect(page.getByText('v1 · 初始快照').first()).toBeVisible()
+    // v1 is the auto-initial version; v2 is the user-saved snapshot
+    await expect(page.getByTestId('version-2')).toBeVisible()
+    await expect(page.getByText('v2 · 初始快照').first()).toBeVisible()
   })
 
   test('rollback to an earlier version creates a new branch', async ({ page }) => {
@@ -35,7 +36,7 @@ test.describe('Resume Center — Version history', () => {
     await expect(page).toHaveURL(/\/resume\//)
     const originalUrl = page.url()
 
-    // Save v1
+    // Save user-snapshot #1 (becomes v2; v1 is the auto-initial)
     await page.getByTestId('save-version').click()
     await page.getByTestId('version-label').fill('v1')
     await page.getByTestId('save-version-confirm').click()
@@ -46,15 +47,15 @@ test.describe('Resume Center — Version history', () => {
     await textarea.fill('E2E rollback test content')
     await page.waitForTimeout(2000) // wait past autosave debounce
 
-    // Save v2
+    // Save user-snapshot #2 (becomes v3)
     await page.getByTestId('save-version').click()
     await page.getByTestId('version-label').fill('v2')
     await page.getByTestId('save-version-confirm').click()
     await page.waitForTimeout(800)
 
-    // Open history and rollback to v1
+    // Open history and rollback to v2 (the first user-saved snapshot)
     await page.getByTestId('open-versions').click()
-    await page.getByTestId('rollback-1').click()
+    await page.getByTestId('rollback-2').click()
     await page.getByTestId('rollback-confirm').click()
 
     // Should navigate to a NEW branch (rollback creates a new branch per spec)
@@ -78,8 +79,9 @@ test.describe('Resume Center — Version history', () => {
     await page.waitForTimeout(800)
 
     await page.getByTestId('open-versions').click()
-    await page.getByTestId('view-1').click()
-    // Modal containing snapshot blocks
-    await expect(page.getByText(/快照详情|版本详情|快照/)).toBeVisible({ timeout: 5_000 })
+    // User-saved snapshot is v2 (v1 is the auto-initial)
+    await page.getByTestId('view-2').click()
+    // Modal title contains version detail
+    await expect(page.getByText('版本详情 v2').first()).toBeVisible({ timeout: 5_000 })
   })
 })

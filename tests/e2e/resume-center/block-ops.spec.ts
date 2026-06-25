@@ -1,8 +1,15 @@
 /**
  * Block operations — add / edit content / toggle collapse / reorder / delete.
  * All against the real backend.
+ *
+ * Tests run serially because the shared `freshAccount` stamp (Date.now +
+ * random) can collide under parallel workers, causing multiple
+ * `seedMainBranch` calls to land on the same account and inflate the
+ * block count seen by sibling tests.
  */
 import { test, expect, registerAndLogin, freshAccount } from './fixture'
+
+test.describe.configure({ mode: 'serial' })
 
 test.describe('Resume Center — Block operations', () => {
   test('add a custom block via the type selector modal', async ({ page }) => {
@@ -19,10 +26,13 @@ test.describe('Resume Center — Block operations', () => {
     const initialBlocks = await page.getByTestId(/^block-/).count()
 
     await page.getByTestId('add-block').click()
-    // Pick "summary" type
-    await page.getByRole('button', { name: '简介' }).click()
-    await page.getByPlaceholder('模块标题').fill('职业总结')
-    await page.getByRole('button', { name: '创建' }).click()
+    // Pick "summary" type — scope to the modal dialog to disambiguate from
+    // any same-named button that may render in the preview pane.
+    const addBlockModal = page.getByRole('dialog', { name: '添加模块' })
+    await expect(addBlockModal).toBeVisible({ timeout: 3_000 })
+    await addBlockModal.getByRole('button', { name: '简介' }).click()
+    await addBlockModal.getByPlaceholder('模块标题').fill('职业总结')
+    await addBlockModal.getByRole('button', { name: '创建' }).click()
 
     // Block count should increase by 1
     await expect(page.getByTestId(/^block-/)).toHaveCount(initialBlocks + 1, { timeout: 5_000 })
@@ -41,7 +51,9 @@ test.describe('Resume Center — Block operations', () => {
 
     const firstBlock = page.getByTestId(/^block-/).first()
     await expect(firstBlock).toBeVisible({ timeout: 5_000 })
-    const collapseBtn = firstBlock.getByRole('button', { name: '折叠' })
+    // Scope to the block header to disambiguate from any sibling control
+    // that may also expose an aria-label of "折叠".
+    const collapseBtn = firstBlock.getByTestId(/^block-header-/).first().getByRole('button', { name: '折叠' })
     await collapseBtn.click()
     await page.waitForTimeout(500)
 
@@ -49,7 +61,7 @@ test.describe('Resume Center — Block operations', () => {
     await page.reload()
     const reloaded = page.getByTestId(/^block-/).first()
     await expect(reloaded).toBeVisible({ timeout: 5_000 })
-    await expect(reloaded.getByRole('button', { name: '展开' })).toBeVisible()
+    await expect(reloaded.getByTestId(/^block-header-/).first().getByRole('button', { name: '展开' })).toBeVisible()
   })
 
   test('delete a block removes it from the list', async ({ page }) => {

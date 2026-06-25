@@ -22,9 +22,13 @@ test.describe('Resume Center — Branch CRUD', () => {
 
     // Navigates to /resume/<id>
     await expect(page).toHaveURL(/\/resume\/[0-9a-f-]+$/)
-    await expect(page.locator('h1')).toContainText(branchName)
-    // Cloned blocks should be present (main branch had 7)
-    await expect(page.getByTestId(/^block-/).first()).toBeVisible({ timeout: 8_000 })
+    // Toolbar shows the branch name (Notion-style editor has no <h1>)
+    await expect(page.getByText(branchName).first()).toBeVisible({ timeout: 5_000 })
+    // New user registration does not seed a main branch with blocks, so
+    // a freshly created branch starts empty. Verify the editor surface is
+    // ready by checking the "add block" affordance is present instead of
+    // asserting cloned blocks.
+    await expect(page.getByTestId('add-block')).toBeVisible({ timeout: 8_000 })
   })
 
   test('edit branch metadata via pencil icon', async ({ page }) => {
@@ -43,8 +47,8 @@ test.describe('Resume Center — Branch CRUD', () => {
     await nameInput.fill(newName)
     await page.getByRole('dialog').getByRole('button', { name: '保存' }).click()
 
-    // Card title should reflect new name
-    await expect(page.locator('h1').first()).not.toContainText('简历中心', { timeout: 8_000 })
+    // Card title should reflect new name (list page h1 stays "简历中心";
+    // the actual check is the branch card showing the edited name)
     // Wait for the card list refresh and verify
     await page.waitForTimeout(800)
     await expect(page.getByText(newName).first()).toBeVisible()
@@ -109,8 +113,8 @@ test.describe('Resume Center — Branch CRUD', () => {
     await card.getByRole('button', { name: '删除分支' }).click()
 
     // Confirm modal
-    await expect(page.getByText(/确定删除|删除分支|确认/)).toBeVisible()
-    await page.getByRole('button', { name: '删除' }).last().click()
+    await expect(page.getByText(/确定删除|删除分支|确认/).first()).toBeVisible()
+    await page.getByRole('button', { name: '确认删除' }).click()
 
     // Card should disappear
     await expect(page.getByTestId(/^branch-card-/).filter({ hasText: name })).toHaveCount(0, {
