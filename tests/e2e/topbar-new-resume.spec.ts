@@ -25,10 +25,15 @@ test.describe('Topbar New Resume Branch', () => {
   })
 
   test('US1: topbar button navigates to /resume?new=true and modal opens', async ({ page }) => {
-    // Click the topbar "新建简历分支" button
-    const button = page.getByRole('button', { name: '新建简历分支' })
+    // Topbar button is a dropdown (data-testid="topbar-new-resume-button"
+    // with visible text "新建简历"). Click it to open the menu, then
+    // click the "空白创建" menu item which is what navigates to
+    // /resume?new=true. The modal title remains "新建简历分支".
+    const button = page.getByTestId('topbar-new-resume-button')
     await expect(button).toBeVisible({ timeout: 5000 })
     await button.click()
+    await expect(page.getByTestId('topbar-new-resume-menu')).toBeVisible()
+    await page.getByTestId('topbar-new-resume-blank').click()
 
     // Verify navigation to /resume?new=true
     await expect(page).toHaveURL(/\/resume\?new=true/)

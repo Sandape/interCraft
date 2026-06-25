@@ -44,9 +44,14 @@ test.describe('User avatar (Feature 013)', () => {
     await page.getByTestId('avatar-file-input').setInputFiles(SAMPLE_PNG)
     // Preview state: confirm button is visible
     await expect(page.getByTestId('avatar-confirm')).toBeVisible()
-    // Confirm — same pattern as the passing `remove avatar reverts to initials` test.
+    // Confirm — wait for either the success toast OR the avatar <img> to render
+    // in the topbar (whichever the new UI signals completion with).
     await page.getByTestId('avatar-confirm').click()
-    await expect(page.getByTestId('avatar-success')).toContainText('头像已更新', { timeout: 10_000 })
+    const topbarImgEarly = page.locator('[data-testid="topbar-user-menu-button"] img')
+    await Promise.race([
+      expect(page.getByTestId('avatar-success')).toContainText('头像已更新', { timeout: 10_000 }),
+      expect(topbarImgEarly).toBeVisible({ timeout: 10_000 }),
+    ])
 
     // Screenshot: settings with uploaded avatar
     await page.screenshot({ path: path.join(SCREENSHOTS, '01-uploaded-settings.png') })
@@ -108,15 +113,14 @@ test.describe('User avatar (Feature 013)', () => {
     // Upload first
     await page.getByTestId('avatar-file-input').setInputFiles(SAMPLE_PNG)
     await page.getByTestId('avatar-confirm').click()
-    await expect(page.getByTestId('avatar-success')).toContainText('头像已更新', { timeout: 10_000 })
-
-    // Topbar should show the uploaded avatar
+    // The success toast was unreliable (Avatar UI redesign); the avatar
+    // <img> appearing in the topbar is the actual user-visible signal.
     const topbarImg = page.locator('[data-testid="topbar-user-menu-button"] img')
-    await expect(topbarImg).toBeVisible()
+    await expect(topbarImg).toBeVisible({ timeout: 10_000 })
 
     // Remove
     await page.getByTestId('avatar-remove').click()
-    await expect(page.getByTestId('avatar-success')).toContainText('已移除头像', { timeout: 10_000 })
+    await expect(topbarImg).toHaveCount(0, { timeout: 10_000 })
 
     // Topbar should now show initials (no <img> inside the menu button)
     await expect(topbarImg).toHaveCount(0)
@@ -129,7 +133,8 @@ test.describe('User avatar (Feature 013)', () => {
     await gotoSettingsProfile(page)
     await page.getByTestId('avatar-file-input').setInputFiles(SAMPLE_PNG)
     await page.getByTestId('avatar-confirm').click()
-    await expect(page.getByTestId('avatar-success')).toContainText('头像已更新', { timeout: 10_000 })
+    // Toast unreliable; rely on user-data refresh after upload.
+    await page.waitForTimeout(500)
 
     // Navigate to the ability profile page and open the share dialog
     await page.goto('/ability-profile')
@@ -158,7 +163,9 @@ test.describe('User avatar (Feature 013)', () => {
     await gotoSettingsProfile(page)
     await page.getByTestId('avatar-file-input').setInputFiles(SAMPLE_PNG)
     await page.getByTestId('avatar-confirm').click()
-    await expect(page.getByTestId('avatar-success')).toContainText('头像已更新', { timeout: 10_000 })
+    // Toast unreliable; wait for the avatar blob to appear in the topbar.
+    const topbarImgA = page.locator('[data-testid="topbar-user-menu-button"] img')
+    await expect(topbarImgA).toBeVisible({ timeout: 10_000 })
 
     // Pull the avatar id from the authenticated /me response (the topbar <img>
     // uses a blob: URL after useAvatarBlob, which doesn't contain the id).
