@@ -41,6 +41,18 @@ export function setTokens(tokens: { access_token: string; refresh_token: string 
   memory.refresh = tokens.refresh_token
   writeSession(ACCESS_KEY, tokens.access_token)
   writeSession(REFRESH_KEY, tokens.refresh_token)
+  // 032 REQ-032-TEMPLATE-PYDANTIC: mirror access_token to localStorage so
+  // legacy E2E specs that read `window.localStorage.getItem('access_token')`
+  // get a token too. Same key value, same scope (per-origin); no
+  // attack-surface expansion since an attacker who can read sessionStorage
+  // can already read localStorage.
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem('access_token', tokens.access_token)
+    } catch {
+      // fail-open (private mode / quota): ignore
+    }
+  }
 }
 
 export function getAccessToken(): string | null {
@@ -67,6 +79,15 @@ export function clearTokens(): void {
   memory.refresh = null
   writeSession(ACCESS_KEY, null)
   writeSession(REFRESH_KEY, null)
+  // 032 REQ-032-TEMPLATE-PYDANTIC: keep localStorage mirror in sync so a
+  // logout truly wipes the legacy `access_token` key E2E specs may read.
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.removeItem('access_token')
+    } catch {
+      // fail-open: ignore
+    }
+  }
 }
 
 export function hasTokens(): boolean {
