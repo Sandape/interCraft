@@ -107,12 +107,23 @@ def merge_resume_data(existing: dict[str, Any], partial: dict[str, Any]) -> dict
             meta = merged.setdefault("metadata", {})
             for mk, mv in value.items():
                 if mk == "template" and isinstance(mv, str) and mv not in _VALID_TEMPLATES:
+                    # REQ-032-TEMPLATE-PYDANTIC: when the partial carries an
+                    # unknown template id, log + fall back to "onyx" (not the
+                    # default "pikachu"). This keeps the persisted document
+                    # in sync with the frontend dispatcher
+                    # (`resolveTemplateId`) which maps any unknown id to
+                    # "onyx". Storing "onyx" directly avoids a render
+                    # mismatch where the user requested X and the editor
+                    # shows the unrelated default "pikachu" instead of the
+                    # dispatcher fallback "onyx" (verified by
+                    # 02-template-switch.spec.ts:158 — the test asserts
+                    # `data-template="onyx"` after a bad PUT).
                     _svc_log.warning(
                         "resume_v2.update.template_fallback",
                         requested_template=mv,
-                        applied_template=_DEFAULT_TEMPLATE,
+                        applied_template="onyx",
                     )
-                    meta["template"] = _DEFAULT_TEMPLATE
+                    meta["template"] = "onyx"
                     continue
                 # Sub-trees (layout/page/design/typography/styleRules
                 # /notes) are merged — a partial `metadata.layout`

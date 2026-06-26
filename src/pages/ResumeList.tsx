@@ -2,9 +2,15 @@
  * ResumeList page — lists branches from the repository, allows creating
  * a new branch (cloned from main by default) and navigates into the
  * editor on click. Supports in-place edit, delete, pin, and status display.
+ *
+ * 032 REQ-032-LIST-ENTRY: also lists v2 resumes (from GET /api/v1/v2/resumes)
+ * in a separate "v2 resumes" section beneath the v1 branch list. v1 cards
+ * navigate to `/resume/{branchId}` (markdown editor); v2 cards navigate
+ * to `/resume/v2/{id}` (structured editor).
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Plus, Sparkles, FileText, GitBranch, Clock, Pin, Pencil, Trash2, Upload, Briefcase, ChevronDown, ChevronUp, LayoutTemplate } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -20,6 +26,7 @@ import type { BranchStatus, ResumeBranch } from '@/modules/resume/api/types'
 import PrimaryResumeCard from '@/modules/resume/list/PrimaryResumeCard'
 import ResumeListToolbar, { type SortKey } from '@/modules/resume/list/ResumeListToolbar'
 import ImportModal from '@/modules/resume/import/ImportModal'
+import { listResumes, type ResumeV2ListItem } from '@/modules/resume/v2/api'
 
 const STATUS_LABEL: Record<BranchStatus, string> = {
   draft: '草稿',
@@ -55,6 +62,14 @@ export default function ResumeList() {
   const bindBranchToJob = useBindBranchToJob()
 
   const main = branches.find((b) => b.is_main) ?? branches[0]
+
+  // 032 REQ-032-LIST-ENTRY: load v2 resumes for the mixed list
+  const { data: v2Data } = useQuery({
+    queryKey: ['resumes-v2-list-mixed'],
+    queryFn: () => listResumes({ sort: 'updated' }),
+    staleTime: 30_000,
+  })
+  const v2Resumes: ResumeV2ListItem[] = v2Data?.data ?? []
 
   // 019 — ?source_job_id prefill (Job detail + Topbar "基于岗位创建" entry points)
   const sourceJobId = searchParams.get('source_job_id')
@@ -357,6 +372,56 @@ export default function ResumeList() {
         </div>
         </div>
         </>
+      )}
+
+      {/* 032 REQ-032-LIST-ENTRY: v2 resumes section (structured editor) */}
+      {v2Resumes.length > 0 && (
+        <div className="mt-8" data-testid="v2-resumes-section">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-1 h-px bg-surface-border dark:bg-dark-surface-border" />
+            <span className="text-xs text-ink-3 flex-shrink-0">
+              v2 简历 · {v2Resumes.length} 份（结构化编辑器）
+            </span>
+            <div className="flex-1 h-px bg-surface-border dark:bg-dark-surface-border" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {v2Resumes.map((r) => (
+              <Link
+                key={r.id}
+                to={`/resume/v2/${r.id}`}
+                className="group"
+                data-testid="v2-resume-card"
+                data-resume-id={r.id}
+              >
+                <Card hover padding="md" className="h-full">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="h-8 w-8 rounded-md flex items-center justify-center flex-shrink-0 bg-brand-50 dark:bg-brand-500/15 text-brand-600">
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-ink-1 truncate group-hover:text-brand-600 transition-colors">
+                        {r.name}
+                      </div>
+                      <div className="text-2xs text-ink-3 mt-0.5 truncate">/{r.slug}</div>
+                    </div>
+                    {r.is_public ? (
+                      <Badge variant="success" className="text-2xs">公开</Badge>
+                    ) : (
+                      <Badge variant="default" className="text-2xs">私有</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-2xs text-ink-3 pt-3 border-t border-surface-border dark:border-dark-surface-border">
+                    <span>v{r.version}</span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-2.5 w-2.5" />
+                      {r.updated_at ? timeAgo(r.updated_at) : '刚刚创建'}
+                    </span>
+                  </div>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Create branch modal */}

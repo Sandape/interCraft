@@ -19,6 +19,7 @@ import SharedAbilityProfile from '@/pages/SharedAbilityProfile'
 /* ── Lazy (code-split on route) ── */
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const ResumeList = lazy(() => import('@/pages/ResumeList'))
+const ResumeListV2 = lazy(() => import('@/pages/ResumeListV2'))
 const ResumeEditor = lazy(() => import('@/pages/ResumeEditor'))
 const ResumeEditorV2 = lazy(() => import('@/pages/ResumeEditorV2'))
 const PublicResumeV2 = lazy(() => import('@/pages/PublicResumeV2'))
@@ -110,6 +111,8 @@ export function AppRoutes() {
                 <Route path="/resume" element={<ResumeList />} />
                 <Route path="/resume/marketplace" element={<Square />} />
                 <Route path="/resume/v2/:id" element={<ResumeEditorV2 />} />
+                <Route path="/resume-v2" element={<ResumeListV2 />} />
+                <Route path="/resume-v2/new" element={<ResumeListV2 />} />
                 <Route path="/resume/:branchId" element={<ResumeEditor />} />
                 <Route path="/interview" element={<InterviewList />} />
                 <Route path="/interview/new" element={<InterviewLive />} />

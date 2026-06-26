@@ -285,13 +285,6 @@ export function BuilderShell({
             maxSize={leftCollapsedEffective ? RAIL_WIDTH : 40}
             order={1}
             className="overflow-hidden"
-            style={{
-              flexGrow: leftSize,
-              flexShrink: 1,
-              flexBasis: 0,
-              minWidth: leftCollapsedEffective ? RAIL_WIDTH : 0,
-              maxWidth: leftCollapsedEffective ? RAIL_WIDTH : '40%',
-            }}
           >
             <div
               data-testid="left-panel"
@@ -317,13 +310,6 @@ export function BuilderShell({
             maxSize={80}
             order={2}
             className="overflow-hidden"
-            style={{
-              flexGrow: centerSize,
-              flexShrink: 1,
-              flexBasis: 0,
-              minWidth: 0,
-              maxWidth: '80%',
-            }}
           >
             <div data-testid="center-panel" className="h-full w-full">
               <PreviewPane
@@ -369,13 +355,6 @@ export function BuilderShell({
             maxSize={rightCollapsedEffective ? RAIL_WIDTH : 40}
             order={3}
             className="overflow-hidden"
-            style={{
-              flexGrow: rightSize,
-              flexShrink: 1,
-              flexBasis: 0,
-              minWidth: rightCollapsedEffective ? RAIL_WIDTH : 0,
-              maxWidth: rightCollapsedEffective ? RAIL_WIDTH : '40%',
-            }}
           >
             <div
               data-testid="right-panel"

@@ -45,6 +45,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   const primaryNav: SidebarItem[] = [
     { to: '/dashboard', label: '工作台', icon: <LayoutDashboard className="h-4 w-4" /> },
     { to: '/resume', label: '简历中心', icon: <FileText className="h-4 w-4" />, badge: branches.length },
+    { to: '/resume-v2', label: 'v2 简历', icon: <Sparkles className="h-4 w-4" />, exact: true },
     { to: '/interview', label: '模拟面试', icon: <MessageSquareText className="h-4 w-4" /> },
     { to: '/ability-profile', label: '个人画像', icon: <Radar className="h-4 w-4" /> },
   ]
@@ -100,6 +101,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
               <NavLink
                 key={item.to}
                 to={item.to}
+                end={item.exact}
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-2 px-2 h-7 rounded text-sm transition-colors',

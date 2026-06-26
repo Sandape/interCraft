@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, Search, Command, HelpCircle, Plus, ChevronDown, Briefcase, FilePlus2 } from 'lucide-react'
+import { Bell, Search, Command, HelpCircle, Plus, ChevronDown, Briefcase, FilePlus2, Sparkles } from 'lucide-react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
@@ -134,7 +134,16 @@ export function Topbar({
                 >
                   <div className="flex items-center gap-2">
                     <FilePlus2 className="h-3.5 w-3.5" />
-                    <span>空白创建</span>
+                    <span>空白创建（v1）</span>
+                  </div>
+                </MenuItem>
+                <MenuItem
+                  testId="topbar-new-resume-v2"
+                  onClick={() => { setNewResumeMenu(false); navigate('/resume-v2/new') }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>v2 简历（结构化编辑器）</span>
                   </div>
                 </MenuItem>
                 <div className="px-3 pt-1.5 pb-1 text-2xs text-ink-3 uppercase tracking-wide">
