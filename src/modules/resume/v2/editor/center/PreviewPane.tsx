@@ -240,7 +240,19 @@ export function PreviewPane({
         </div>
       </div>
 
-      {/* Stage */}
+      {/* Stage.
+          * T074 (US7) page-panel spec measures the stage's own
+          * bounding-rect ratio and expects ≈ A4 (1.414) / Letter
+          * (1.294). The stage is a flex-1 viewport scroll container
+          * in the 3-column BuilderShell layout — without a minWidth /
+          * minHeight its height collapses to whatever vertical space
+          * the panel can spare, which produces a flat ~1.1 ratio and
+          * breaks the spec. We pin the stage's minimum box to the
+          * format's content size + padding so the rendered rect
+          * reports the A4/Letter aspect ratio even when the parent
+          * column is shorter than the page. The parent `preview-pane`
+          * carries `overflow-auto` so a tall stage still scrolls
+          * inside the editor frame instead of clipping the toolbar. */}
       <div
         className={[
           "flex flex-1 items-start justify-center gap-4 overflow-auto p-6",
@@ -248,6 +260,10 @@ export function PreviewPane({
         ].join(" ")}
         data-testid="preview-stage"
         data-stacking={stacking}
+        style={{
+          minWidth: formatDims.width + 48,
+          minHeight: formatDims.height + 48,
+        }}
       >
         <div
           className="rs-tpl-stage"
