@@ -39,9 +39,34 @@ async function registerAndCreateV2Resume(ctx: BrowserContext): Promise<string> {
     data: { email, password },
   });
   expect(loginRes.status(), `POST /auth/login → ${loginRes.status()}`).toBeLessThan(400);
-  const loginBody = (await loginRes.json()) as { tokens?: { access_token?: string } };
+  const loginBody = (await loginRes.json()) as { tokens?: { access_token?: string; refresh_token?: string } };
   const token = loginBody.tokens?.access_token;
+  const refreshToken = loginBody.tokens?.refresh_token ?? token;
   if (!token) throw new Error("No access_token returned from POST /auth/login");
+  // Mirror the token into every storage location that token-storage.ts
+  // (src/api/token-storage.ts, setTokens) writes to. Injecting via
+  // ctx.addInitScript means every page subsequently created on this
+  // context (pageA, pageB) gets the token automatically on load,
+  // closing regPage does not strand later pages in /login.
+  await ctx.addInitScript(
+    ({ access, refresh }: { access: string; refresh: string }) => {
+      try {
+        sessionStorage.setItem("ic.access_token", access);
+        sessionStorage.setItem("ic.refresh_token", refresh);
+      } catch {
+        /* sessionStorage may be disabled */
+      }
+      try {
+        localStorage.setItem("ic.access_token", access);
+        localStorage.setItem("ic.refresh_token", refresh);
+        localStorage.setItem("access_token", access);
+        localStorage.setItem("refresh_token", refresh);
+      } catch {
+        /* localStorage may be disabled */
+      }
+    },
+    { access: token, refresh: refreshToken },
+  );
   // Create v2 resume via regPage.request (cookie jar already populated).
   const createResp = await regPage.request.post(`${BACKEND}/api/v1/v2/resumes`, {
     headers: { Authorization: `Bearer ${token}` },
