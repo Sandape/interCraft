@@ -122,6 +122,10 @@ def create_app() -> FastAPI:
 
     app.include_router(locks_ws_router, prefix=settings.api_v1_prefix)
     app.include_router(interview_ws_router, prefix=settings.api_v1_prefix)
+    # 032: Resume v2 SSE stream (GET /api/v1/v2/resumes/events)
+    from app.api.v1.ws.resume_v2 import router as resume_v2_ws_router
+
+    app.include_router(resume_v2_ws_router, prefix=settings.api_v1_prefix)
 
     return app
 

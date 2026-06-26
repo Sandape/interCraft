@@ -672,19 +672,6 @@ def _public_pw_cookie_name(password_hash: str) -> str:
     return f"v2_public_pw_{h}"
 
 
-@router.get(
-    "/resumes/events",
-    status_code=status.HTTP_501_NOT_IMPLEMENTED,
-)
-async def resume_events() -> JSONResponse:
-    """GET /api/v1/v2/resumes/events — stub (US12 T116)."""
-    # T177: structured log on SSE subscribe attempt
-    _log.info("resume_v2.sse.subscribe", status="stub")
-    # T178: OTel span around SSE subscribe
-    with otel_span("v2.resume.sse.subscribe"):
-        return _not_implemented("resume_events")
-
-
 @router.post("/export/render", response_model=None)
 async def export_render(
     payload: ExportRenderIn,
