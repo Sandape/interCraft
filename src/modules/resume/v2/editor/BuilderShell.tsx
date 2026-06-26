@@ -301,6 +301,40 @@ export function BuilderShell({
           />
 
           <Panel
+            data-testid="panel-right"
+            data-size={rightSize}
+            data-min={rightCollapsedEffective ? RAIL_WIDTH : 15}
+            data-max={rightCollapsedEffective ? RAIL_WIDTH : 40}
+            data-collapsed={rightCollapsedEffective ? "true" : "false"}
+            defaultSize={rightSize}
+            minSize={rightCollapsedEffective ? RAIL_WIDTH : 15}
+            maxSize={rightCollapsedEffective ? RAIL_WIDTH : 40}
+            order={3}
+            className="overflow-hidden"
+          >
+            <div
+              data-testid="right-panel"
+              data-rail-width={rightCollapsedEffective ? String(RAIL_WIDTH) : undefined}
+              className="h-full w-full"
+            >
+              <SettingsPanel
+                data={data}
+                onChange={onChange}
+                resumeId={resumeId}
+                resumeSlug={resumeSlug}
+                ownerUsername={ownerUsername}
+                isPublic={isPublic}
+                passwordSet={passwordSet}
+              />
+            </div>
+          </Panel>
+
+          <PanelResizeHandle
+            data-testid="resize-handle-right"
+            className="relative z-10 w-px bg-surface-border data-[resize-handle-state=hover]:bg-primary-300 data-[resize-handle-state=drag]:bg-primary-400"
+          />
+
+          <Panel
             data-testid="panel-center"
             data-size={centerSize}
             data-min={30}
@@ -339,39 +373,6 @@ export function BuilderShell({
             </div>
           </Panel>
 
-          <PanelResizeHandle
-            data-testid="resize-handle-right"
-            className="relative z-10 w-px bg-surface-border data-[resize-handle-state=hover]:bg-primary-300 data-[resize-handle-state=drag]:bg-primary-400"
-          />
-
-          <Panel
-            data-testid="panel-right"
-            data-size={rightSize}
-            data-min={rightCollapsedEffective ? RAIL_WIDTH : 15}
-            data-max={rightCollapsedEffective ? RAIL_WIDTH : 40}
-            data-collapsed={rightCollapsedEffective ? "true" : "false"}
-            defaultSize={rightSize}
-            minSize={rightCollapsedEffective ? RAIL_WIDTH : 15}
-            maxSize={rightCollapsedEffective ? RAIL_WIDTH : 40}
-            order={3}
-            className="overflow-hidden"
-          >
-            <div
-              data-testid="right-panel"
-              data-rail-width={rightCollapsedEffective ? String(RAIL_WIDTH) : undefined}
-              className="h-full w-full"
-            >
-              <SettingsPanel
-                data={data}
-                onChange={onChange}
-                resumeId={resumeId}
-                resumeSlug={resumeSlug}
-                ownerUsername={ownerUsername}
-                isPublic={isPublic}
-                passwordSet={passwordSet}
-              />
-            </div>
-          </Panel>
         </PanelGroup>
       </div>
     </div>

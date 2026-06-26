@@ -94,6 +94,29 @@ export default function ResumeEditorV2() {
   useEffect(() => {
     if (query.data) {
       const serverData = query.data.data as unknown as ResumeDataV2;
+      // REQ-032 layout-dnd fix: when refetching (e.g. triggered by our
+      // own `lastSavedAt → invalidateQueries` invalidation above), the
+      // server's snapshot may be STALE — it reflects the last
+      // successfully-received PUT, but a debounced PUT for subsequent
+      // local edits may not yet have arrived at the server. Replacing
+      // `s.data` with the stale snapshot would clobber those pending
+      // edits (observed in T081 layout-dnd Playwright test: after
+      // Add Page + drag Profiles to sidebar, the Add Page's PUT
+      // response invalidates → refetch returns PRE-drag data → drag is
+      // reverted). Skip the reset when:
+      //   - the store is hydrated AND the local data differs from the
+      //     server's snapshot (i.e. user has unsaved local edits), OR
+      //   - a save is currently in flight (`saving` or `pendingSave`),
+      //     so we know the next response will arrive shortly.
+      const storeState = useResumeV2Store.getState();
+      if (storeState.hydrated) {
+        const localDirty = storeState.isDirty;
+        const saveInFlight =
+          storeState.saving || storeState.pendingSave !== null;
+        if (localDirty || saveInFlight) {
+          return;
+        }
+      }
       // Defensive: if server data is missing critical fields, fill from
       // defaults so the editor never crashes on partial data.
       const merged: ResumeDataV2 = {

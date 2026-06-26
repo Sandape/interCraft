@@ -205,8 +205,24 @@ export const useResumeV2Store = create<ResumeV2Store>()(
         }
         // 200 path
         const ok = res as ResumeV2;
-        get().resetFromServer({ id: ok.id, data: ok.data as ResumeDataV2, version: ok.version });
+        // REQ-032 layout-dnd fix: do NOT reset s.data to ok.data here.
+        // The PUT response's `data` reflects whatever the server stored
+        // from THIS specific PUT, but the local `s.data` may already
+        // contain LATER edits made while this PUT was in flight (the
+        // debounce path skips a new PUT while `pendingSave` is set, so
+        // those later edits are not yet on the server). Replacing
+        // `s.data` with `ok.data` would clobber those pending edits
+        // with the older server snapshot — observed in the locked
+        // T081 layout-dnd Playwright test where the drag's
+        // main→sidebar move was reverted to the pre-drag layout.
+        //
+        // Instead, just bump the version + mark our local data as the
+        // new authoritative baseline. The next debounce will pick up
+        // any further edits and ship them.
         set((s) => {
+          s.version = ok.version;
+          s.original = JSON.parse(JSON.stringify(s.data));
+          s.isDirty = !deepEqual(s.data, s.original);
           s.lastSavedAt = Date.now();
         });
       } catch (err: unknown) {
