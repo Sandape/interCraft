@@ -516,11 +516,19 @@ class ResumeV2CreateIn(_Base):
 
 
 class ResumeV2UpdateIn(_Base):
-    """PUT body — full document replacement."""
+    """PUT body — partial document update.
+
+    REQ-039: ``data`` is a free-form ``dict`` (not the strict
+    ``ResumeDataV2Pydantic``) so a frontend PUT that only touches
+    one sub-tree (e.g. just ``metadata.template``) doesn't 422 on
+    the required sub-fields. The service layer (``merge_resume_data``)
+    stitches the partial into the stored full doc, validates the
+    template id with a graceful fallback, and only then persists.
+    """
 
     name: NameStr | None = None
     tags: list[str] | None = None
-    data: ResumeDataV2Pydantic | None = None
+    data: dict[str, Any] | None = None
 
 
 class ResumeV2Out(_Base):
@@ -599,6 +607,38 @@ class AnalysisOut(_Base):
     updated_at: datetime
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Export (US10 — REQ-036)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Mirrors the 027 export gateway's accepted formats. Per
+# specs/032-resume-renderer-v2/contracts/01-rest-api.md §6 the v2
+# endpoint additionally accepts "json" so clients can round-trip the
+# full ResumeDataV2 without rendering.
+ExportFormat = Literal["pdf", "png", "jpeg", "json"]
+
+
+class ExportRenderIn(_Base):
+    """POST body for ``/api/v1/v2/export/render``.
+
+    The pipeline accepts pre-rendered HTML (same shape as
+    ``/api/v1/export/render``) plus an optional ``resume_id`` so we
+    can attribute the download + bump the counter. When ``format`` is
+    ``"json"`` the ``html`` field is ignored and the resume's full
+    ``ResumeDataV2`` document is returned verbatim.
+
+    NOTE: ``html`` length validation is intentionally NOT a
+    Pydantic-constraint here. We want the handler to return the
+    flat ``413 CONTENT_TOO_LARGE`` envelope (per the v2 contract)
+    rather than a 422 from Pydantic's ``max_length`` check. The
+    handler does the size check before delegating to the gateway.
+    """
+
+    html: str = ""
+    format: ExportFormat = "pdf"
+    resume_id: UUID | None = None
+
+
 __all__ = [
     "ResumeDataV2Pydantic",
     "ResumeV2CreateIn",
@@ -613,6 +653,8 @@ __all__ = [
     "LockOut",
     "StatisticsOut",
     "AnalysisOut",
+    "ExportFormat",
+    "ExportRenderIn",
     "TemplateId",
     "SectionType",
 ]
