@@ -280,7 +280,6 @@ export function BuilderShell({
             data-min={leftCollapsedEffective ? RAIL_WIDTH : 15}
             data-max={leftCollapsedEffective ? RAIL_WIDTH : 40}
             data-collapsed={leftCollapsedEffective ? "true" : "false"}
-            data-rail-width={leftCollapsedEffective ? String(RAIL_WIDTH) : undefined}
             defaultSize={leftSize}
             minSize={leftCollapsedEffective ? RAIL_WIDTH : 15}
             maxSize={leftCollapsedEffective ? RAIL_WIDTH : 40}
@@ -294,14 +293,18 @@ export function BuilderShell({
               maxWidth: leftCollapsedEffective ? RAIL_WIDTH : '40%',
             }}
           >
-            <div data-testid="left-panel" className="h-full w-full">
+            <div
+              data-testid="left-panel"
+              data-rail-width={leftCollapsedEffective ? String(RAIL_WIDTH) : undefined}
+              className="h-full w-full"
+            >
               <SectionsPanel />
             </div>
           </Panel>
 
           <PanelResizeHandle
             data-testid="resize-handle-left"
-            className="w-px bg-surface-border data-[resize-handle-state=hover]:bg-primary-300 data-[resize-handle-state=drag]:bg-primary-400"
+            className="relative z-10 w-px bg-surface-border data-[resize-handle-state=hover]:bg-primary-300 data-[resize-handle-state=drag]:bg-primary-400"
           />
 
           <Panel
@@ -352,7 +355,7 @@ export function BuilderShell({
 
           <PanelResizeHandle
             data-testid="resize-handle-right"
-            className="w-px bg-surface-border data-[resize-handle-state=hover]:bg-primary-300 data-[resize-handle-state=drag]:bg-primary-400"
+            className="relative z-10 w-px bg-surface-border data-[resize-handle-state=hover]:bg-primary-300 data-[resize-handle-state=drag]:bg-primary-400"
           />
 
           <Panel
@@ -361,7 +364,6 @@ export function BuilderShell({
             data-min={rightCollapsedEffective ? RAIL_WIDTH : 15}
             data-max={rightCollapsedEffective ? RAIL_WIDTH : 40}
             data-collapsed={rightCollapsedEffective ? "true" : "false"}
-            data-rail-width={rightCollapsedEffective ? String(RAIL_WIDTH) : undefined}
             defaultSize={rightSize}
             minSize={rightCollapsedEffective ? RAIL_WIDTH : 15}
             maxSize={rightCollapsedEffective ? RAIL_WIDTH : 40}
@@ -375,7 +377,11 @@ export function BuilderShell({
               maxWidth: rightCollapsedEffective ? RAIL_WIDTH : '40%',
             }}
           >
-            <div data-testid="right-panel" className="h-full w-full">
+            <div
+              data-testid="right-panel"
+              data-rail-width={rightCollapsedEffective ? String(RAIL_WIDTH) : undefined}
+              className="h-full w-full"
+            >
               <SettingsPanel
                 data={data}
                 onChange={onChange}
