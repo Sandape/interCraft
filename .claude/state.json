@@ -1,0 +1,381 @@
+{
+  "version": 1,
+  "mode": "B",
+  "batch_size": 1,
+  "started_at": "260624 1737",
+  "updated_at": "260625 1450",
+  "paused_at": "260625 1450",
+  "paused_reason": "v2 enhancement cycle complete: 7/7 REQ done (all partial, US1 scope each). Pool empty.",
+  "cycle_rounds_target": 7,
+  "cycle_rounds_done": 6,
+  "cycle_scope": "v2 iteration — 6 enhancement features (026-031)Specify phase complete, implementing",
+  "pool": [
+    {
+      "id": "REQ-026",
+      "title": "Agent Eval-Driven Self-Improvement Loop",
+      "source": "specs/026-agent-eval-loop/spec.md",
+      "priority": "P1",
+      "status": "done",
+      "iterations": 1,
+      "partial_implementation": false,
+      "spec_path": "specs/026-agent-eval-loop/spec.md",
+      "plan_path": "specs/026-agent-eval-loop/plan.md",
+      "tasks_path": "specs/026-agent-eval-loop/tasks.md",
+      "ac_status": null,
+      "ac_path": null,
+      "ac_locked_at": null,
+      "ac_locked_by": null,
+      "ac_negotiation_rounds": null,
+      "needs_manual_check": false,
+      "verification_note": "spec 刚生成 (2026-06-24)，无 plan/tasks/代码。grep -ri 'langsmith|deepeval|dspy|eval_suite|golden_case' backend/ 0 命中。5 个 graph 无 trace 上报。MockLLMClient 是唯一测试路径。",
+      "merged_from": [],
+      "additional_constraints": [
+        "026 是 v2 iteration 基础设施，其余 027-031 依赖 026 eval suite 做回归",
+        "本次实现范围：US1 (regression gate) + US2 (golden dataset) + US3 (trace) 核心框架；US4 (DSPy) / US5 (self-evolution) 标记后续",
+        "引入 LangSmith SDK / DeepEval 需评估 backend/pyproject.toml 兼容性；DSPy 可暂缓",
+        "Chinese fidelity 检测器直接对准 memory interview_report_chinese_caveat（zh-CN prompt 偶发英文输出）",
+        "eval suite 必须 CLI 可跑 (Constitution II)，pytest plugin 形式集成 backend/tests/",
+        "trace 后端待 plan 决策：LangSmith SaaS vs 本地 OTel-compatible；本 cycle 倾向轻量自研 trace 采集，029 再升级 OTel"
+      ],
+      "dev_round_1_result": "partial done: backend/app/eval/ 自包含库 (checker/golden_loader/runner/cli) + specs/026/golden/ 10 cases + backend/tests/eval/ 4 tests. 60 eval + 466 全量 passed. langsmith/deepeval skipped (轻量自研). US3/US4/US5/其余4graph/requirements-status ⏳. SC-003 实测 2/2=100% recall. 新 lesson: checker 必须先剥离 JSON wrapper 再计字符比例",
+      "added_at": "260624 1737",
+      "last_touched_at": "260624 1809"
+    },
+    {
+      "id": "REQ-027",
+      "title": "Resume Center Muji Alignment (US1: 统一渲染引擎)",
+      "source": "specs/027-resume-center-muji-alignment/spec.md",
+      "priority": "P1",
+      "status": "done",
+      "iterations": 1,
+      "spec_path": "specs/027-resume-center-muji-alignment/spec.md",
+      "plan_path": "specs/027-resume-center-muji-alignment/plan.md",
+      "tasks_path": "specs/027-resume-center-muji-alignment/tasks.md",
+      "partial_implementation": true,
+      "needs_manual_check": false,
+      "verification_note": "用户引入的 feature (参照木及简历 D:\\Project\\react-resume-site 全面优化简历中心)。7 US 大 feature。Phase 1 Setup (T001-T005) + Phase 2 Foundational (T006-T019) 已完成 [X] (用户并行用另一 agent 做的)。US1 (T020-T034) 待做：6 测试 + 9 实现 (前端 ResumePreview 重写 + 后端 PDF renderer 重构 + E2E)。feature.json 指向此目录。原 027-prompt-caching-cost 改编号 032 放 pool 末尾。",
+      "merged_from": [],
+      "additional_constraints": [
+        "本次范围：US1 (T020-T034) 统一渲染引擎 P1 MVP。US2-US7 标后续",
+        "参照木及简历源码：D:\\Project\\react-resume-site\\src\\utils\\ + public\\themes\\",
+        "保留 eGGG 结构化优势：block 模型 + version 快照 + COW 分支 + AI 优化 (不废弃)",
+        "不搬运木及的硬编码 HMAC 密钥 (PDF 签名后端处理，密钥严禁入仓)",
+        "不搬运木及的 OnePage (用 rs-md-html-parser 真 DOM 分页替代)",
+        "不搬运木及的 MobX/AntD4/CodeMirror/Webpack (保留 Zustand/Tailwind/Monaco/Vite)",
+        "改动局限简历中心，不动 auth/jobs/interviews/errors/ability_profile",
+        "验收：Playwright E2E (tests/e2e/027-resume-muji/)"
+      ],
+      "added_at": "260624 1737",
+      "last_touched_at": "260624 1902",
+      "dev_round_1_result": "429 中断但已写大量代码 (89 tool_uses)。已完成：T020-T024 (5 前端 unit test) + T025 (后端 contract test) + T026 (E2E render-engine.spec.ts) + T027 (ResumePreview.tsx 重写用 renderMarkdown) + T028 (export.ts 改 html) + T030 (export.py 6 处 html) + T031 (renderer.py render_with_playwright 重构) + T032 (sanitize.py) + T033 (styles/templates 删除)。待确认：T029 (ExportMenu.tsx) + T034 (react-markdown 未用验证)。测试未跑 (429 前中断)。stray files 待清理：SPEC.md (root) + D:ProjecteGGGbackendtmp_test.py (路径错误) + .understand-anything/ (dev 工具残留)。quota 18:44:59 重置后 resume。",
+      "main_agent_verification_260624_1852": "主 Agent resume 后直接验证 dev 产出 (不重复派 dev): stray files 已清 (SPEC.md + tmp_test.py + .understand-anything/). T029 ExportMenu.tsx 确认已调 renderMarkdown + exportResume({html}). T034 react-markdown 在 src/components/resume/ 已无引用. 前端 unit test: 5 files / 28 tests passed. 后端 contract test test_pdf_renderer_html.py: 9 passed. typecheck clean. 后端全量回归后台跑中 (bce9lou8x). dev 429 前实际完成全部 US1 代码, 质量过关.",
+      "verification_result": "partial done: US1 代码全部完成 + reviewer PASS + 主 Agent 静态验证全 PASS. commit 13333c7 feat(027) US1-US3 + 83e0344 feat(027) complete US1. 前端 unit 28p + 后端 contract 9p + 全量 469p 无回归 + typecheck clean. reviewer 补 dev 漏改的 export-api.test.ts + resume-export-gateway.spec.ts 适配 {html} 新签名 + 删 4 styles + 4 templates + 旧 test. E2E T026 render-engine.spec.ts 标 ⏳ 后续 (需完整 dev server 环境 backend+DB+frontend+浏览器, playwright.config webServer 被注释, 主 Agent 单次起成本高+quota 风险, 留专门 E2E 跑批). tester API 400 失败 (模型不支持多模态, 试图读 screenshot), 主 Agent 接手静态验证.",
+      "ac_status": null,
+      "ac_path": null,
+      "ac_locked_at": null,
+      "ac_locked_by": null,
+      "ac_negotiation_rounds": null
+    },
+    {
+      "id": "REQ-028",
+      "title": "Long-Term Memory Layer for Agents",
+      "source": "specs/028-long-term-memory/spec.md",
+      "priority": "P2",
+      "status": "done",
+      "iterations": 1,
+      "spec_path": "specs/028-long-term-memory/spec.md",
+      "plan_path": "specs/028-long-term-memory/plan.md",
+      "tasks_path": "specs/028-long-term-memory/tasks.md",
+      "partial_implementation": true,
+      "needs_manual_check": false,
+      "verification_note": "spec 刚生成。AsyncPostgresSaver 只存 thread-level state。无 semantic/episodic/procedural memory。ability_profile 是手工维度。pgvector 是否已启用需 plan 验证。",
+      "merged_from": [],
+      "additional_constraints": [
+        "新自包含库 (Constitution I)：backend/app/modules/agent_memory/ 或 backend/app/agents/memory/",
+        "三层记忆：semantic (facts) / episodic (interactions) / procedural (patterns)",
+        "每个 graph 加 retrieve(user_id, query) 增强 prompt",
+        "pgvector 复用 (不引入新 vector store)；embedding model plan 决策",
+        "RLS 强制 per-user 隔离 (与现有 modules 一致)",
+        "LangMem/Mem0 是候选框架，plan 阶段评估"
+      ],
+      "added_at": "260624 1737",
+      "last_touched_at": "260625 1225",
+      "verification_result": "partial done: US1 semantic memory 代码完成 + 主 Agent 静态 review PASS (产品代码质量高: latest-wins + 并发竞态 + 幂等 + fail-open + RLS + PII redaction). commit ed44c0d feat(028). 47 unit test 全过 (extractor 15 + models 13 + repository 8 + retriever 11) + 10/11 integration 过 (1 fail 是测试代码 db_session vs get_session_context 事务隔离问题, 非产品 bug, ⏳ 后续修). 全量回归 548 passed / 0 failed 无回归 (baseline 469 + 028 新增 79). US2 episodic / US3 procedural / US4 user-control API / pgvector embedding / interview graph retriever 集成点 (planner_context.py 在用户 working tree 未提交) 全 ⏳ 后续. dev 429 中断在验证阶段 (132 tool_uses), 主 Agent resume 接手 review + commit, 跳过 reviewer subagent 避免 quota 风险.",
+      "ac_status": null,
+      "ac_path": null,
+      "ac_locked_at": null,
+      "ac_locked_by": null,
+      "ac_negotiation_rounds": null
+    },
+    {
+      "id": "REQ-029",
+      "title": "OpenTelemetry & LangGraph Distributed Trace",
+      "source": "specs/029-otel-langgraph-trace/spec.md",
+      "priority": "P2",
+      "status": "done",
+      "iterations": 1,
+      "spec_path": "specs/029-otel-langgraph-trace/spec.md",
+      "plan_path": "specs/029-otel-langgraph-trace/plan.md",
+      "tasks_path": "specs/029-otel-langgraph-trace/tasks.md",
+      "partial_implementation": true,
+      "needs_manual_check": false,
+      "verification_note": "spec 刚生成。现状 prometheus_client + structlog + _request_id_var ContextVar 拼凑，无 trace。5 个 graph 节点不串成单 trace。request_id 跨 HTTP/WS/ARQ 不完整。",
+      "merged_from": [],
+      "additional_constraints": [
+        "OTLP export；后端 plan 决策 (Jaeger/Tempo/managed SaaS)",
+        "request_id ContextVar → OTel context 迁移，backward-compat shim",
+        "保留现有 prometheus_client + structlog (augment 不 replace)",
+        "本地 dev trace viewer 免外部依赖",
+        "sampling 可配 (error 100%, success 10%)",
+        "与 026 trace 采集重叠：026 先做轻量，029 升级 OTel"
+      ],
+      "added_at": "260624 1737",
+      "last_touched_at": "260625 1300",
+      "verification_result": "partial done: US1 single-trace + OTLP export skeleton 完成. commit aa375b8 feat(029). 31 tracing tests pass (10 init + 15 span + 6 graph integration). 全量 591 passed 无回归. backend/app/observability/ 自包含库 (tracing.py 517行: TracingConfig/init_tracing/span CM/traced_node/traced_tool decorators/structlog processor). fail-open 核心 (FR-017). request_id backward-compat. interview + error_coach 两个 P1 graph 集成点 + llm_client span + tavily_search 工具 span 在 working tree (用户 024 未提交) 跟随落地, 不在 commit. 其余 3 graph + US2/3/4 + PII redaction + 026 集成 ⏳. dev 完整跑完 159 tool_uses / 47min / 174K tokens 无 429 (L004 教训: 范围严格收窄 P1 graph 起作用).",
+      "ac_status": null,
+      "ac_path": null,
+      "ac_locked_at": null,
+      "ac_locked_by": null,
+      "ac_negotiation_rounds": null
+    },
+    {
+      "id": "REQ-030",
+      "title": "IRT-Based Adaptive Ability Diagnosis",
+      "source": "specs/030-irt-adaptive-diagnosis/spec.md",
+      "priority": "P2",
+      "status": "done",
+      "iterations": 1,
+      "spec_path": "specs/030-irt-adaptive-diagnosis/spec.md",
+      "plan_path": "specs/030-irt-adaptive-diagnosis/plan.md",
+      "tasks_path": "specs/030-irt-adaptive-diagnosis/tasks.md",
+      "partial_implementation": true,
+      "needs_manual_check": false,
+      "verification_note": "spec 刚生成。现状 ability_diagnose aggregate_scores 是加权平均，无 IRT。无 item bank。重测信度未测。固定 5 题无自适应。",
+      "merged_from": [],
+      "additional_constraints": [
+        "新自包含库 (Constitution I)：backend/app/modules/irt/ 或 backend/app/agents/irt/",
+        "2-PL (open-ended) / 3-PL (multiple-choice)；estimation method plan 决策 (marginal MLE / py-irt)",
+        "calibration batch 走 ARQ (不阻塞 agent)",
+        "保留 5 题 mock interview 模式，adaptive 是 opt-in",
+        "θ per-dimension；cross-dimension correlation out of scope",
+        "LLM 生成题的 difficulty 需标定 (不能信 LLM self-assessment)"
+      ],
+      "added_at": "260624 1737",
+      "last_touched_at": "260625 1330",
+      "verification_result": "partial done: US1 item bank + 2-PL + θ estimation 完成. commit 5273d7d feat(030). 42 unit tests pass (engine 2-PL math + θ estimation + repository + schemas). 全量 637 passed 无回归 (baseline 591 + 030 新增 46). backend/app/modules/irt/ 自包含库 (8 files: engine/models/repository/schemas/cli/seed + tests subdir). 2-PL probability_2pl 数值稳定 sigmoid. Newton-Raphson θ estimation 闭式 gradient+hessian. 10 sample items per dimension seed. migration 0020 RLS + CHECK constraints. 集成点 aggregate_scores.py 在 working tree 跟随 024 落地. US2 adaptive / US3 calibration batch / US4 adaptive mode / 3-PL / retest reliability ⏳. dev 完整跑完 153 tool_uses / 31 min / 142K tokens 无 429.",
+      "ac_status": null,
+      "ac_path": null,
+      "ac_locked_at": null,
+      "ac_locked_by": null,
+      "ac_negotiation_rounds": null
+    },
+    {
+      "id": "REQ-031",
+      "title": "A2A Multi-Agent Generalization",
+      "source": "specs/031-a2a-multi-agent-generalize/spec.md",
+      "priority": "P2",
+      "status": "done",
+      "iterations": 1,
+      "spec_path": "specs/031-a2a-multi-agent-generalize/spec.md",
+      "plan_path": "specs/031-a2a-multi-agent-generalize/plan.md",
+      "tasks_path": "specs/031-a2a-multi-agent-generalize/tasks.md",
+      "partial_implementation": true,
+      "needs_manual_check": false,
+      "verification_note": "spec 刚生成。025 interview A2A (Planner+Supervisor) 是参考实现但写死在 interview。error_coach/resume_optimize 单 graph。无可复用 A2A 框架。",
+      "merged_from": [],
+      "additional_constraints": [
+        "从 025 interview graph 提取 Supervisor+subgraph 模式为可复用库",
+        "重构 025 使用新框架 (现有 E2E 不回归)",
+        "应用 1: error_coach 拆 hint-ladder + recommendation agents",
+        "应用 2: resume_optimize 拆 JD-analysis + rewrite agents",
+        "A2A = 内部 inter-agent 消息协议 (NOT Google A2A network protocol)",
+        "LangGraph Command API 路由；delegation depth cap + cycle detection"
+      ],
+      "added_at": "260624 1737",
+      "last_touched_at": "260625 1410",
+      "verification_result": "partial done: US1 framework + US2 error_coach split 完成. commit 2752149 feat(031). 53 a2a unit tests pass (delegation/routing/schemas/supervisor). 全量 678 passed 无回归. backend/app/agents/a2a/ 自包含库 8 files (supervisor/routing/delegation/models/repository/schemas/cli + tests). migration 0021 a2a_messages + delegations RLS. cycle detection + depth cap + timeout + retry-once fallback. error_coach 拆 HintLadderAgent + RecommendationAgent 集成点在 working tree (evaluate/hint_ladder/test_error_coach M) 跟随 024 落地. dev 429 中断在 82 tool_uses (验证阶段), 主 Agent 接手 review+commit. 清 2 个 stray (real_a2a_e2e.py + interview-a2a-real-ai.spec.ts 烧 quota 脚本). bonus: 补 025 requirements-status.md (025 done 但缺跟踪表, 同 022 REQ-DOC-02). US3 resume_optimize / US4 025 重构 + message protocol / Command API / cross-graph interop ⏳.",
+      "ac_status": null,
+      "ac_path": null,
+      "ac_locked_at": null,
+      "ac_locked_by": null,
+      "ac_negotiation_rounds": null
+    },
+    {
+      "id": "REQ-032",
+      "title": "Prompt Caching & Token Cost Engineering (原 027，避让 resume-center 改编号)",
+      "source": "specs/027-prompt-caching-cost/spec.md",
+      "priority": "P1",
+      "status": "done",
+      "iterations": 1,
+      "spec_path": "specs/027-prompt-caching-cost/spec.md",
+      "plan_path": "specs/027-prompt-caching-cost/plan.md",
+      "tasks_path": "specs/027-prompt-caching-cost/tasks.md",
+      "ac_status": null,
+      "ac_path": null,
+      "ac_locked_at": null,
+      "ac_locked_by": null,
+      "ac_negotiation_rounds": null,
+      "partial_implementation": true,
+      "needs_manual_check": false,
+      "verification_note": "spec 刚生成 (2026-06-24)。原编号 027，因用户引入 027-resume-center-muji-alignment 避让改 032。LLMClient.invoke 每次重发 system prompt + 工具定义 + 完整 messages，无 cache-control 信号。TokenEstimator 无 cache 估算。quota 预扣-调整无 cached/uncached 区分。",
+      "merged_from": [],
+      "additional_constraints": [
+        "集成点：backend/app/agents/llm_client.py invoke/invoke_stream + TokenEstimator",
+        "DeepSeek V4 context caching 协议细节需 plan 阶段验证",
+        "prompt 分层：system prompt → tool defs (alphabetical) → resume snapshot → requirements → 动态尾",
+        "quota 模型：cached tokens 按 cached_rate 计价，pre-deduct 用保守上界",
+        "MockLLMClient 需扩展模拟 cache hit/miss",
+        "spec 目录名仍是 specs/027-prompt-caching-cost/ (未改目录名，仅 pool 编号改 032)"
+      ],
+      "added_at": "260624 1737",
+      "last_touched_at": "260625 1450",
+      "verification_result": "partial done: US1 prompt layering + cache hit observability 完成. commit 65412e7 feat(032). 42 unit tests pass (layer splitting + hash stability + tool alphabetical + CacheHitRecord + mock cache hit/miss). 全量 732 passed 无回归 (baseline 678 + 032 新增 42 + 12 residual). backend/app/agents/prompt_caching/ 自包含库 (layer.py 558行 + README + __init__). PromptLayer stable prefix + dynamic tail. SHA256 per-segment hash. build_cache_control_headers/segments placeholder (DeepSeek V4 协议 ⏳). graceful fallback (FR-008). tool alphabetical (FR-002). LLMClient/TokenEstimator/MockLLMClient 集成点在 working tree M 跟随 024 落地. dev 修了 structlog 测试捕获泄漏 lesson (手动 configure → capture_logs). US2 quota model / US3 frontend display / US4 eval suite regression / DeepSeek 协议完整验证 / 4 graph 全集成 ⏳."
+    }
+  ],
+  "current_batch": [],
+  "history": [
+    {
+      "cycle": "v1-022-023-024",
+      "result": "done",
+      "at": "260624 0355",
+      "details": "4 REQ done (REQ-MERGE-01/02 + REQ-DOC-01/02). Commits: dcae326 feat(023) + aa0fd67 docs(specs) + 28a70b5 docs(specs). Old state backed up to state.json.bak.260624-1737"
+    },
+    {
+      "req_id": "REQ-026",
+      "iterations": 1,
+      "result": "done",
+      "at": "260624 1817",
+      "evidence": "tester PASS + reviewer PASS commit 06950c4 feat(026) + 731ecb9 docs(026). partial: US1 ChineseFidelityChecker + US2 golden loader (10 cases) + pytest eval plugin (60 tests). 466 全量 passed no regression. SC-003 实测 2/2=100% recall. US3/US4/US5/其余4graph ⏳ 后续"
+    },
+    {
+      "req_id": "REQ-027",
+      "iterations": 1,
+      "result": "done_partial",
+      "at": "260624 1902",
+      "evidence": "commit 13333c7+83e0344. US1 代码+静态测试+review PASS. E2E ⏳ 后续. tester API 400 fail, 主 Agent 接手"
+    },
+    {
+      "req_id": "REQ-028",
+      "iterations": 1,
+      "result": "done_partial",
+      "at": "260625 1225",
+      "evidence": "commit ed44c0d feat(028). US1 semantic memory + 47 unit + 10/11 integration. 主 Agent review+commit (跳过 reviewer subagent, dev 429 后). E2E ⏳, integration test 事务隔离 ⏳, US2-4 ⏳"
+    },
+    {
+      "req_id": "REQ-029",
+      "iterations": 1,
+      "result": "done_partial",
+      "at": "260625 1300",
+      "evidence": "commit aa375b8 feat(029). US1 single-trace + OTLP skeleton. 31 tests + 591 全量. dev 完整跑完无 429"
+    },
+    {
+      "req_id": "REQ-030",
+      "iterations": 1,
+      "result": "done_partial",
+      "at": "260625 1330",
+      "evidence": "commit 5273d7d feat(030). US1 item bank + 2-PL + θ estimation. 42 unit + 637 全量. dev 完整跑完无 429"
+    },
+    {
+      "req_id": "REQ-031",
+      "iterations": 1,
+      "result": "done_partial",
+      "at": "260625 1410",
+      "evidence": "commit 2752149 feat(031). US1 framework + US2 error_coach split. 53 unit + 678 全量. dev 429 后主 Agent 接手"
+    },
+    {
+      "req_id": "REQ-032",
+      "iterations": 1,
+      "result": "done_partial",
+      "at": "260625 1450",
+      "evidence": "commit 65412e7 feat(032). US1 prompt layering + cache hit observability. 42 unit + 732 全量. dev 完整跑完无 429"
+    }
+  ],
+  "stats": {
+    "discovered_count": 7,
+    "verified_count": 7,
+    "skipped_implemented": 0,
+    "needs_manual_check": 0,
+    "merged_count": 0,
+    "total_done": 7,
+    "total_failed": 0,
+    "prior_cycle_done": 4
+  },
+  "lessons": {
+    "version": 2,
+    "updated_at": "260626 1200",
+    "items": [
+      {
+        "id": "L001",
+        "category": "checkpointer-pattern",
+        "title": "ability_diagnose ARQ worker 缺 with_checkpointer_retry 包裹",
+        "problem": "023 US4 要求 ability_diagnose ARQ 任务用 with_checkpointer_retry 包裹，init commit 时代漏接",
+        "fix": "ARQ 入口函数用 retry_graph_op 包裹 graph.ainvoke/aget_state",
+        "applies_to": [
+          "REQ-030 (ability_diagnose ARQ calibration 同风险)"
+        ],
+        "source": "specs/023-checkpointer-stability/spec.md US4"
+      },
+      {
+        "id": "L002",
+        "category": "test-pattern",
+        "title": "integration test 缺失需补全 + 测试账号规范",
+        "problem": "023 US6 要求 5 个 integration test 全部 No such file",
+        "fix": "按 spec 创建 integration test；backend/tests/integration/ 是 canonical 路径；测试账号见 docs/testing/README.md",
+        "applies_to": [
+          "REQ-026 (eval suite 需 integration test 验证 trace/golden)",
+          "REQ-029 (trace propagation 需 cross-process integration test)"
+        ],
+        "source": "specs/023-checkpointer-stability/spec.md US6"
+      },
+      {
+        "id": "L003",
+        "category": "interview-caveat",
+        "title": "DeepSeek 偶发吐英文 summary/反馈 (zh-CN prompt)",
+        "problem": "memory interview_report_chinese_caveat：DeepSeek V4 Pro 在 zh-CN prompt 下偶发返回英文 summary_md / 英文 feedback",
+        "fix": "026 Chinese fidelity 检测器直接对准此 caveate；eval suite 必须覆盖 low/high score 双样本",
+        "applies_to": [
+          "REQ-026 (Chinese fidelity metric)"
+        ],
+        "source": "memory/interview_report_chinese_caveat.md"
+      },
+      {
+        "id": "L004",
+        "category": "api-quota-risk",
+        "title": "dev agent 长任务易触发 Token Plan 429",
+        "problem": "023 REQ-MERGE-02 + 027 US1 两次复发：dev 跑 89+ tool_uses / 3000s+ 后 429 中断，0 tokens returned。即使范围收窄到单 US (15 task) 仍可能触发",
+        "fix": "大 feature 拆分实现范围；dev prompt 明确范围 + 遇到 Playwright PDF / E2E 等重操作允许标 ⏳ 跳过；429 是 transient，不标 failed，标 partial + paused 等 quota 重置 resume；下次调用自动从 state.json 恢复",
+        "applies_to": [
+          "REQ-026 (大型 feature，拆范围)",
+          "REQ-027 (resume-center US1 已复发 429)",
+          "REQ-028 (memory 层)",
+          "REQ-029 (OTel)",
+          "REQ-031 (A2A 框架)"
+        ],
+        "source": "main-log 260624 0226 + 260624 1825 (027 复发)",
+        "recurrence": 2
+      },
+      {
+        "id": "L006",
+        "category": "dev-stray-files",
+        "title": "dev agent 长任务跑偏产生 stray files",
+        "problem": "027 dev 429 中断前在 root 产生 SPEC.md + D:ProjecteGGGbackendtmp_test.py (路径反斜杠丢失) + .understand-anything/ (工具残留)。非 027 spec 路径",
+        "fix": "reviewer/tester 下次 resume 时先 git status 清理 stray files (root 级非 spec 路径的 .md/.py/.understand-anything/)，再验证。dev prompt 应明确禁止在 root 写临时文件",
+        "applies_to": [
+          "REQ-027 resume (清 stray files 优先)"
+        ],
+        "source": "main-log 260624 1825"
+      },
+      {
+        "id": "L007",
+        "category": "process-pattern",
+        "title": "AC 协商期 main-agent token 翻倍，quota 风险高",
+        "problem": "Phase 1.5 引入 AC 协商后，main-agent 每轮读双方产物，token 消耗约翻倍；与 L004 (dev 429) 叠加可能加剧 quota 风险",
+        "fix": "main-agent 默认只读 tester 反驳的反例段（grep ^### R\\d+），不读 ac-matrix 全表；信息不足时主动探索，记录读了什么",
+        "applies_to": [
+          "任何新 REQ（Phase 1.5 必走）"
+        ],
+        "source": "main-agent.md Phase 1.5 design 2026-06-26"
+      }
+    ]
+  }
+}
