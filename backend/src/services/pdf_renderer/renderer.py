@@ -17,9 +17,35 @@ Contract: specs/027-resume-center-muji-alignment/contracts/pdf-export.md
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import sys
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger("pdf-renderer")
+
+# REQ-041: Playwright's async driver spawns the Node bridge via
+# ``asyncio.create_subprocess_exec``, which on Windows requires the
+# ProactorEventLoop policy. The main process is locked to
+# WindowsSelectorEventLoopPolicy because ``psycopg`` (used by
+# langgraph-checkpoint-postgres) rejects ProactorEventLoop
+# (see ``app/main.py`` and ``app/agents/checkpointer.py``).
+#
+# To make both work in the same process, we run the Playwright render
+# in a dedicated worker thread whose event loop uses Proactor. The
+# async ``render_with_playwright`` signature is preserved so callers
+# and existing mocks (e.g. ``test_export.py``) are unaffected.
+_RENDER_EXECUTOR: ThreadPoolExecutor | None = None
+
+
+def _get_render_executor() -> ThreadPoolExecutor:
+    global _RENDER_EXECUTOR
+    if _RENDER_EXECUTOR is None:
+        _RENDER_EXECUTOR = ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="playwright-render",
+        )
+    return _RENDER_EXECUTOR
 
 # A4 portrait at 96 DPI ≈ 794×1123 px. Playwright PDF uses CSS pixels.
 _A4_VIEWPORT = {"width": 794, "height": 1123}
@@ -68,6 +94,12 @@ async def render_with_playwright(html: str, format_type: str) -> bytes:
     This function wraps the HTML in a document shell, launches a headless
     Chromium page at A4 dimensions, and renders.
 
+    REQ-041: Playwright's async API uses ``asyncio.create_subprocess_exec``
+    internally, which requires the ProactorEventLoop policy on Windows.
+    Because the parent process is locked to SelectorEventLoop for psycopg
+    compatibility (see ``app/main.py``), we run the render inside a
+    dedicated worker thread whose event loop uses Proactor.
+
     Args:
         html: sanitized HTML body fragment (or full document — wrapper is idempotent)
         format_type: one of ``{"pdf", "png", "jpeg"}``
@@ -78,34 +110,53 @@ async def render_with_playwright(html: str, format_type: str) -> bytes:
     Raises:
         RuntimeError: if Playwright is not installed or browser launch fails.
     """
+    document = wrap_html_document(html)
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _get_render_executor(),
+        _render_in_proactor_thread,
+        document,
+        format_type,
+    )
+
+
+def _render_in_proactor_thread(document: str, format_type: str) -> bytes:
+    """Synchronous Playwright render running on a ProactorEventLoop.
+
+    Invoked from a worker thread so we can switch the event loop policy
+    locally without disturbing the main loop's SelectorEventLoop (which
+    psycopg requires).
+    """
+    if sys.platform.startswith("win"):
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
     try:
-        from playwright.async_api import async_playwright
+        from playwright.sync_api import sync_playwright
     except ImportError:
         logger.error("Playwright not installed. Run: playwright install chromium")
         raise RuntimeError("Playwright not available")
 
-    document = wrap_html_document(html)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport=_A4_VIEWPORT)
+            page.set_content(document, wait_until="networkidle")
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page(viewport=_A4_VIEWPORT)
-        await page.set_content(document, wait_until="networkidle")
-
-        if format_type == "pdf":
-            result = await page.pdf(
-                format="A4",
-                print_background=True,
-                margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
-            )
-        else:
-            result = await page.screenshot(
-                full_page=True,
-                type=format_type,
-                scale="device",
-            )
-
-        await browser.close()
-        return result
+            if format_type == "pdf":
+                result = page.pdf(
+                    format="A4",
+                    print_background=True,
+                    margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+                )
+            else:
+                result = page.screenshot(
+                    full_page=True,
+                    type=format_type,
+                    scale="device",
+                )
+            return result
+        finally:
+            browser.close()
 
 
 # Backwards-compat alias — export.py imports `render_resume` and the
