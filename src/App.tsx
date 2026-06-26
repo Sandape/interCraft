@@ -20,6 +20,8 @@ import SharedAbilityProfile from '@/pages/SharedAbilityProfile'
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const ResumeList = lazy(() => import('@/pages/ResumeList'))
 const ResumeEditor = lazy(() => import('@/pages/ResumeEditor'))
+const ResumeEditorV2 = lazy(() => import('@/pages/ResumeEditorV2'))
+const PublicResumeV2 = lazy(() => import('@/pages/PublicResumeV2'))
 const Square = lazy(() => import('@/modules/resume/marketplace/Square'))
 const Profile = lazy(() => import('@/pages/Profile'))
 const Jobs = lazy(() => import('@/pages/Jobs'))
@@ -95,6 +97,7 @@ export function AppRoutes() {
         }
       />
       <Route path="/shared/:shareToken" element={<SharedAbilityProfile />} />
+      <Route path="/r/:username/:slug" element={<PublicResumeV2 />} />
       <Route
         path="/*"
         element={
@@ -106,6 +109,7 @@ export function AppRoutes() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/resume" element={<ResumeList />} />
                 <Route path="/resume/marketplace" element={<Square />} />
+                <Route path="/resume/v2/:id" element={<ResumeEditorV2 />} />
                 <Route path="/resume/:branchId" element={<ResumeEditor />} />
                 <Route path="/interview" element={<InterviewList />} />
                 <Route path="/interview/new" element={<InterviewLive />} />
