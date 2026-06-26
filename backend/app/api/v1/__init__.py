@@ -71,4 +71,9 @@ from app.modules.search import router as search_router
 
 router.include_router(search_router, tags=["search"])
 
+# Feature 032 — Resume v2 (renderer + editor)
+from app.modules.resumes_v2.api import router as resumes_v2_router
+
+router.include_router(resumes_v2_router, tags=["resumes-v2"])
+
 __all__ = ["router"]

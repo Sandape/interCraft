@@ -138,6 +138,24 @@ async def set_rls_user_id(session: AsyncSession, user_id: UUID) -> None:
     )
 
 
+@asynccontextmanager
+async def get_session_context(
+    user_id: UUID | None = None,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Public async context manager for ad-hoc DB sessions outside a request.
+
+    With `user_id`, binds RLS via SET LOCAL. Without, returns a plain
+    session. Commits on successful exit; rolls back on exception.
+    """
+    async with _session_cm() as session:
+        if user_id is not None:
+            await session.execute(
+                __import__("sqlalchemy").text("SELECT set_config('app.user_id', :u, true)"),
+                {"u": str(user_id)},
+            )
+        yield session
+
+
 __all__ = [
     "Base",
     "db_ping",
@@ -145,6 +163,7 @@ __all__ = [
     "get_db_session",
     "get_db_session_no_rls",
     "get_engine",
+    "get_session_context",
     "get_session_factory",
     "set_rls_user_id",
 ]
