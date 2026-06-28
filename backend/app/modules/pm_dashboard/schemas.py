@@ -282,12 +282,64 @@ class FunnelPanelData(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Resume Diagnosis panel payload (US2 T086)
+# ---------------------------------------------------------------------------
+
+
+class ResumeDiagnosisPanelData(BaseModel):
+    """The 5 core resume diagnosis metrics per US2 (FR for US2).
+
+    Privacy: only counts + rates + aggregate scores are surfaced. No raw
+    resume content (``resume_text``, ``resume_url``, ``diagnosis_markdown``,
+    etc.) appears in this payload.
+
+    Fields:
+
+    - ``success_count`` — number of diagnoses that completed with SUCCESS.
+    - ``total_count`` — number of diagnoses started (denominator for
+      ``success_rate``).
+    - ``success_rate`` — ``success_count / total_count`` in [0.0, 1.0].
+      0.0 when ``total_count == 0``.
+    - ``report_views`` — number of report-view events.
+    - ``suggestions_shown`` — number of suggestion-shown events.
+    - ``suggestions_accepted`` — number of suggestion-accepted events.
+    - ``acceptance_rate`` — ``suggestions_accepted / suggestions_shown``
+      in [0.0, 1.0]. 0.0 when ``suggestions_shown == 0``.
+    - ``score_delta_before`` — average score before diagnosis in [0, 100].
+    - ``score_delta_after`` — average score after diagnosis in [0, 100].
+    - ``score_delta`` — ``score_delta_after - score_delta_before`` in
+      [-100, 100]. 0.0 when no rows.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    success_count: int = Field(default=0, ge=0)
+    total_count: int = Field(default=0, ge=0)
+    success_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    report_views: int = Field(default=0, ge=0)
+    suggestions_shown: int = Field(default=0, ge=0)
+    suggestions_accepted: int = Field(default=0, ge=0)
+    acceptance_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    score_delta_before: float = Field(default=0.0, ge=0.0, le=100.0)
+    score_delta_after: float = Field(default=0.0, ge=0.0, le=100.0)
+    score_delta: float = Field(default=0.0, ge=-100.0, le=100.0)
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(by_alias=True)
+
+
+# ---------------------------------------------------------------------------
 # Convenience typed aliases (Pydantic generics)
 # ---------------------------------------------------------------------------
 
 
 OverviewPanel = PanelResponse[OverviewPanelData]
 FunnelPanel = PanelResponse[FunnelPanelData]
+ResumeDiagnosisPanel = PanelResponse[ResumeDiagnosisPanelData]  # US2 T086
 
 
 # ---------------------------------------------------------------------------
@@ -372,4 +424,6 @@ __all__ = [
     "PanelResponse",
     "PanelsEnvelope",
     "QualityFlags",
-]
+    "ResumeDiagnosisPanel",
+    "ResumeDiagnosisPanelData",
+]  # US2 T086

@@ -77,14 +77,16 @@ export interface FunnelPanelData {
 }
 
 export interface ResumeDiagnosisMetric {
-  diagnosis_count: number
+  success_count: number
+  total_count: number
   success_rate: number
-  failure_rate: number
   report_views: number
   suggestions_shown: number
   suggestions_accepted: number
   acceptance_rate: number
-  score_delta_avg: number | null
+  score_delta_before: number
+  score_delta_after: number
+  score_delta: number
 }
 
 export interface InterviewMetric {

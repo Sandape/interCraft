@@ -49,6 +49,7 @@ from app.modules.pm_dashboard.schemas import (
     OverviewPanelData,
     PanelResponse,
     QualityFlags,
+    ResumeDiagnosisPanelData,
 )
 
 
@@ -271,9 +272,102 @@ async def get_funnel(
     return [panel]
 
 
+# ---------------------------------------------------------------------------
+# US2 (T085) - Resume Diagnosis Panel assembly
+# ---------------------------------------------------------------------------
+
+
+async def get_resume_diagnosis(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> list[PanelResponse[Any]]:
+    """Assemble the resume diagnosis panel (US2).
+
+    Returns a list of PanelResponse rows whose ``data`` field carries
+    the 5 core metrics: success rate, report views, suggestions shown,
+    suggestions accepted, acceptance rate, score delta (avg after -
+    avg before).
+
+    Empty window: returns 0 values + ``quality_flags.partial_data=True``
+    + ``freshness_at="unknown"`` per SC-009.
+
+    Privacy: the panel surfaces counts + deltas only; raw resume content
+    is never returned. The repository reads ``ProductEvent`` rows tagged
+    with ``event_name LIKE 'resume_diagnosis.%'`` (US2 fallback -- see
+    repository.py docstring for the migration-pending rationale).
+    """
+    validate_filters(filters)
+
+    # Pull aggregates.
+    total = await repository.count_resume_diagnoses(session, filters)
+    success = await repository.count_successful_resume_diagnoses(session, filters)
+    report_views = await repository.count_report_views(session, filters)
+    suggestions_shown = await repository.count_suggestions_shown(session, filters)
+    suggestions_accepted = await repository.count_suggestions_accepted(
+        session, filters
+    )
+    score_before = await repository.avg_resume_score_before(session, filters)
+    score_after = await repository.avg_resume_score_after(session, filters)
+
+    # Derived rates.
+    success_rate = (success / total) if total > 0 else 0.0
+    acceptance_rate = (
+        (suggestions_accepted / suggestions_shown)
+        if suggestions_shown > 0
+        else 0.0
+    )
+    score_delta = score_after - score_before
+
+    data_payload = ResumeDiagnosisPanelData(
+        success_count=success,
+        total_count=total,
+        success_rate=success_rate,
+        report_views=report_views,
+        suggestions_shown=suggestions_shown,
+        suggestions_accepted=suggestions_accepted,
+        acceptance_rate=acceptance_rate,
+        score_delta_before=score_before,
+        score_delta_after=score_after,
+        score_delta=score_delta,
+    )
+
+    has_data = (
+        total > 0
+        or report_views > 0
+        or suggestions_shown > 0
+        or suggestions_accepted > 0
+    )
+
+    quality_flags = QualityFlags(
+        missing_version_fields=_missing_version_fields_for(filters),
+        sampled_data=False,
+        delayed_ingestion=False,
+        partial_data=not has_data,
+    )
+
+    freshness = _now_iso() if has_data else "unknown"
+
+    panel = PanelResponse[ResumeDiagnosisPanelData](
+        metric_id="pm.resume_diagnosis",
+        display_name="Resume Diagnosis",
+        value=float(success),
+        unit="count",
+        period_start=filters.date_range_start,
+        period_end=filters.date_range_end,
+        dimensions=filters.to_dimensions(),
+        source_of_truth="product_events (resume_diagnosis.*)",
+        freshness_at=freshness,
+        quality_flags=quality_flags,
+        data=data_payload,
+    )
+
+    return [panel]
+
+
 __all__ = [
     "FUNNEL_STEPS",
     "get_funnel",
     "get_overview",
+    "get_resume_diagnosis",  # US2 T085
     "validate_filters",
 ]

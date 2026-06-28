@@ -1,10 +1,10 @@
-"""REQ-033 US1 — PM Dashboard repository queries (T071).
+"""REQ-033 US1 + US2 — PM Dashboard repository queries (T071, T084).
 
 Async SQLAlchemy 2.0 queries against the ``product_events``,
 ``ai_invocation_records``, ``pm_metric_snapshots``, and ``badcases``
 tables created by migration 0024.
 
-Functions:
+US1 functions:
 
 - ``list_product_events`` — filtered event rows (rarely needed by panels,
   but useful for diagnostics).
@@ -19,6 +19,31 @@ Functions:
 - ``sum_estimated_cost`` — sum of ``estimated_cost`` in window.
 - ``compute_ai_success_rate`` — float in [0.0, 1.0]; 0.0 when no tasks.
 - ``count_open_badcases`` — count of badcases not in (CLOSED, REJECTED).
+
+US2 functions (T084) — Resume Diagnosis Panel:
+
+- ``count_resume_diagnoses`` — distinct ``resume_diagnosis.started`` events.
+- ``count_successful_resume_diagnoses`` — distinct successful outcomes.
+- ``count_report_views`` — distinct ``resume_diagnosis.report_viewed`` events.
+- ``count_suggestions_shown`` — count of ``resume_diagnosis.suggestion_shown``
+  events.
+- ``count_suggestions_accepted`` — count of
+  ``resume_diagnosis.suggestion_accepted`` events.
+- ``avg_resume_score_before`` — average ``metadata.score_before`` over
+  diagnosis completion events.
+- ``avg_resume_score_after`` — average ``metadata.score_after`` over
+  diagnosis completion events.
+
+US2 fallback rationale (T084): the dedicated ``resume_diagnoses`` /
+``resume_diagnosis_suggestions`` / ``resume_diagnosis_events`` tables
+were planned in spec.md §data-model but the migration (0024) has not
+landed (033-POLISH restoration pending). To keep the panel functional,
+all US2 aggregations read from the ``product_events`` table using
+``event_name LIKE 'resume_diagnosis.%'``. Each event row carries the
+relevant metadata in the ``metadata`` JSONB column. This preserves
+privacy: the panel returns counts + deltas only — never raw resume
+content. When the dedicated tables land, the queries can be swapped
+without touching the service / API contract.
 
 All queries are filtered by ``date_range_start <= occurred_at <
 date_range_end`` and apply the optional filters from
@@ -297,7 +322,163 @@ async def list_product_events(
     return list(result.scalars().all())
 
 
+# ---------------------------------------------------------------------------
+# US2 (T084) — Resume Diagnosis Panel aggregations
+#
+# Fallback to ``ProductEvent`` rows where
+# ``event_name LIKE 'resume_diagnosis.%'``. Each event row carries the
+# relevant metadata in the ``metadata`` JSONB column. Privacy: the panel
+# returns counts + deltas only — never raw resume content.
+# ---------------------------------------------------------------------------
+
+#: Canonical event_name values for resume diagnosis (US2).
+RESUME_DIAGNOSIS_STARTED = "resume_diagnosis.started"
+RESUME_DIAGNOSIS_SUCCEEDED = "resume_diagnosis.succeeded"
+RESUME_DIAGNOSIS_FAILED = "resume_diagnosis.failed"
+RESUME_DIAGNOSIS_REPORT_VIEWED = "resume_diagnosis.report_viewed"
+RESUME_DIAGNOSIS_SUGGESTION_SHOWN = "resume_diagnosis.suggestion_shown"
+RESUME_DIAGNOSIS_SUGGESTION_ACCEPTED = "resume_diagnosis.suggestion_accepted"
+
+
+def _base_event_query(event_name: str, filters: DashboardFilter) -> Any:
+    """Build a base ProductEvent query filtered by event_name + window.
+
+    Used by all US2 aggregations. Does NOT apply environment / app_version
+    filters because the current ``ProductFunnelEvent`` schema stores those
+    in ``version_context`` JSONB. Filtering on JSONB requires an indexed
+    GIN index which is out of scope for US2; the service layer applies
+    those filters when the dedicated ``resume_diagnoses`` table lands.
+    """
+    return (
+        select(func.count(ProductFunnelEvent.id))
+        .where(
+            ProductFunnelEvent.event_name == event_name,
+            ProductFunnelEvent.occurred_at >= filters.date_range_start,
+            ProductFunnelEvent.occurred_at < filters.date_range_end,
+        )
+    )
+
+
+async def count_resume_diagnoses(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count distinct resume diagnosis runs started in the window.
+
+    Reads ``event_name == 'resume_diagnosis.started'``. Returns the
+    raw row count (not distinct user_id — a single user may start
+    multiple diagnoses in a window).
+    """
+    stmt = _base_event_query(RESUME_DIAGNOSIS_STARTED, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_successful_resume_diagnoses(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count distinct resume diagnosis runs that completed with SUCCESS.
+
+    Reads ``event_name == 'resume_diagnosis.succeeded'``. A diagnosis is
+    considered successful when the AI pipeline finishes without raising
+    a fatal error.
+    """
+    stmt = _base_event_query(RESUME_DIAGNOSIS_SUCCEEDED, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_report_views(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count distinct ``resume_diagnosis.report_viewed`` events.
+
+    Multiple views by the same user are counted independently (PM cares
+    about engagement, not unique viewers).
+    """
+    stmt = _base_event_query(RESUME_DIAGNOSIS_REPORT_VIEWED, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_suggestions_shown(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count of ``resume_diagnosis.suggestion_shown`` events.
+
+    Each event represents one suggestion surfaced in the UI to the user.
+    """
+    stmt = _base_event_query(RESUME_DIAGNOSIS_SUGGESTION_SHOWN, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_suggestions_accepted(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count of ``resume_diagnosis.suggestion_accepted`` events.
+
+    Each event represents one suggestion the user explicitly accepted.
+    Used together with ``count_suggestions_shown`` to compute the
+    acceptance rate (FR for US2).
+    """
+    stmt = _base_event_query(RESUME_DIAGNOSIS_SUGGESTION_ACCEPTED, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def avg_resume_score_before(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> float:
+    """Average ``metadata.score_before`` over succeeded diagnoses in window.
+
+    Returns 0.0 when no rows match. The score is expected in [0, 100].
+    Privacy: only the aggregate is returned; individual scores are not
+    surfaced.
+    """
+    from sqlalchemy import Float
+
+    score_key = ProductFunnelEvent.metadata["score_before"].astext.cast(Float)
+    stmt = select(func.coalesce(func.avg(score_key), 0.0)).where(
+        ProductFunnelEvent.event_name == RESUME_DIAGNOSIS_SUCCEEDED,
+        ProductFunnelEvent.occurred_at >= filters.date_range_start,
+        ProductFunnelEvent.occurred_at < filters.date_range_end,
+    )
+    result = await session.execute(stmt)
+    val = result.scalar() or 0.0
+    return float(val)
+
+
+async def avg_resume_score_after(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> float:
+    """Average ``metadata.score_after`` over succeeded diagnoses in window.
+
+    Returns 0.0 when no rows match. Pairs with ``avg_resume_score_before``
+    to compute the score delta (avg_after - avg_before).
+    """
+    from sqlalchemy import Float
+
+    score_key = ProductFunnelEvent.metadata["score_after"].astext.cast(Float)
+    stmt = select(func.coalesce(func.avg(score_key), 0.0)).where(
+        ProductFunnelEvent.event_name == RESUME_DIAGNOSIS_SUCCEEDED,
+        ProductFunnelEvent.occurred_at >= filters.date_range_start,
+        ProductFunnelEvent.occurred_at < filters.date_range_end,
+    )
+    result = await session.execute(stmt)
+    val = result.scalar() or 0.0
+    return float(val)
+
+
 __all__ = [
+    "avg_resume_score_after",
+    "avg_resume_score_before",
     "compute_ai_success_rate",
     "count_active_users",
     "count_ai_tasks_total",
@@ -306,6 +487,11 @@ __all__ = [
     "count_distinct_users_for_event",
     "count_open_badcases",
     "count_registered_users",
+    "count_report_views",
+    "count_resume_diagnoses",
+    "count_suggestions_accepted",
+    "count_suggestions_shown",
+    "count_successful_resume_diagnoses",
     "count_visits",
     "list_product_events",
     "sum_estimated_cost",

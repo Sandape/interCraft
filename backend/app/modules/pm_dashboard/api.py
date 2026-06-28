@@ -268,4 +268,80 @@ async def get_funnel(
     }
 
 
+# ---------------------------------------------------------------------------
+# T087 - Resume Diagnosis endpoint (US2)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/metrics/resume-diagnosis")
+async def get_resume_diagnosis(
+    date_range_start: str = Query(
+        ...,
+        description="Inclusive ISO 8601 lower bound for the period.",
+    ),
+    date_range_end: str = Query(
+        ...,
+        description="Exclusive ISO 8601 upper bound for the period.",
+    ),
+    environment: Optional[str] = Query(default=None),
+    release_stage: Optional[str] = Query(default=None),
+    app_version: Optional[str] = Query(default=None),
+    prompt_fingerprint: Optional[str] = Query(default=None),
+    rubric_version: Optional[str] = Query(default=None),
+    model: Optional[str] = Query(default=None),
+    experiment_id: Optional[str] = Query(default=None),
+    graph: Optional[str] = Query(default=None),
+    node: Optional[str] = Query(default=None),
+    session: AsyncSession = Depends(_db_session_with_rls),
+) -> dict[str, Any]:
+    """Return the resume diagnosis panel (US2 FR).
+
+    Surfaces the 5 core metrics:
+    - success rate (count + rate)
+    - report views (count)
+    - suggestions shown (count)
+    - suggestions accepted (count)
+    - acceptance rate + score delta (avg after - avg before)
+
+    Same filter set as overview/funnel. Empty window returns 0 values
+    + ``quality_flags.partial_data=true`` + ``freshness_at="unknown"``
+    per SC-009.
+
+    Error mapping (mirrors US1):
+    - ``ValueError`` -> 400 (bad filter)
+    - missing/invalid required -> 422 (FastAPI Query validation)
+    """
+    filters = _parse_filters(
+        date_range_start=date_range_start,
+        date_range_end=date_range_end,
+        environment=environment,
+        release_stage=release_stage,
+        app_version=app_version,
+        prompt_fingerprint=prompt_fingerprint,
+        rubric_version=rubric_version,
+        model=model,
+        experiment_id=experiment_id,
+        graph=graph,
+        node=node,
+    )
+    try:
+        panels: list[PanelResponse[Any]] = (
+            await dashboard_service.get_resume_diagnosis(session, filters)
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_FILTER", "message": str(exc)},
+        ) from exc
+
+    freshness = panels[0].freshness_at if panels else "unknown"
+    return {
+        "panel": panels[0].model_dump(by_alias=True, mode="json")
+        if panels
+        else None,
+        "freshness_at": freshness,
+        "request_id": str(panels[0].metric_id) if panels else "",
+    }
+
+
 __all__ = ["require_pm", "router"]
