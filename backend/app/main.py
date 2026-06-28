@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import platform
-import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -117,8 +116,8 @@ def create_app() -> FastAPI:
     app.include_router(internal_router, prefix=f"{settings.api_v1_prefix}/internal")
 
     # Phase 3: WebSocket endpoints
-    from app.modules.locks.ws_handler import router as locks_ws_router
     from app.api.v1.ws.interview import router as interview_ws_router
+    from app.modules.locks.ws_handler import router as locks_ws_router
 
     app.include_router(locks_ws_router, prefix=settings.api_v1_prefix)
     app.include_router(interview_ws_router, prefix=settings.api_v1_prefix)
@@ -126,6 +125,24 @@ def create_app() -> FastAPI:
     from app.api.v1.ws.resume_v2 import router as resume_v2_ws_router
 
     app.include_router(resume_v2_ws_router, prefix=settings.api_v1_prefix)
+
+    # 033: PM dashboard + badcase router placeholders (T022). Real handlers
+    # land in US1 (pm_dashboard) and US8 (badcases). Placeholder routes
+    # expose a single GET /health liveness endpoint per module so the
+    # routers can be probed before the user-story implementations ship.
+    from app.modules.badcases.api import router as badcases_router
+    from app.modules.pm_dashboard.api import router as pm_dashboard_router
+
+    app.include_router(
+        pm_dashboard_router,
+        prefix=f"{settings.api_v1_prefix}/pm-dashboard",
+        tags=["pm-dashboard"],
+    )
+    app.include_router(
+        badcases_router,
+        prefix=f"{settings.api_v1_prefix}/badcases",
+        tags=["badcases"],
+    )
 
     return app
 
