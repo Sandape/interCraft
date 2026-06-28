@@ -15,6 +15,7 @@ import {
   HelpCircle,
   Plus,
   Search,
+  BarChart3,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useResumeBranches } from '@/hooks/queries/useResumeBranches'
@@ -30,6 +31,7 @@ interface SidebarItem {
 const secondaryNav: SidebarItem[] = [
   { to: '/jobs', label: '求职追踪', icon: <Briefcase className="h-4 w-4" /> },
   { to: '/error-book', label: '错题本', icon: <BookOpen className="h-4 w-4" /> },
+  { to: '/pm-dashboard', label: 'PM 看板', icon: <BarChart3 className="h-4 w-4" /> },
   { to: '/settings', label: '设置', icon: <Settings className="h-4 w-4" /> },
   { to: '/help', label: '帮助中心', icon: <HelpCircle className="h-4 w-4" /> },
 ]

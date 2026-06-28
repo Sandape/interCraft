@@ -35,6 +35,7 @@ const GeneralCoach = lazy(() => import('@/pages/GeneralCoach'))
 const Help = lazy(() => import('@/pages/Help'))
 const AbilityProfile = lazy(() => import('@/pages/AbilityProfile'))
 const AbilityProfileDetail = lazy(() => import('@/pages/AbilityProfileDetail'))
+const PMDashboard = lazy(() => import('@/pages/PMDashboard'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -126,6 +127,7 @@ export function AppRoutes() {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/coach" element={<GeneralCoach />} />
                 <Route path="/help" element={<Help />} />
+                <Route path="/pm-dashboard" element={<PMDashboard />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
               </Suspense>
