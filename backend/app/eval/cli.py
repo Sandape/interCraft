@@ -34,9 +34,10 @@ import argparse
 import asyncio
 import json
 import sys
-import warnings
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import structlog
@@ -64,10 +65,15 @@ _VALID_GATES: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 # Override-record in-memory store (T051)
 # ---------------------------------------------------------------------------
-# Persistent storage for dual-approval override records. Lives in-process
-# for the CLI; can be promoted to the redaction_policies / audit trail
-# later. Append-only list — entries are never mutated.
-
+# Persistent storage for dual-approval override records.
+# [FOLLOW-UP: US8 (badcases lifecycle) will persist these to the
+# ``override_records`` DB table via ``set_override_record_sink`` so that
+# audit trails survive process restarts. Until US8 ships, records live
+# only in process memory and are LOST on restart.]
+# Append-only list with a soft cap to prevent unbounded growth in long-
+# running processes (rate-limiting note: no per-process rate cap; callers
+# should enforce their own limits).
+_MAX_OVERRIDE_RECORDS = 1000
 _OVERRIDE_RECORDS: list[dict[str, object]] = []
 
 
@@ -79,6 +85,22 @@ def get_override_records() -> list[dict[str, object]]:
 def reset_override_records() -> None:
     """Clear the override-records store (test/inspection only)."""
     _OVERRIDE_RECORDS.clear()
+
+
+def set_override_record_sink(sink: Callable[[dict[str, object]], None] | None) -> None:
+    """Register a persistence sink (used by US8 badcases integration).
+
+    When set, every successfully validated override record is forwarded to
+    ``sink(record)`` AFTER being appended to the in-memory list. Pass
+    ``None`` to clear. The sink must not raise; if it does the in-memory
+    append still stands and the exception is swallowed (audit failures
+    must never block the CLI exit).
+    """
+    global _override_sink
+    _override_sink = sink
+
+
+_override_sink: Callable[[dict[str, object]], None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -151,14 +173,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         budget_tokens=budget_tokens,
         budget_cost_usd=budget_cost,
     )
-    # Pin the runner's source-revision to the CLI flag when provided so
-    # downstream JSON reports reflect the actual PR SHA, not git-detected.
-    if args.source_revision:
-        runner.source_revision_override = args.source_revision  # type: ignore[attr-defined]
     within, reason = runner.check_budget()
     if nightly_real_model and not within:
         # Build a minimal INCOMPLETE report (no cases run).
-        report = runner._empty_incomplete_report(reason)  # type: ignore[attr-defined]
+        report = runner.build_incomplete_report(reason)
         if args.markdown_out:
             _write_markdown(report, Path(args.markdown_out))
         if args.report_out:
@@ -279,7 +297,7 @@ def _write_markdown(report: "EvalReport", path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def cmd_override_record(args: argparse.Namespace) -> object:
+def cmd_override_record(args: argparse.Namespace) -> str | int:
     """CLI entry for the dual-approval override command.
 
     Hard-fails (exit 3) when either the PM business owner or the
@@ -347,6 +365,61 @@ def _build_override_record(args: argparse.Namespace) -> dict[str, object]:
             f"invalid gate {gate!r}; expected one of {sorted(_VALID_GATES)}"
         )
 
+    # Governance (reviewer issue #4): bound reason length + validate evidence
+    # path / URL to refuse obvious abuse vectors. Hard-fail with policy
+    # violation so the CLI exits 3 (not 2) — same as missing dual approval.
+    if len(str(args.reason or "")) > 2000:
+        raise PolicyViolation(
+            "override reason exceeds 2000 character cap (governance)",
+            environment="n/a",
+            violations=["reason_too_long"],
+            sample_id=str(args.run_id or ""),
+        )
+    _evidence_raw = str(args.evidence or "").strip()
+    if _evidence_raw:
+        parsed = urlparse(_evidence_raw)
+        if parsed.scheme in ("http", "https"):
+            # Reject loopback / private IPs / link-local to avoid exfiltration
+            # of override records to internal admin pages.
+            host = (parsed.hostname or "").lower()
+            if (
+                host in ("localhost",)
+                or host.startswith("127.")
+                or host.startswith("10.")
+                or host.startswith("192.168.")
+                or host.startswith("169.254.")
+                or host.startswith("172.")
+                and 16 <= int(host.split(".")[1] or 0) <= 31
+            ):
+                raise PolicyViolation(
+                    f"override evidence URL points to private/loopback address {host!r}",
+                    environment="n/a",
+                    violations=["evidence_private_url"],
+                    sample_id=str(args.run_id or ""),
+                )
+        elif parsed.scheme == "file":
+            # file:// URLs and absolute filesystem paths are accepted as-is —
+            # callers are responsible for path safety (governance trade-off:
+            # we do not block absolute paths because evidence may legitimately
+            # be /var/log/eval-report.md on a CI runner).
+            pass
+        elif parsed.scheme in ("",):
+            # Bare relative path: refuse to descend with "..".
+            if ".." in Path(_evidence_raw).parts:
+                raise PolicyViolation(
+                    f"override evidence path contains '..': {_evidence_raw!r}",
+                    environment="n/a",
+                    violations=["evidence_path_traversal"],
+                    sample_id=str(args.run_id or ""),
+                )
+        else:
+            raise PolicyViolation(
+                f"override evidence scheme {parsed.scheme!r} not allowed (use http/https/file/relative path)",
+                environment="n/a",
+                violations=["evidence_bad_scheme"],
+                sample_id=str(args.run_id or ""),
+            )
+
     record: dict[str, object] = {
         "overrideId": f"override-{uuid4()}",
         "runId": str(args.run_id),
@@ -358,6 +431,15 @@ def _build_override_record(args: argparse.Namespace) -> dict[str, object]:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     _OVERRIDE_RECORDS.append(record)
+    # Soft cap to prevent unbounded growth in long-running processes.
+    if len(_OVERRIDE_RECORDS) > _MAX_OVERRIDE_RECORDS:
+        del _OVERRIDE_RECORDS[: len(_OVERRIDE_RECORDS) - _MAX_OVERRIDE_RECORDS]
+    # Forward to optional persistence sink (US8 wires this to badcases table).
+    if _override_sink is not None:
+        try:
+            _override_sink(record)
+        except Exception:  # pragma: no cover — sink must not block CLI
+            logger.warning("eval.override_sink_failed", overrideId=record["overrideId"])
     logger.info(
         "eval.override_recorded",
         overrideId=record["overrideId"],
@@ -367,24 +449,6 @@ def _build_override_record(args: argparse.Namespace) -> dict[str, object]:
         tech=record["technicalApprover"],
     )
     return record
-
-
-def build_override_record_payload(args: argparse.Namespace) -> dict[str, object]:
-    """Public helper: build an override record payload from CLI args.
-
-    Convenience for callers that want the record dict without invoking
-    the CLI subprocess. Raises ``PolicyViolation`` on hard-fail.
-    """
-    return _build_override_record(args)
-
-
-def _emit_override_json_or_text(payload: dict[str, object], args: argparse.Namespace) -> int:
-    """Emit the override record JSON (or text) to stdout."""
-    if args.json:
-        print(json.dumps(payload, ensure_ascii=False))
-    else:
-        print(f"Override recorded: {payload['overrideId']} for run {payload['runId']}")
-    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -577,62 +641,6 @@ def main(argv: list[str] | None = None) -> int:
         print(result)
         return 0
     return int(result)
-
-
-# Helper bound to runner for budget-exhausted path. Lazily attached so
-# the import order is clean.
-def _empty_incomplete_report_impl(self: "EvalRunner", reason: str) -> EvalReport:
-    """Build a minimal INCOMPLETE EvalReport (no cases run)."""
-    from datetime import UTC
-    from app.modules.telemetry_contracts.schemas import VersionContext
-
-    started = datetime.now(UTC)
-    finished = started
-    return EvalReport(
-        timestamp=finished.isoformat(),
-        git_sha="unknown",
-        model=self.model_name,
-        total_cases=0,
-        passed_cases=0,
-        failed_cases=0,
-        skipped_cases=0,
-        per_node={},
-        case_results=[],
-        run_id=uuid4(),
-        started_at=started.isoformat(),
-        finished_at=finished.isoformat(),
-        model_version=self.model_name,
-        version_context=VersionContext(
-            app_version="unknown",
-            release_stage="UNKNOWN",
-            environment=self.environment,
-            schema_version="v1",
-            prompt_fingerprint=self.prompt_fingerprint,
-            rubric_version=self.rubric_version,
-            model=self.model_name,
-        ),
-        aggregate_pass_rate=0.0,
-        known_regression_recall=1.0,
-        stale_case_count=0,
-        source_revision="unknown",
-        branch=self.branch,
-        prompt_fingerprint=self.prompt_fingerprint,
-        rubric_version=self.rubric_version,
-        environment=self.environment,
-        total_budget=(
-            f"{self.budget_tokens} tokens / ${self.budget_cost_usd:.2f}"
-            if self.budget_tokens is not None and self.budget_cost_usd is not None
-            else "unknown"
-        ),
-        budget_tokens_used=self.budget_tokens or 0,
-        budget_cost_used_usd=self.budget_cost_usd or 0.0,
-        nightly_real_model=self.nightly_real_model,
-        status="INCOMPLETE",
-    )
-
-
-# Attach the helper to EvalRunner for the budget-exhausted path.
-EvalRunner._empty_incomplete_report = _empty_incomplete_report_impl  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

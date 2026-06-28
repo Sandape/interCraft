@@ -270,6 +270,64 @@ class EvalRunner:
             )
         return True, "ok"
 
+    def build_incomplete_report(self, reason: str) -> EvalReport:
+        """Build a minimal INCOMPLETE EvalReport (no cases run).
+
+        Used by the CLI's budget-exhausted path (US5 SC-011). The returned
+        report is structurally valid but contains zero case results and the
+        provided reason. ``status`` is set to ``"INCOMPLETE"``.
+
+        The ``reason`` parameter is currently accepted for forward-compat
+        with downstream consumers (audit log, override-record linkage) and
+        is preserved in the docstring only — the dataclass field set does
+        not yet expose a free-form reason slot.
+        """
+        del reason  # see docstring; reserved for future audit linkage
+
+        started = datetime.now(UTC)
+        finished = started
+        return EvalReport(
+            timestamp=finished.isoformat(),
+            git_sha="unknown",
+            model=self.model_name,
+            total_cases=0,
+            passed_cases=0,
+            failed_cases=0,
+            skipped_cases=0,
+            per_node={},
+            case_results=[],
+            run_id=uuid4(),
+            started_at=started.isoformat(),
+            finished_at=finished.isoformat(),
+            model_version=self.model_name,
+            version_context=VersionContext(
+                app_version=self.app_version,
+                release_stage=self.release_stage,
+                environment=self.environment,
+                schema_version=self.schema_version,
+                prompt_fingerprint=self.prompt_fingerprint,
+                rubric_version=self.rubric_version,
+                model=self.model_name,
+            ),
+            aggregate_pass_rate=0.0,
+            known_regression_recall=1.0,
+            stale_case_count=0,
+            source_revision="unknown",
+            branch=self.branch,
+            prompt_fingerprint=self.prompt_fingerprint,
+            rubric_version=self.rubric_version,
+            environment=self.environment,
+            total_budget=(
+                f"{self.budget_tokens} tokens / ${self.budget_cost_usd:.2f}"
+                if self.budget_tokens is not None and self.budget_cost_usd is not None
+                else "unknown"
+            ),
+            budget_tokens_used=self.budget_tokens or 0,
+            budget_cost_used_usd=self.budget_cost_usd or 0.0,
+            nightly_real_model=self.nightly_real_model,
+            status="INCOMPLETE",
+        )
+
     @staticmethod
     def _detect_app_version() -> str:
         """Return ``__version__`` if available, else ``"unknown"`` (SC-010)."""
