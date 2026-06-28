@@ -26,18 +26,29 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import patch
+from uuid import UUID, uuid4
 
 import structlog
 
 from app.eval.checker import ChineseFidelityChecker, ChineseFidelityResult
 from app.eval.golden_loader import GoldenCase
+from app.eval.prompt_fingerprint import (
+    compute_prompt_fingerprint,
+    compute_version_fingerprint,
+)
+from app.modules.telemetry_contracts.schemas import VersionContext
 
 logger = structlog.get_logger("eval.runner")
 
 
 @dataclass
 class CaseResult:
-    """Per-case verdict from EvalRunner.run_case()."""
+    """Per-case verdict from EvalRunner.run_case().
+
+    REQ-033 Sub-batch 1: ``run_id`` lets downstream consumers join each
+    per-case row back to the aggregate ``EvalReport.run_id`` and
+    (future) LangSmith experiment / trace.
+    """
 
     case_id: str
     node: str
@@ -47,11 +58,36 @@ class CaseResult:
     failure_reasons: list[str] = field(default_factory=list)
     label: str = ""
     expected_fidelity_pass: bool = True
+    run_id: UUID | None = None
 
 
 @dataclass
 class EvalReport:
-    """Aggregate eval report (FR-013: timestamp + git_sha + model + per-case)."""
+    """Aggregate eval report (FR-013 + REQ-033 Sub-batch 1 + US9 fields).
+
+    REQ-033 Sub-batch 1 additions (backward-compatible: all default to
+    auto-generated values so 026 callers keep working):
+    - ``run_id`` — stable UUID shared across local report, CI artifact,
+      (future) LangSmith experiment, and badcase evidence.
+    - ``started_at`` / ``finished_at`` — explicit ISO 8601 wall-clock
+      timestamps (the legacy single ``timestamp`` field is preserved as
+      an alias for ``finished_at``).
+    - ``model_version`` — explicit versioned model identifier (e.g.
+      ``"deepseek-v4-pro"``). Kept distinct from ``model`` which is the
+      legacy mode-name string.
+
+    REQ-033 US9 additions (T038):
+    - ``version_context`` — full VersionContext (SC-010 unknown defaults).
+    - ``aggregate_pass_rate`` — float in [0.0, 1.0], ``passed / total``.
+    - ``known_regression_recall`` — float in [0.0, 1.0] (1.0 if no known
+      regression cases in the suite; ``"unknown"`` if config is missing).
+    - ``stale_case_count`` — int count of cases with status != 'active'.
+    - ``source_revision`` — git SHA or "unknown" (FR-015).
+    - ``branch`` — git branch or "unknown" (FR-015).
+    - ``prompt_fingerprint`` — derived from prompt + tool defs + messages;
+      ``"unknown"`` if derivation fails.
+    - ``rubric_version`` — propagated from runner constructor.
+    """
 
     timestamp: str
     git_sha: str
@@ -62,13 +98,38 @@ class EvalReport:
     skipped_cases: int
     per_node: dict[str, dict[str, float]] = field(default_factory=dict)
     case_results: list[CaseResult] = field(default_factory=list)
+    # REQ-033 Sub-batch 1 fields (defaulted for backward compat).
+    run_id: UUID = field(default_factory=uuid4)
+    started_at: str = ""
+    finished_at: str = ""
+    model_version: str = ""
+    # REQ-033 US9 fields (T038).
+    version_context: VersionContext = field(
+        default_factory=lambda: VersionContext.unknown(environment="LOCAL")
+    )
+    aggregate_pass_rate: float = 0.0
+    known_regression_recall: float = 1.0
+    stale_case_count: int = 0
+    source_revision: str = "unknown"
+    branch: str = "unknown"
+    prompt_fingerprint: str = "unknown"
+    rubric_version: str = "unknown"
 
     def to_json(self) -> str:
         """Serialize to JSON string per FR-013."""
         # asdict() recursively converts CaseResult dataclasses to dicts, so
         # the default fallback only handles unexpected non-serializable types.
+        # ``run_id`` (UUID) is stringified explicitly for JSON safety.
+        # ``version_context`` is a Pydantic model — convert via model_dump
+        # to a camelCase dict for JSON consumers.
+        payload = asdict(self)
+        payload["run_id"] = str(self.run_id)
+        # Replace the dataclass-as-dict rendering of VersionContext with
+        # its proper to_dict() output (camelCase keys, JSON-safe).
+        if isinstance(self.version_context, VersionContext):
+            payload["version_context"] = self.version_context.to_dict()
         return json.dumps(
-            asdict(self),
+            payload,
             default=lambda obj: str(obj),
             ensure_ascii=False,
             indent=2,
@@ -76,7 +137,8 @@ class EvalReport:
 
     def to_dict(self) -> dict[str, Any]:
         """Return as plain dict (for structlog / programmatic consumers)."""
-        return json.loads(self.to_json())
+        result: dict[str, Any] = json.loads(self.to_json())
+        return result
 
 
 class _StubLLMClient:
@@ -100,7 +162,7 @@ class _StubLLMClient:
         }
 
     async def invoke_stream(self, **kwargs: Any) -> Any:  # pragma: no cover
-        yield self._content  # type: ignore[misc]
+        yield self._content
 
 
 class EvalRunner:
@@ -111,11 +173,69 @@ class EvalRunner:
         cases: list[GoldenCase],
         mode: str = "mock",
         model_name: str = "mock-llm",
+        *,
+        environment: str = "LOCAL",
+        release_stage: str = "DEVELOPMENT",
+        app_version: str | None = None,
+        schema_version: str = "v1",
+        rubric_version: str = "unknown",
+        system_prompt: str = "",
+        tool_defs: list[dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        branch: str | None = None,
     ) -> None:
         self.cases = cases
         self.mode = mode
         self.model_name = model_name
         self.checker = ChineseFidelityChecker()
+        # US9: version attribution (T038).
+        self.environment = environment
+        self.release_stage = release_stage
+        self.app_version = app_version or self._detect_app_version()
+        self.schema_version = schema_version
+        self.rubric_version = rubric_version or "unknown"
+        self.branch = branch or self._detect_branch()
+        # US9: prompt fingerprint derivation.
+        try:
+            self.prompt_fingerprint = compute_prompt_fingerprint(
+                system_prompt=system_prompt,
+                tool_defs=tool_defs or [],
+                messages=messages or [],
+            )
+        except Exception:  # pragma: no cover — fail-open per SC-010
+            self.prompt_fingerprint = "unknown"
+
+    @staticmethod
+    def _detect_app_version() -> str:
+        """Return ``__version__`` if available, else ``"unknown"`` (SC-010)."""
+        try:
+            from app import __version__ as app_version
+
+            return str(app_version)
+        except (ImportError, AttributeError):
+            return "unknown"
+
+    @staticmethod
+    def _detect_branch() -> str:
+        """Return current git branch, else ``"unknown"`` (SC-010)."""
+        env_branch = os.environ.get("GIT_BRANCH", "").strip()
+        if env_branch:
+            return env_branch
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            if result.returncode == 0:
+                branch = result.stdout.strip()
+                if branch and branch != "HEAD":
+                    return branch
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+        return "unknown"
 
     async def run_case(self, case: GoldenCase) -> CaseResult:
         """Run a single golden case through the real node function.
@@ -190,13 +310,13 @@ class EvalRunner:
 
         # 6. Validate overall_score range
         if case.expected_overall_score_range and not node_error:
-            score_ok, actual_score = self._check_overall_score_range(
+            overall_score_ok, overall_actual_score = self._check_overall_score_range(
                 case, actual_output
             )
-            if not score_ok:
+            if not overall_score_ok:
                 failure_reasons.append(
                     f"overall_score_range_violation:expected="
-                    f"{case.expected_overall_score_range},actual={actual_score}"
+                    f"{case.expected_overall_score_range},actual={overall_actual_score}"
                 )
 
         passed = len(failure_reasons) == 0
@@ -218,10 +338,28 @@ class EvalRunner:
         )
 
     async def run_all(self) -> EvalReport:
-        """Run all cases; return aggregate EvalReport."""
+        """Run all cases; return aggregate EvalReport.
+
+        REQ-033 Sub-batch 1: assigns a stable ``run_id`` (UUID4) at the
+        start of the run, stamps ``started_at`` / ``finished_at`` ISO
+        timestamps, and attaches the same ``run_id`` to every per-case
+        ``CaseResult.run_id`` so downstream consumers (CI artifact
+        parser, future LangSmith reporter, badcase evidence) can join
+        rows back to the parent run.
+
+        REQ-033 US9 (T038): also computes aggregate fields
+        (``aggregate_pass_rate``, ``known_regression_recall``,
+        ``stale_case_count``) and stamps the ``version_context`` with
+        the runner's environment / release stage / app version /
+        model / rubric version / prompt fingerprint.
+        """
+        run_id = uuid4()
+        started_at = datetime.now(UTC)
         results: list[CaseResult] = []
         for case in self.cases:
             result = await self.run_case(case)
+            if result.run_id is None:
+                result.run_id = run_id
             results.append(result)
 
         passed = sum(1 for r in results if r.passed)
@@ -237,16 +375,63 @@ class EvalRunner:
 
         per_node = self._aggregate_per_node(results)
 
+        finished_at = datetime.now(UTC)
+
+        # US9: aggregate pass rate (0.0 if no cases).
+        total = len(results)
+        aggregate_pass_rate = float(passed) / float(total) if total else 0.0
+
+        # US9: stale case count = number of non-active cases that were skipped.
+        stale_case_count = skipped
+
+        # US9: known regression recall = fraction of
+        # expected_fidelity_pass=False cases that were correctly flagged.
+        # If no regression cases in the suite, default to 1.0 (no missed).
+        regression_cases = [r for r in results if r.expected_fidelity_pass is False]
+        if regression_cases:
+            correctly_flagged = sum(
+                1 for r in regression_cases
+                if any("chinese_fidelity" in fr for fr in r.failure_reasons)
+            )
+            known_regression_recall = float(correctly_flagged) / float(
+                len(regression_cases)
+            )
+        else:
+            known_regression_recall = 1.0
+
+        # US9: build version context from runner config.
+        version_context = VersionContext(
+            app_version=self.app_version,
+            release_stage=self.release_stage,
+            environment=self.environment,
+            schema_version=self.schema_version,
+            prompt_fingerprint=self.prompt_fingerprint,
+            rubric_version=self.rubric_version,
+            model=self.model_name,
+        )
+
         return EvalReport(
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=finished_at.isoformat(),
             git_sha=_get_git_sha(),
             model=self.model_name,
-            total_cases=len(results),
+            total_cases=total,
             passed_cases=passed,
             failed_cases=failed,
             skipped_cases=skipped,
             per_node=per_node,
             case_results=results,
+            run_id=run_id,
+            started_at=started_at.isoformat(),
+            finished_at=finished_at.isoformat(),
+            model_version=self.model_name,
+            version_context=version_context,
+            aggregate_pass_rate=aggregate_pass_rate,
+            known_regression_recall=known_regression_recall,
+            stale_case_count=stale_case_count,
+            source_revision=_get_git_sha(),
+            branch=self.branch,
+            prompt_fingerprint=self.prompt_fingerprint,
+            rubric_version=self.rubric_version,
         )
 
     # ------------------------------------------------------------------
@@ -393,4 +578,48 @@ def _get_git_sha() -> str:
     return "unknown"
 
 
-__all__ = ["CaseResult", "EvalReport", "EvalRunner"]
+__all__ = ["CaseResult", "EvalReport", "EvalRunner", "run_eval_suite"]
+
+
+async def run_eval_suite(
+    cases: list[GoldenCase],
+    *,
+    mode: str = "mock",
+    model_name: str = "mock-llm",
+    environment: str = "LOCAL",
+    release_stage: str = "DEVELOPMENT",
+    app_version: str | None = None,
+    schema_version: str = "v1",
+    rubric_version: str = "unknown",
+    system_prompt: str = "",
+    tool_defs: list[dict[str, Any]] | None = None,
+    messages: list[dict[str, Any]] | None = None,
+    branch: str | None = None,
+) -> EvalReport:
+    """Convenience wrapper: build an ``EvalRunner`` and run all cases.
+
+    REQ-033 Sub-batch 1: a single function-level entry point so callers
+    (CLI, CI scripts, future LangSmith reporter) don't need to know about
+    the ``EvalRunner`` class itself. The returned ``EvalReport.run_id``
+    is the single stable identifier to join across local + remote.
+
+    REQ-033 US9 (T038): accepts the version attribution kwargs and
+    forwards them to ``EvalRunner.__init__``. All kwargs are optional —
+    legacy callers that pass only ``cases / mode / model_name`` continue
+    to work and get ``"unknown"`` defaults for all version fields.
+    """
+    runner = EvalRunner(
+        cases=cases,
+        mode=mode,
+        model_name=model_name,
+        environment=environment,
+        release_stage=release_stage,
+        app_version=app_version,
+        schema_version=schema_version,
+        rubric_version=rubric_version,
+        system_prompt=system_prompt,
+        tool_defs=tool_defs,
+        messages=messages,
+        branch=branch,
+    )
+    return await runner.run_all()

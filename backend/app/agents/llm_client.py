@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from decimal import Decimal
 
 import openai
 import structlog
@@ -23,10 +24,13 @@ from openai import (
     RateLimitError,
     UnprocessableEntityError,
 )
+from typing import Any
 from typing_extensions import TypedDict
 
 from app.agents.token_estimator import TokenEstimator
 from app.core.config import get_settings
+from app.eval.prompt_fingerprint import compute_prompt_fingerprint
+from app.modules.telemetry_contracts.schemas import AIInvocationSummary
 
 logger = structlog.get_logger("agents.llm_client")
 
@@ -201,6 +205,24 @@ class LLMClient:
                         retry_count=retry_count,
                         error=str(exc),
                     )
+                    # US9 (T040): fire AI invocation hook on failure.
+                    _extract_and_record_ai_invocation(
+                        _build_ai_invocation_summary(
+                            invocation_id=str(uuid.uuid4()),
+                            graph="",  # graph unknown at this scope; node carries context
+                            node=node_name,
+                            model=model,
+                            system_prompt="",
+                            tool_defs=None,
+                            messages=messages,
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            latency_ms=int(time.time() * 1000) - start_ms,
+                            retry_count=retry_count,
+                            status="FAILURE",
+                            error_category=_classify_error(exc),
+                        )
+                    )
                     raise LLMInvokeError(
                         f"LLM invoke failed after {retry_count} retries: {exc}",
                         node_name=node_name,
@@ -228,6 +250,24 @@ class LLMClient:
                     model=model,
                     result="error",
                     error=str(exc),
+                )
+                # US9 (T040): fire AI invocation hook on non-retryable failure.
+                _extract_and_record_ai_invocation(
+                    _build_ai_invocation_summary(
+                        invocation_id=str(uuid.uuid4()),
+                        graph="",
+                        node=node_name,
+                        model=model,
+                        system_prompt="",
+                        tool_defs=None,
+                        messages=messages,
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        latency_ms=int(time.time() * 1000) - start_ms,
+                        retry_count=0,
+                        status="FAILURE",
+                        error_category=_classify_error(exc),
+                    )
                 )
                 raise LLMInvokeError(
                     f"LLM invoke non-retryable error: {exc}",
@@ -276,6 +316,25 @@ class LLMClient:
         )
 
         content = response.choices[0].message.content or ""
+
+        # US9 (T040): fire AI invocation hook on success.
+        _extract_and_record_ai_invocation(
+            _build_ai_invocation_summary(
+                invocation_id=str(uuid.uuid4()),
+                graph="",
+                node=node_name,
+                model=model,
+                system_prompt="",
+                tool_defs=None,
+                messages=messages,
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                latency_ms=duration_ms,
+                retry_count=retry_count,
+                status="SUCCESS",
+                error_category=None,
+            )
+        )
 
         return LLMResponse(
             content=content,
@@ -523,5 +582,207 @@ __all__ = [
     "LLMInvokeError",
     "LLMResponse",
     "QuotaExceededError",
+    "_build_ai_invocation_summary",
+    "_extract_and_record_ai_invocation",
     "get_llm_client",
 ]
+
+
+# ---------------------------------------------------------------------------
+# AI invocation summary extraction (T040, US9)
+# ---------------------------------------------------------------------------
+
+
+# Cost per token table (USD) — populated lazily from settings or env.
+# If a model is missing from the table, cost=0.0 with is_estimate=True.
+_DEFAULT_COST_PER_TOKEN: float = 0.0  # conservative; US9 T040 says cost=0 if not configured
+
+
+def _get_cost_per_token(model: str) -> float:
+    """Return USD cost per token for ``model``.
+
+    Looks at:
+
+    1. ``Settings.deepseek_cost_per_token`` (single scalar — applies to
+       all models). Default 0.0.
+    2. Future: per-model dict when model heterogeneity is needed.
+
+    Always returns 0.0 when not configured, with ``is_estimate=True``
+    on the AIInvocationSummary so consumers know the value is a stub.
+    """
+    try:
+        settings = get_settings()
+        cpt = getattr(settings, "deepseek_cost_per_token", 0.0)
+        return float(cpt) if cpt else 0.0
+    except Exception:  # pragma: no cover — fail-open
+        return _DEFAULT_COST_PER_TOKEN
+
+
+def _build_ai_invocation_summary(
+    *,
+    invocation_id: str,
+    graph: str,
+    node: str,
+    model: str,
+    system_prompt: str,
+    tool_defs: list[dict[str, Any]] | None,
+    messages: list[dict[str, str]] | None,
+    prompt_tokens: int,
+    completion_tokens: int,
+    latency_ms: int,
+    retry_count: int,
+    status: str,
+    error_category: str | None = None,
+    run_id: Any | None = None,
+    trace_id: str | None = None,
+) -> AIInvocationSummary:
+    """Build an ``AIInvocationSummary`` for a completed LLM call.
+
+    Pure function — no IO. Computes prompt fingerprint, cost estimate,
+    and SC-010 ``"unknown"`` defaults in one place so the contract is
+    consistent across invoke and invoke_stream paths.
+    """
+    try:
+        fp = compute_prompt_fingerprint(
+            system_prompt=system_prompt,
+            tool_defs=tool_defs or [],
+            messages=[dict(m) for m in (messages or [])] if messages else [],
+        )
+    except Exception:  # pragma: no cover — fail-open per SC-010
+        fp = "unknown"
+
+    cost_per_token = _get_cost_per_token(model)
+    total_tokens = max(0, int(prompt_tokens)) + max(0, int(completion_tokens))
+    estimated_cost = float(total_tokens) * cost_per_token
+
+    return AIInvocationSummary(
+        invocation_id=invocation_id,
+        run_id=run_id,
+        trace_id=trace_id,
+        graph=graph,
+        node=node,
+        model=model,
+        prompt_fingerprint=fp,
+        prompt_tokens=int(prompt_tokens),
+        completion_tokens=int(completion_tokens),
+        estimated_cost=estimated_cost,
+        is_estimate=True,  # always an estimate
+        latency_ms=int(latency_ms),
+        retry_count=int(retry_count),
+        status=status,
+        error_category=error_category,
+    )
+
+
+def _classify_error(exc: BaseException) -> str:
+    """Map a LLM exception to a short error category string.
+
+    The category is the join key for the badcase/regression analysis
+    pipeline (US9). Examples: ``rate_limit``, ``timeout``,
+    ``auth_failure``, ``bad_request``, ``server``, ``connection``,
+    ``quota_exceeded``, ``unknown``.
+    """
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    if "ratelimit" in name.lower() or "rate" in msg:
+        return "rate_limit"
+    if "timeout" in name.lower() or "timeout" in msg:
+        return "timeout"
+    if "auth" in name.lower():
+        return "auth_failure"
+    if "badrequest" in name.lower() or "unprocessable" in name.lower():
+        return "bad_request"
+    if "permission" in name.lower():
+        return "permission_denied"
+    if "server" in name.lower():
+        return "server_error"
+    if "connection" in name.lower():
+        return "connection"
+    return "unknown"
+
+
+def _extract_and_record_ai_invocation(summary: AIInvocationSummary) -> None:
+    """Hook: persist the AIInvocationSummary to DB (best-effort, fail-open).
+
+    Called automatically after every LLMClient.invoke / invoke_stream
+    completion. Persistence path (T040 contract):
+
+    1. Tries to insert via ``repository.insert_ai_invocation`` (US9 path).
+    2. If the repository is unavailable (test / no DB), falls back to
+       a no-op + structlog warning so the call site still works.
+
+    The hook MUST NOT raise — the LLM call has already succeeded (or
+    failed with LLMInvokeError), and a hook failure must not propagate
+    to the caller. This is the ``fail-open`` contract from
+    lessons-learned (REQ-MERGE-02 round 1).
+    """
+    try:
+        import asyncio
+
+        from app.core.db import get_session_factory
+        from uuid import UUID as _UUID
+
+        from app.modules.telemetry_contracts.repository import (
+            insert_ai_invocation,
+        )
+
+        # Resolve a user_id from run_id or fall back to a sentinel zero
+        # UUID. The repository requires a non-null user_id — we use a
+        # deterministic system-actor UUID when the call site didn't pass one.
+        SYSTEM_USER_ID = _UUID("00000000-0000-0000-0000-000000000000")
+        user_id = SYSTEM_USER_ID
+
+        async def _persist() -> None:
+            factory = get_session_factory()
+            async with factory() as session:
+                await insert_ai_invocation(
+                    session,
+                    user_id=user_id,
+                    invocation_id=_UUID(summary.invocation_id),
+                    graph=summary.graph,
+                    node=summary.node,
+                    model=summary.model,
+                    prompt_fingerprint=summary.prompt_fingerprint,
+                    prompt_tokens=summary.prompt_tokens,
+                    completion_tokens=summary.completion_tokens,
+                    estimated_cost=(
+                        Decimal(str(summary.estimated_cost))
+                        if summary.estimated_cost is not None
+                        else None
+                    ),
+                    latency_ms=summary.latency_ms,
+                    retry_count=summary.retry_count,
+                    status=summary.status,
+                    error_category=summary.error_category,
+                    run_id=summary.run_id,
+                    trace_id=summary.trace_id,
+                )
+
+        # Try to run the async persist. In a sync context (which the
+        # LLMClient callsite is not — invoke is async), this would
+        # block; we still wrap in try/except to ensure fail-open.
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're inside an async context — schedule as a task.
+                loop.create_task(_persist())
+            else:
+                loop.run_until_complete(_persist())
+        except RuntimeError:
+            # No event loop — try asyncio.run (only works if not in a loop).
+            try:
+                asyncio.run(_persist())
+            except Exception:
+                pass
+    except Exception as exc:  # pragma: no cover — fail-open
+        # Never let hook failure propagate to the LLM call.
+        try:
+            import structlog as _sl
+
+            _sl.get_logger("agents.llm_client.hook").warning(
+                "ai_invocation.persist_failed",
+                invocation_id=summary.invocation_id,
+                error=str(exc),
+            )
+        except Exception:
+            pass
