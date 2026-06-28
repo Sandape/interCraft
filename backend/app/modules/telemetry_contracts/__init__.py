@@ -134,6 +134,24 @@ from app.modules.telemetry_contracts.schemas import (
 # for backward compatibility with the streaming-event pipeline).
 AIInvocationSummaryV2 = PydanticAIInvocationSummary
 
+# REQ-033 US7 (T126) — TraceRunRef helpers. Pure-Python (no DB / no async),
+# no dependency on any of the missing 033-POLISH modules (events.py /
+# redaction.py / retention.py / models.py) — so it loads cleanly even when
+# those files are absent from the working tree.
+from app.modules.telemetry_contracts.repository import (
+    TRACE_UNAVAILABLE as _TRACE_UNAVAILABLE,
+    TraceRunRef,
+    build_trace_run_ref,
+    extract_trace_id_from_ai_invocation,
+    langsmith_url_for_display,
+    lookup_run_metadata,
+    run_id_for_display,
+    trace_id_for_display,
+)
+
+TRACE_UNAVAILABLE = _TRACE_UNAVAILABLE
+
+
 __all__ = [
     "AI_INVOCATION_STATUSES",
     "AIInvocationSummary",
@@ -142,6 +160,7 @@ __all__ = [
     "METADATA_FIELDS",
     "PII_FIELDS",
     "RELEASE_STAGES",
+    "TRACE_UNAVAILABLE",
     "VALID_ENVIRONMENTS",
     "Aggregation",
     "MetricCatalog",
@@ -153,13 +172,18 @@ __all__ = [
     "RedactionPolicy",
     "RetentionAction",
     "RetentionContext",
+    "TraceRunRef",
     "VersionContext",
     "apply_redaction",
     "audit_redaction",
     "build_default_catalog",
+    "build_trace_run_ref",
     "dict_to_event",
     "enforce_retention",
     "event_to_dict",
+    "extract_trace_id_from_ai_invocation",
+    "langsmith_url_for_display",
+    "lookup_run_metadata",
     "next_cleanup_at",
     "redaction_dev_default_context",
     "redaction_production_default_context",
@@ -167,5 +191,7 @@ __all__ = [
     "retention_dev_default_context",
     "retention_production_default_context",
     "retention_staging_default_context",
+    "run_id_for_display",
+    "trace_id_for_display",
     "validate_redaction",
 ]

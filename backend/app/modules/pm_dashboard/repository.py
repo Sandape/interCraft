@@ -814,6 +814,221 @@ async def ai_top_breakdown(
     return out
 
 
+# ---------------------------------------------------------------------------
+# US7 (T129) — Version / Experiment breakdown aggregations
+#
+# Reads from the existing ``AIInvocationRecord`` table (no new table,
+# no migration). The panel surfaces counts of distinct version /
+# experiment combinations so PM can compare runs across prompt /
+# model / rubric / app changes.
+#
+# All aggregations apply the shared date filter and (when set) the
+# model filter. The ``experiment_id`` column is nullable; missing
+# values are normalized to ``"unknown"`` (SC-010). ``trace_id`` is
+# also nullable; ``has_any_trace_in_window`` checks whether ANY row
+# in the window carries a non-null trace_id (used by the panel to
+# render the "trace unavailable" badge per US7 T123).
+# ---------------------------------------------------------------------------
+
+
+async def count_ai_version_breakdown_rows(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count rows that contribute to the version breakdown table.
+
+    Returns the raw row count so the panel can surface an
+    "event_count" metric card. Privacy: only the count, never the
+    row contents.
+    """
+    stmt = select(func.count(AIInvocationRecord.id)).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    if filters.app_version:
+        stmt = stmt.where(AIInvocationRecord.app_version == filters.app_version)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def distinct_version_dimensions(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> dict[str, int]:
+    """Return the count of distinct values for each version dimension.
+
+    US7 T129: the panel renders 4 "distinct" metric cards
+    (prompt_fingerprints / models / app_versions / experiments).
+    Returns a dict keyed by dimension name.
+    """
+    out: dict[str, int] = {}
+
+    # prompt_fingerprint
+    pf_stmt = select(
+        func.count(func.distinct(AIInvocationRecord.prompt_fingerprint))
+    ).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+        AIInvocationRecord.prompt_fingerprint.is_not(None),
+    )
+    if filters.model:
+        pf_stmt = pf_stmt.where(AIInvocationRecord.model == filters.model)
+    out["prompt_fingerprint"] = int((await session.execute(pf_stmt)).scalar() or 0)
+
+    # model
+    m_stmt = select(func.count(func.distinct(AIInvocationRecord.model))).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+        AIInvocationRecord.model.is_not(None),
+    )
+    out["model"] = int((await session.execute(m_stmt)).scalar() or 0)
+
+    # app_version
+    av_stmt = select(func.count(func.distinct(AIInvocationRecord.app_version))).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+        AIInvocationRecord.app_version.is_not(None),
+    )
+    if filters.app_version:
+        av_stmt = av_stmt.where(AIInvocationRecord.app_version == filters.app_version)
+    out["app_version"] = int((await session.execute(av_stmt)).scalar() or 0)
+
+    # experiment_id (nullable — count distinct non-null + 1 "unknown" bucket
+    # when at least one row has null experiment_id).
+    e_stmt = select(
+        func.count(func.distinct(AIInvocationRecord.experiment_id))
+    ).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+    )
+    if filters.experiment_id:
+        e_stmt = e_stmt.where(AIInvocationRecord.experiment_id == filters.experiment_id)
+    e_count = int((await session.execute(e_stmt)).scalar() or 0)
+    null_stmt = select(func.count(AIInvocationRecord.id)).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+        AIInvocationRecord.experiment_id.is_(None),
+    )
+    null_count = int((await session.execute(null_stmt)).scalar() or 0)
+    out["experiment_id"] = e_count + (1 if null_count > 0 else 0)
+
+    return out
+
+
+async def top_versions_breakdown(
+    session: AsyncSession,
+    filters: DashboardFilter,
+    top_n: int = 5,
+) -> list[dict[str, Any]]:
+    """Top-N version breakdown rows.
+
+    Returns a list of dicts ordered by count desc, then by
+    (prompt_fingerprint, model, app_version, rubric_version) asc
+    as a deterministic tiebreak. Each row has the four version
+    keys + ``count``.
+
+    ``rubric_version`` is read directly from
+    ``AIInvocationRecord`` (the table has a dedicated column).
+    Null values are normalized to ``"unknown"`` (SC-010).
+    """
+    pf = func.coalesce(AIInvocationRecord.prompt_fingerprint, "unknown").label(
+        "prompt_fingerprint"
+    )
+    model_col = func.coalesce(AIInvocationRecord.model, "unknown").label("model")
+    app_ver = func.coalesce(AIInvocationRecord.app_version, "unknown").label(
+        "app_version"
+    )
+    rubric_ver = func.coalesce(AIInvocationRecord.rubric_version, "unknown").label(
+        "rubric_version"
+    )
+    cnt = func.count(AIInvocationRecord.id).label("cnt")
+    stmt = (
+        select(pf, model_col, app_ver, rubric_ver, cnt)
+        .where(
+            AIInvocationRecord.created_at >= filters.date_range_start,
+            AIInvocationRecord.created_at < filters.date_range_end,
+        )
+        .group_by(pf, model_col, app_ver, rubric_ver)
+        .order_by(cnt.desc(), pf.asc(), model_col.asc(), app_ver.asc(), rubric_ver.asc())
+        .limit(top_n)
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    if filters.app_version:
+        stmt = stmt.where(AIInvocationRecord.app_version == filters.app_version)
+    result = await session.execute(stmt)
+    rows: list[dict[str, Any]] = []
+    for pf_v, m_v, av_v, rv_v, c in result.all():
+        rows.append(
+            {
+                "prompt_fingerprint": str(pf_v),
+                "model": str(m_v),
+                "app_version": str(av_v),
+                "rubric_version": str(rv_v),
+                "count": int(c),
+            }
+        )
+    return rows
+
+
+async def top_experiments_breakdown(
+    session: AsyncSession,
+    filters: DashboardFilter,
+    top_n: int = 5,
+) -> list[dict[str, Any]]:
+    """Top-N experiment breakdown rows.
+
+    Returns a list of ``{experiment_id, count}`` dicts ordered by
+    count desc, then by experiment_id asc. ``experiment_id`` is
+    nullable — null rows are bucketed under ``"unknown"`` (SC-010).
+    """
+    exp = func.coalesce(AIInvocationRecord.experiment_id, "unknown").label(
+        "experiment_id"
+    )
+    cnt = func.count(AIInvocationRecord.id).label("cnt")
+    stmt = (
+        select(exp, cnt)
+        .where(
+            AIInvocationRecord.created_at >= filters.date_range_start,
+            AIInvocationRecord.created_at < filters.date_range_end,
+        )
+        .group_by(exp)
+        .order_by(cnt.desc(), exp.asc())
+        .limit(top_n)
+    )
+    if filters.experiment_id:
+        stmt = stmt.where(AIInvocationRecord.experiment_id == filters.experiment_id)
+    result = await session.execute(stmt)
+    rows: list[dict[str, Any]] = []
+    for exp_v, c in result.all():
+        rows.append({"experiment_id": str(exp_v), "count": int(c)})
+    return rows
+
+
+async def has_any_trace_in_window(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> bool:
+    """Return ``True`` iff any row in the window has a non-null trace_id.
+
+    US7 T123 contract: the panel renders the "trace unavailable"
+    badge when this returns ``False``. Cheap (LIMIT 1 + IS NOT NULL).
+    """
+    stmt = (
+        select(AIInvocationRecord.id)
+        .where(
+            AIInvocationRecord.created_at >= filters.date_range_start,
+            AIInvocationRecord.created_at < filters.date_range_end,
+            AIInvocationRecord.trace_id.is_not(None),
+        )
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar() is not None
+
+
 __all__ = [
     "ai_latency_percentile",  # US4 T103
     "ai_top_breakdown",  # US4 T103
@@ -827,6 +1042,7 @@ __all__ = [
     "count_ai_invocations_retried",  # US4 T103
     "count_ai_invocations_success",  # US4 T103
     "count_ai_tasks_total",
+    "count_ai_version_breakdown_rows",  # US7 T129
     "count_completed_ai_tasks",
     "count_event_rows",
     "count_distinct_users_for_event",
@@ -843,9 +1059,13 @@ __all__ = [
     "count_suggestions_shown",
     "count_successful_resume_diagnoses",
     "count_visits",
+    "distinct_version_dimensions",  # US7 T129
+    "has_any_trace_in_window",  # US7 T129
     "list_product_events",
     "sum_ai_completion_tokens",  # US4 T103
     "sum_ai_prompt_tokens",  # US4 T103
     "sum_estimated_cost",
     "sum_token_usage",
+    "top_experiments_breakdown",  # US7 T129
+    "top_versions_breakdown",  # US7 T129
 ]

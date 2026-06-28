@@ -134,12 +134,21 @@ export interface FeedbackBadcaseMetric {
 }
 
 export interface VersionExperimentMetric {
-  app_versions: Array<{ app_version: string; count: number }>
-  prompt_fingerprints: Array<{ prompt_fingerprint: string; count: number }>
-  rubric_versions: Array<{ rubric_version: string; count: number }>
-  experiment_groups: Array<{ experiment_id: string; count: number }>
-  trace_coverage: number
-  run_id_count: number
+  event_count: number
+  distinct_prompt_fingerprints: number
+  distinct_models: number
+  distinct_app_versions: number
+  distinct_experiments: number
+  top_versions: Array<{
+    prompt_fingerprint: string
+    rubric_version: string
+    app_version: string
+    model: string
+    count: number
+  }>
+  top_experiments: Array<{ experiment_id: string; count: number }>
+  trace_available: boolean
+  top_versions_source: string
 }
 
 // --- Convenience typed panel exports ------------------------------------------

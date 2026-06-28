@@ -503,8 +503,52 @@ def _reset_tracing_for_test() -> None:
     _last_config = None
 
 
+# ---------------------------------------------------------------------------
+# T127 (US7) — extract_trace_id_from_span_or_unavailable
+# ---------------------------------------------------------------------------
+
+
+#: Literal sentinel returned when no OTel span is active or trace is
+#: not initialized. Surfaced in eval-report / badcase fields so
+#: downstream consumers can distinguish "no trace" from "real trace".
+TRACE_UNAVAILABLE: str = "unavailable"
+
+
+def extract_trace_id_from_span_or_unavailable() -> str:
+    """Return the current OTel trace id (32-char hex) or ``"unavailable"``.
+
+    REQ-033 US7 (T127) contract: callers (eval report, badcase
+    promotion) need a stable way to grab the active trace id without
+    caring whether OTel is initialized. When no span is active (or
+    the SDK isn't loaded), this function returns the literal string
+    ``"unavailable"`` — never ``None``, never empty, never crashes.
+
+    Fail-open (FR-017): if reading the active span raises for any
+    reason, return ``"unavailable"`` rather than propagating.
+
+    The trace id format follows OTel's convention: 32 lowercase hex
+    chars (128 bits). The OTel SDK exposes it via
+    ``SpanContext.trace_id`` as an int; we format with ``:032x``.
+    """
+    try:
+        from opentelemetry import trace as otel_trace_api
+
+        active = otel_trace_api.get_current_span()
+        if active is None:
+            return TRACE_UNAVAILABLE
+        ctx = active.get_span_context()
+        if ctx is None or not ctx.is_valid:
+            return TRACE_UNAVAILABLE
+        return f"{ctx.trace_id:032x}"
+    except Exception:
+        # FR-017 fail-open: never break callers over OTel errors.
+        return TRACE_UNAVAILABLE
+
+
 __all__ = [
+    "TRACE_UNAVAILABLE",
     "TracingConfig",
+    "extract_trace_id_from_span_or_unavailable",
     "finish_span_with_exception",
     "get_in_memory_exporter",
     "get_tracer",

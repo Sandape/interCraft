@@ -1,4 +1,4 @@
-"""REQ-033 US1 + US2 + US3 + US4 — PM Dashboard filter and response envelope schemas (T070, T086, T095, T105).
+"""REQ-033 US1 + US2 + US3 + US4 + US7 — PM Dashboard filter and response envelope schemas (T070, T086, T095, T105, T129).
 
 Pydantic v2 schemas for the PM Dashboard V1 endpoints:
 
@@ -15,6 +15,8 @@ Pydantic v2 schemas for the PM Dashboard V1 endpoints:
 - ``ResumeDiagnosisPanelData`` — US2 5 core resume diagnosis metrics.
 - ``MockInterviewPanelData`` — US3 5 core mock interview metrics.
 - ``AIOperationsPanelData`` — US4 7 core AI operations metrics.
+- ``VersionExperimentPanelData`` — US7 5 metric cards + 2 tables for
+  version breakdown + experiment breakdown.
 - ``QualityFlags`` — version-field unknowns, sampled data, delayed
   ingestion, partial data.
 
@@ -456,6 +458,88 @@ class AIOperationsPanelData(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Version/Experiment panel payload (US7 T129)
+# ---------------------------------------------------------------------------
+
+
+class VersionBreakdownEntry(BaseModel):
+    """One row of the version breakdown table.
+
+    US7 T129 + T130 contract: each entry identifies a unique
+    combination of ``prompt_fingerprint`` × ``rubric_version`` ×
+    ``app_version`` × ``model`` and counts how many product events /
+    AI invocations carried that combination in the window.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    prompt_fingerprint: str = "unknown"
+    rubric_version: str = "unknown"
+    app_version: str = "unknown"
+    model: str = "unknown"
+    count: int = Field(default=0, ge=0)
+
+
+class ExperimentBreakdownEntry(BaseModel):
+    """One row of the experiment breakdown table.
+
+    US7 T129 + T130 contract: counts product events per
+    ``experiment_id`` (defaults to ``"unknown"`` when the column is
+    missing — SC-010 normalization).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    experiment_id: str = "unknown"
+    count: int = Field(default=0, ge=0)
+
+
+class VersionExperimentPanelData(BaseModel):
+    """The version / experiment breakdown payload per US7 T129.
+
+    The panel exposes 5 metric cards (event_count,
+    distinct_prompt_fingerprints, distinct_models, distinct_app_versions,
+    distinct_experiments) plus two tables (version_breakdown sorted
+    by count desc + experiment_breakdown sorted by count desc).
+
+    Privacy: only counts + breakdowns are surfaced. No raw event
+    content.
+
+    ``trace_available`` reflects whether any of the events in the
+    window carry an OTel trace id (US7 T123 contract — explicit,
+    not silent). When ``False``, the frontend renders the
+    "trace unavailable" badge.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    event_count: int = Field(default=0, ge=0)
+    distinct_prompt_fingerprints: int = Field(default=0, ge=0)
+    distinct_models: int = Field(default=0, ge=0)
+    distinct_app_versions: int = Field(default=0, ge=0)
+    distinct_experiments: int = Field(default=0, ge=0)
+    top_versions: list[VersionBreakdownEntry] = Field(default_factory=list)
+    top_experiments: list[ExperimentBreakdownEntry] = Field(default_factory=list)
+    trace_available: bool = Field(default=False)
+    top_versions_source: str = Field(default="product_events")
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(by_alias=True)
+
+
+# ---------------------------------------------------------------------------
 # Convenience typed aliases (Pydantic generics)
 # ---------------------------------------------------------------------------
 
@@ -465,6 +549,7 @@ FunnelPanel = PanelResponse[FunnelPanelData]
 ResumeDiagnosisPanel = PanelResponse[ResumeDiagnosisPanelData]  # US2 T086
 MockInterviewPanel = PanelResponse[MockInterviewPanelData]  # US3 T095
 AIOperationsPanel = PanelResponse[AIOperationsPanelData]  # US4 T105
+VersionExperimentPanel = PanelResponse[VersionExperimentPanelData]  # US7 T129
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +627,7 @@ __all__ = [
     "DashboardError",
     "DashboardErrorEnvelope",
     "DashboardFilter",
+    "ExperimentBreakdownEntry",
     "FunnelPanel",
     "FunnelPanelData",
     "FunnelStep",
@@ -555,4 +641,7 @@ __all__ = [
     "QualityFlags",
     "ResumeDiagnosisPanel",
     "ResumeDiagnosisPanelData",
-]  # US2 T086 + US3 T095 + US4 T105
+    "VersionBreakdownEntry",
+    "VersionExperimentPanel",  # US7 T129
+    "VersionExperimentPanelData",  # US7 T129
+]  # US2 T086 + US3 T095 + US4 T105 + US7 T129

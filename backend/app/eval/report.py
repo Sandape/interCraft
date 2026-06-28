@@ -104,18 +104,70 @@ def render_json_report(report: EvalReport | dict[str, Any]) -> dict[str, Any]:
           "failed_cases": int,
           "skipped_cases": int,
           "per_node": { node: {total, passed, pass_rate, avg_chinese_fidelity} },
-          "case_results": [ {case_id, node, passed, run_id, ...}, ... ]
+          "case_results": [ {
+            case_id, node, passed, run_id, trace_id, artifact_ref,
+            langsmith_url, ...
+          }, ... ]
         }
+
+    REQ-033 US7 (T125): each ``case_results`` row carries the four
+    reference fields as top-level keys so downstream consumers
+    (PM dashboard, badcase review, CI artifact diff) can join
+    without walking the ``metrics`` dict:
+
+    - ``trace_id`` — OTel trace id hex, or the literal string
+      ``"unavailable"`` when no span was active.
+    - ``run_id`` — eval run UUID (string form). Mirrors the parent
+      ``EvalReport.run_id`` so per-case rows are independently
+      joinable.
+    - ``artifact_ref`` — local artifact path, or
+      ``"unavailable"`` when no path was recorded.
+    - ``langsmith_url`` — LangSmith deep link, or
+      ``"unavailable"`` when LangSmith is not enabled (US6 deferred
+      per user decision).
     """
     out = _coerce_report(report)
-    # Ensure per-case run_id is present (REQ-033 US7 join field).
+    # Ensure per-case run_id + trace/run references are present
+    # (REQ-033 US7 join fields — T125 + T126).
     run_id = out["run_id"]
     for cr in out["case_results"]:
-        if isinstance(cr, dict) and not cr.get("run_id"):
+        if not isinstance(cr, dict):
+            continue
+        # run_id (US7 join field).
+        if not cr.get("run_id"):
             cr["run_id"] = run_id
-        # Coerce UUID to str if needed (legacy callers).
-        elif isinstance(cr, dict) and isinstance(cr.get("run_id"), UUID):
+        elif isinstance(cr.get("run_id"), UUID):
             cr["run_id"] = str(cr["run_id"])
+        # trace_id / artifact_ref — promote from metrics when present,
+        # else default to the canonical "unavailable" marker (US7 T123).
+        metrics = cr.get("metrics") or {}
+        if not isinstance(metrics, dict):
+            metrics = {}
+        trace_id = cr.get("trace_id") or metrics.get("trace_id")
+        if trace_id is None or trace_id == "" or trace_id == "unknown":
+            trace_id = "unavailable"
+        cr["trace_id"] = str(trace_id)
+        artifact_ref = cr.get("artifact_ref") or metrics.get("artifact_ref")
+        if artifact_ref is None or artifact_ref == "":
+            artifact_ref = "unavailable"
+        cr["artifact_ref"] = str(artifact_ref)
+        # langsmith_url — US6 deferred, always "unavailable" unless the
+        # case / report explicitly carries a non-empty URL.
+        ls_url = (
+            cr.get("langsmith_url")
+            or metrics.get("langsmith_url")
+            or out.get("langsmith_url")
+        )
+        if ls_url is None or ls_url == "" or ls_url == "unknown":
+            ls_url = "unavailable"
+        cr["langsmith_url"] = str(ls_url)
+        # Persist metrics back if we promoted trace_id/artifact_ref
+        # from the row level (keep them both visible for back-compat).
+        if "trace_id" not in metrics and cr.get("trace_id") != "unavailable":
+            metrics["trace_id"] = cr["trace_id"]
+        if "artifact_ref" not in metrics and cr.get("artifact_ref") != "unavailable":
+            metrics["artifact_ref"] = cr["artifact_ref"]
+        cr["metrics"] = metrics
     return out
 
 
@@ -341,7 +393,7 @@ def _normalize_unknown(v: Any) -> str:
         return "unknown"
     if isinstance(v, str) and not v.strip():
         return "unknown"
-    return v
+    return str(v)
 
 
 class CaseResultModel(BaseModel):

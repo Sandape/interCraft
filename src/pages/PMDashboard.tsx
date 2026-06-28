@@ -1,10 +1,11 @@
-/** REQ-033 US1 T077 + US2 T089 + US3 T098 + US4 T110 — PMDashboard page shell.
+/** REQ-033 US1 T077 + US2 T089 + US3 T098 + US4 T110 + US7 T131 — PMDashboard page shell.
  *
  * Layout:
  * - Header: page title + date range picker + environment selector.
  * - Five-panel grid: Overview (top) + Funnel (middle) +
  *   Resume Diagnosis (US2 T089) + Mock Interview (US3 T098) +
- *   AI Operations (US4 T110).
+ *   AI Operations (US4 T110) +
+ *   Version & Experiment (US7 T131).
  * - Loading skeleton while data is in flight.
  * - Error state with a retry hint.
  * - Date range / environment changes re-fetch via TanStack Query.
@@ -18,6 +19,7 @@ import { FunnelPanel } from '@/components/pm-dashboard/FunnelPanel'
 import { ResumeDiagnosisPanel } from '@/components/pm-dashboard/ResumeDiagnosisPanel'
 import { MockInterviewPanel } from '@/components/pm-dashboard/MockInterviewPanel'
 import { AIOperationsPanel } from '@/components/pm-dashboard/AIOperationsPanel'
+import { VersionExperimentPanel } from '@/components/pm-dashboard/VersionExperimentPanel'
 import type { DashboardFilter } from '@/types/pm-dashboard'
 
 function ymd(d: Date): string {
@@ -94,19 +96,26 @@ export default function PMDashboard() {
     queryFn: () => pmDashboardApi.getAIOperations(filter),
     staleTime: 30_000,
   })
+  const versionExperimentQuery = useQuery({
+    queryKey: ['pm-dashboard', 'version-experiment', filter],
+    queryFn: () => pmDashboardApi.getVersionExperiment(filter),
+    staleTime: 30_000,
+  })
 
   const isLoading =
     overviewQuery.isLoading ||
     funnelQuery.isLoading ||
     resumeQuery.isLoading ||
     mockInterviewQuery.isLoading ||
-    aiOpsQuery.isLoading
+    aiOpsQuery.isLoading ||
+    versionExperimentQuery.isLoading
   const error =
     overviewQuery.error ||
     funnelQuery.error ||
     resumeQuery.error ||
     mockInterviewQuery.error ||
-    aiOpsQuery.error
+    aiOpsQuery.error ||
+    versionExperimentQuery.error
 
   return (
     <div className="p-6 max-w-7xl mx-auto" data-testid="pm-dashboard-page">
@@ -194,6 +203,9 @@ export default function PMDashboard() {
             <MockInterviewPanel panel={mockInterviewQuery.data} />
           )}
           {aiOpsQuery.data && <AIOperationsPanel panel={aiOpsQuery.data} />}
+          {versionExperimentQuery.data && (
+            <VersionExperimentPanel panel={versionExperimentQuery.data} />
+          )}
         </div>
       )}
     </div>

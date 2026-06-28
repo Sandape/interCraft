@@ -51,6 +51,87 @@ from app.modules.badcases.schemas import (
 )
 
 
+# ---------------------------------------------------------------------------
+# REQ-033 US7 (T128) — badcase evidence trace linking
+# ---------------------------------------------------------------------------
+
+
+#: Literal sentinel for missing trace_id in badcase evidence_ref.
+#: Matches the eval report convention so downstream consumers can
+#: treat the field uniformly.
+_TRACE_UNAVAILABLE: str = "unavailable"
+
+
+def capture_current_trace_id() -> str:
+    """Return the active OTel trace id hex, or ``"unavailable"``.
+
+    Thin wrapper around the observability helper so service.py does
+    not import ``app.observability`` directly (the observability
+    module is optional infrastructure — keeping the import inside a
+    function makes the service usable in lightweight test contexts).
+    """
+    try:
+        from app.observability.tracing import (
+            extract_trace_id_from_span_or_unavailable,
+        )
+
+        return extract_trace_id_from_span_or_unavailable()
+    except Exception:  # pragma: no cover — fail-open per FR-017
+        return _TRACE_UNAVAILABLE
+
+
+def promote_with_trace_evidence(
+    badcase: Badcase,
+    *,
+    reviewer: str,
+    reason: Optional[str] = None,
+    closure_reason: Optional[str] = None,
+    evidence_ref: Optional[str] = None,
+    closed_at: Optional[datetime] = None,
+    auto_capture_trace: bool = True,
+) -> Badcase:
+    """Promote a badcase through the FSM and stamp the current trace id.
+
+    REQ-033 US7 (T128): when ``auto_capture_trace=True`` (default)
+    and the caller did not provide an explicit ``evidence_ref``,
+    the function captures the active OTel trace id and prepends
+    it to the evidence_ref as ``trace:<id>`` so the badcase row
+    is linked back to the originating trace. When no trace is
+    active, ``trace:unavailable`` is recorded — never silent
+    omission, per US7 T123 contract.
+
+    The transition itself is delegated to :func:`transition` so
+    the FSM rules (REVIEWER_REQUIRED / CLOSURE_REASON_REQUIRED /
+    etc.) still apply. This function only adds evidence
+    enrichment; it does NOT change FSM rules.
+
+    Parameters
+    ----------
+    badcase:
+        The badcase to transition (typically ``badcase.status ==
+        'AWAITING_VALIDATION'`` when promoting to ``CLOSED``).
+    reviewer, reason, closure_reason, evidence_ref, closed_at:
+        Same as :func:`transition`.
+    auto_capture_trace:
+        When True and ``evidence_ref`` is not supplied, prepend
+        the active trace id. Set to False to skip trace capture
+        (e.g. legacy callers or unit tests that don't want the
+        side effect).
+    """
+    if auto_capture_trace and not evidence_ref:
+        trace_id = capture_current_trace_id()
+        evidence_ref = f"trace:{trace_id}"
+    return transition(
+        badcase,
+        "CLOSED",
+        reviewer=reviewer,
+        reason=reason,
+        closure_reason=closure_reason,
+        evidence_ref=evidence_ref,
+        closed_at=closed_at,
+    )
+
+
 class BadcaseTransitionError(ValueError):
     """Raised when a state transition violates the FSM or required fields.
 
@@ -235,5 +316,7 @@ __all__ = [
     "BadcaseTransitionError",
     "apply_review_action",
     "can_promote",
+    "capture_current_trace_id",
+    "promote_with_trace_evidence",
     "transition",
 ]

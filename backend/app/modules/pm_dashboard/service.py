@@ -1,4 +1,4 @@
-"""REQ-033 US1 + US2 + US3 + US4 — PM Dashboard service layer (T072, T085, T094, T104).
+"""REQ-033 US1 + US2 + US3 + US4 + US7 — PM Dashboard service layer (T072, T085, T094, T104, T129).
 
 Pure orchestration: takes a ``DashboardFilter`` + DB session, calls the
 repository helpers, and assembles ``PanelResponse`` envelopes for the
@@ -19,6 +19,9 @@ Functions:
 - ``get_ai_operations(session, filters) ->
   list[PanelResponse[AIOperationsPanelData]]`` — assembles the US4
   AI operations panel (7 core metrics + 4 top-N breakdowns).
+- ``get_version_experiment(session, filters) ->
+  list[PanelResponse[VersionExperimentPanelData]]`` — assembles the
+  US7 version/experiment breakdown panel (5 metric cards + 2 tables).
 - ``validate_filters(filters) -> DashboardFilter`` — runs Pydantic
   validation; raises ``ValueError`` on bad input. Mapped to HTTP 400 by
   the FastAPI layer.
@@ -54,6 +57,7 @@ from app.modules.pm_dashboard import repository
 from app.modules.pm_dashboard.schemas import (
     AIOperationsPanelData,
     DashboardFilter,
+    ExperimentBreakdownEntry,
     FunnelPanelData,
     FunnelStep,
     MockInterviewPanelData,
@@ -61,6 +65,8 @@ from app.modules.pm_dashboard.schemas import (
     PanelResponse,
     QualityFlags,
     ResumeDiagnosisPanelData,
+    VersionBreakdownEntry,
+    VersionExperimentPanelData,
 )
 
 
@@ -584,13 +590,122 @@ async def get_ai_operations(
     return [panel]
 
 
+# ---------------------------------------------------------------------------
+# US7 (T129) — Version / Experiment Panel assembly
+# ---------------------------------------------------------------------------
+
+
+#: Number of top entries to surface per breakdown table (version /
+#: experiment). The PM dashboard shows "top 5" by event count to avoid
+#: one-offs dominating the view.
+VERSION_EXPERIMENT_TOP_N: int = 5
+
+
+async def get_version_experiment(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> list[PanelResponse[Any]]:
+    """Assemble the version / experiment panel (US7).
+
+    Returns a single ``PanelResponse`` whose ``data`` field carries:
+
+    - 5 metric cards: ``event_count`` + 4 distinct dimension counts
+      (``prompt_fingerprint`` / ``model`` / ``app_version`` /
+      ``experiment_id``).
+    - 2 breakdown tables: ``top_versions`` (rows of
+      ``prompt_fingerprint × rubric_version × app_version × model``
+      ordered by count desc, top 5) + ``top_experiments`` (rows of
+      ``experiment_id`` ordered by count desc, top 5).
+    - ``trace_available`` flag — when ``False``, the frontend renders
+      the "trace unavailable" badge (US7 T123 contract).
+
+    Empty window: returns 0 values + ``quality_flags.partial_data=True``
+    + ``freshness_at="unknown"`` per SC-009.
+
+    Privacy: only counts + breakdowns are surfaced. Raw event content
+    (no prompt / completion / message / response text) is never read.
+    The repository aggregations only touch the structured version
+    columns + ``experiment_id`` / ``trace_id`` / ``created_at``.
+    """
+    validate_filters(filters)
+
+    event_count = await repository.count_ai_version_breakdown_rows(session, filters)
+    distinct = await repository.distinct_version_dimensions(session, filters)
+    top_versions = await repository.top_versions_breakdown(
+        session, filters, top_n=VERSION_EXPERIMENT_TOP_N
+    )
+    top_experiments = await repository.top_experiments_breakdown(
+        session, filters, top_n=VERSION_EXPERIMENT_TOP_N
+    )
+    trace_available = await repository.has_any_trace_in_window(session, filters)
+
+    top_versions_payload = [
+        VersionBreakdownEntry(
+            prompt_fingerprint=r.get("prompt_fingerprint", "unknown"),
+            rubric_version=r.get("rubric_version", "unknown"),
+            app_version=r.get("app_version", "unknown"),
+            model=r.get("model", "unknown"),
+            count=int(r.get("count", 0) or 0),
+        )
+        for r in top_versions
+    ]
+    top_experiments_payload = [
+        ExperimentBreakdownEntry(
+            experiment_id=r.get("experiment_id", "unknown"),
+            count=int(r.get("count", 0) or 0),
+        )
+        for r in top_experiments
+    ]
+
+    data_payload = VersionExperimentPanelData(
+        event_count=event_count,
+        distinct_prompt_fingerprints=int(distinct.get("prompt_fingerprint", 0)),
+        distinct_models=int(distinct.get("model", 0)),
+        distinct_app_versions=int(distinct.get("app_version", 0)),
+        distinct_experiments=int(distinct.get("experiment_id", 0)),
+        top_versions=top_versions_payload,
+        top_experiments=top_experiments_payload,
+        trace_available=bool(trace_available),
+        top_versions_source="ai_invocation_records (grouped by version_context)",
+    )
+
+    has_data = event_count > 0
+
+    quality_flags = QualityFlags(
+        missing_version_fields=_missing_version_fields_for(filters),
+        sampled_data=False,
+        delayed_ingestion=False,
+        partial_data=not has_data,
+    )
+
+    freshness = _now_iso() if has_data else "unknown"
+
+    panel = PanelResponse[VersionExperimentPanelData](
+        metric_id="pm.version_experiment",
+        display_name="Version & Experiment",
+        value=float(event_count),
+        unit="count",
+        period_start=filters.date_range_start,
+        period_end=filters.date_range_end,
+        dimensions=filters.to_dimensions(),
+        source_of_truth="product_events (grouped by version_context)",
+        freshness_at=freshness,
+        quality_flags=quality_flags,
+        data=data_payload,
+    )
+
+    return [panel]
+
+
 __all__ = [
     "AI_OPS_TOP_N",
     "FUNNEL_STEPS",
+    "VERSION_EXPERIMENT_TOP_N",
     "get_ai_operations",  # US4 T104
     "get_funnel",
     "get_mock_interview",  # US3 T094
     "get_overview",
     "get_resume_diagnosis",  # US2 T085
+    "get_version_experiment",  # US7 T129
     "validate_filters",
 ]
