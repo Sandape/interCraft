@@ -1,4 +1,4 @@
-"""REQ-033 US1 + US2 + US3 — PM Dashboard service layer (T072, T085, T094).
+"""REQ-033 US1 + US2 + US3 + US4 — PM Dashboard service layer (T072, T085, T094, T104).
 
 Pure orchestration: takes a ``DashboardFilter`` + DB session, calls the
 repository helpers, and assembles ``PanelResponse`` envelopes for the
@@ -16,6 +16,9 @@ Functions:
 - ``get_mock_interview(session, filters) ->
   list[PanelResponse[MockInterviewPanelData]]`` — assembles the US3
   mock interview panel.
+- ``get_ai_operations(session, filters) ->
+  list[PanelResponse[AIOperationsPanelData]]`` — assembles the US4
+  AI operations panel (7 core metrics + 4 top-N breakdowns).
 - ``validate_filters(filters) -> DashboardFilter`` — runs Pydantic
   validation; raises ``ValueError`` on bad input. Mapped to HTTP 400 by
   the FastAPI layer.
@@ -49,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.pm_dashboard import repository
 from app.modules.pm_dashboard.schemas import (
+    AIOperationsPanelData,
     DashboardFilter,
     FunnelPanelData,
     FunnelStep,
@@ -463,8 +467,127 @@ async def get_mock_interview(
     return [panel]
 
 
+# ---------------------------------------------------------------------------
+# US4 (T104) - AI Operations Panel assembly
+# ---------------------------------------------------------------------------
+
+
+#: Number of top entries to surface per breakdown dimension
+#: (model / graph / node / prompt_fingerprint). The PM dashboard shows
+#: "top 5" by call count to avoid one-offs dominating the view.
+AI_OPS_TOP_N: int = 5
+
+
+async def get_ai_operations(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> list[PanelResponse[Any]]:
+    """Assemble the AI operations panel (US4).
+
+    Returns a list of PanelResponse rows whose ``data`` field carries
+    the 7 core metrics (call_count, success_count, failure_count,
+    success_rate, failure_rate, retry_count, p50/p95/p99 latency,
+    estimated_cost, total_tokens + prompt + completion tokens) plus
+    the 4 top-N breakdowns (model, graph, node, prompt_fingerprint).
+
+    Empty window: returns 0 values + ``quality_flags.partial_data=True``
+    + ``freshness_at="unknown"`` per SC-009.
+
+    Privacy: the panel surfaces counts + rates + aggregates + breakdowns
+    only. Raw prompt / completion text is never read from
+    ``AIInvocationRecord`` (no payload fields surfaced). The cost is
+    labeled as an estimate per FR-008.
+    """
+    validate_filters(filters)
+
+    # Pull aggregates (parallel where possible; sequential keeps it simple).
+    call_count = await repository.count_ai_invocations(session, filters)
+    success_count = await repository.count_ai_invocations_success(session, filters)
+    failure_count = await repository.count_ai_invocations_failure(session, filters)
+    retry_count = await repository.count_ai_invocations_retried(session, filters)
+    prompt_tokens = await repository.sum_ai_prompt_tokens(session, filters)
+    completion_tokens = await repository.sum_ai_completion_tokens(session, filters)
+    p50 = await repository.ai_latency_percentile(session, filters, 0.50)
+    p95 = await repository.ai_latency_percentile(session, filters, 0.95)
+    p99 = await repository.ai_latency_percentile(session, filters, 0.99)
+    # Reuse the existing cost helper (US1) for the sum of estimated_cost
+    # — the AIInvocationRecord table already carries the cost recorded
+    # by the LLM client hook (US9 T040) so the panel just sums it.
+    estimated_cost = await repository.sum_estimated_cost(session, filters)
+    # Top-5 breakdowns
+    model_breakdown = await repository.ai_top_breakdown(
+        session, filters, "model", top_n=AI_OPS_TOP_N
+    )
+    graph_breakdown = await repository.ai_top_breakdown(
+        session, filters, "graph", top_n=AI_OPS_TOP_N
+    )
+    node_breakdown = await repository.ai_top_breakdown(
+        session, filters, "node", top_n=AI_OPS_TOP_N
+    )
+    prompt_fingerprint_breakdown = await repository.ai_top_breakdown(
+        session, filters, "prompt_fingerprint", top_n=AI_OPS_TOP_N
+    )
+
+    # Derived rates (clamped to [0, 1]).
+    success_rate = (success_count / call_count) if call_count > 0 else 0.0
+    success_rate = max(0.0, min(1.0, success_rate))
+    failure_rate = (failure_count / call_count) if call_count > 0 else 0.0
+    failure_rate = max(0.0, min(1.0, failure_rate))
+    total_tokens = prompt_tokens + completion_tokens
+
+    data_payload = AIOperationsPanelData(
+        call_count=call_count,
+        success_count=success_count,
+        failure_count=failure_count,
+        success_rate=success_rate,
+        failure_rate=failure_rate,
+        retry_count=retry_count,
+        p50_latency_ms=p50,
+        p95_latency_ms=p95,
+        p99_latency_ms=p99,
+        estimated_cost=estimated_cost,
+        total_tokens=total_tokens,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        is_estimate=True,  # FR-008 — cost is always labeled as estimate
+        model_breakdown=model_breakdown,
+        graph_breakdown=graph_breakdown,
+        node_breakdown=node_breakdown,
+        prompt_fingerprint_breakdown=prompt_fingerprint_breakdown,
+    )
+
+    has_data = call_count > 0
+
+    quality_flags = QualityFlags(
+        missing_version_fields=_missing_version_fields_for(filters),
+        sampled_data=False,
+        delayed_ingestion=False,
+        partial_data=not has_data,
+    )
+
+    freshness = _now_iso() if has_data else "unknown"
+
+    panel = PanelResponse[AIOperationsPanelData](
+        metric_id="pm.ai_operations",
+        display_name="AI Operations",
+        value=float(call_count),
+        unit="count",
+        period_start=filters.date_range_start,
+        period_end=filters.date_range_end,
+        dimensions=filters.to_dimensions(),
+        source_of_truth="ai_invocation_records",
+        freshness_at=freshness,
+        quality_flags=quality_flags,
+        data=data_payload,
+    )
+
+    return [panel]
+
+
 __all__ = [
+    "AI_OPS_TOP_N",
     "FUNNEL_STEPS",
+    "get_ai_operations",  # US4 T104
     "get_funnel",
     "get_mock_interview",  # US3 T094
     "get_overview",

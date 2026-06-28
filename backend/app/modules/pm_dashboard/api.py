@@ -1,4 +1,4 @@
-"""REQ-033 US1 + US2 + US3 — PM Dashboard API routes (T073, T087, T096).
+"""REQ-033 US1 + US2 + US3 + US4 — PM Dashboard API routes (T073, T087, T096, T106).
 
 FastAPI router for the PM Dashboard V1 endpoints (US1):
 
@@ -8,6 +8,7 @@ FastAPI router for the PM Dashboard V1 endpoints (US1):
 - ``GET /api/v1/pm-dashboard/metrics/funnel`` — core funnel panel.
 - ``GET /api/v1/pm-dashboard/metrics/resume-diagnosis`` — US2 panel.
 - ``GET /api/v1/pm-dashboard/metrics/mock-interview`` — US3 panel.
+- ``GET /api/v1/pm-dashboard/metrics/ai-operations`` — US4 panel.
 
 Both metrics endpoints:
 
@@ -408,6 +409,88 @@ async def get_mock_interview(
     try:
         panels: list[PanelResponse[Any]] = (
             await dashboard_service.get_mock_interview(session, filters)
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_FILTER", "message": str(exc)},
+        ) from exc
+
+    freshness = panels[0].freshness_at if panels else "unknown"
+    return {
+        "panel": panels[0].model_dump(by_alias=True, mode="json")
+        if panels
+        else None,
+        "freshness_at": freshness,
+        "request_id": str(panels[0].metric_id) if panels else "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# T106 - AI Operations endpoint (US4)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/metrics/ai-operations")
+async def get_ai_operations(
+    date_range_start: str = Query(
+        ...,
+        description="Inclusive ISO 8601 lower bound for the period.",
+    ),
+    date_range_end: str = Query(
+        ...,
+        description="Exclusive ISO 8601 upper bound for the period.",
+    ),
+    environment: Optional[str] = Query(default=None),
+    release_stage: Optional[str] = Query(default=None),
+    app_version: Optional[str] = Query(default=None),
+    prompt_fingerprint: Optional[str] = Query(default=None),
+    rubric_version: Optional[str] = Query(default=None),
+    model: Optional[str] = Query(default=None),
+    experiment_id: Optional[str] = Query(default=None),
+    graph: Optional[str] = Query(default=None),
+    node: Optional[str] = Query(default=None),
+    session: AsyncSession = Depends(_db_session_with_rls),
+) -> dict[str, Any]:
+    """Return the AI operations panel (US4 FR).
+
+    Surfaces the 7 core metrics + 4 top-N breakdowns:
+    - call_count / success_count / failure_count
+    - success_rate / failure_rate (clamped to [0, 1])
+    - retry_count (rows where retry_count > 0)
+    - p50 / p95 / p99 latency_ms (via Postgres percentile_cont)
+    - estimated_cost (sum, labeled as estimate per FR-008)
+    - total_tokens / prompt_tokens / completion_tokens
+    - model / graph / node / prompt_fingerprint top-5 breakdowns
+
+    Same filter set as overview/funnel/resume-diagnosis/mock-interview.
+    Empty window returns 0 values + ``quality_flags.partial_data=true`` +
+    ``freshness_at="unknown"`` per SC-009.
+
+    Privacy: only counts + rates + percentiles + top-N breakdowns are
+    surfaced. Raw prompt / completion text is never read from
+    ``AIInvocationRecord``.
+
+    Error mapping (mirrors US1/US2/US3):
+    - ``ValueError`` -> 400 (bad filter)
+    - missing/invalid required -> 422 (FastAPI Query validation)
+    """
+    filters = _parse_filters(
+        date_range_start=date_range_start,
+        date_range_end=date_range_end,
+        environment=environment,
+        release_stage=release_stage,
+        app_version=app_version,
+        prompt_fingerprint=prompt_fingerprint,
+        rubric_version=rubric_version,
+        model=model,
+        experiment_id=experiment_id,
+        graph=graph,
+        node=node,
+    )
+    try:
+        panels: list[PanelResponse[Any]] = (
+            await dashboard_service.get_ai_operations(session, filters)
         )
     except ValueError as exc:
         raise HTTPException(

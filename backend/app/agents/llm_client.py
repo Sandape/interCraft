@@ -30,6 +30,7 @@ from typing_extensions import TypedDict
 from app.agents.token_estimator import TokenEstimator
 from app.core.config import get_settings
 from app.eval.prompt_fingerprint import compute_prompt_fingerprint
+from app.modules.telemetry_contracts.costs import estimate_cost
 from app.modules.telemetry_contracts.schemas import AIInvocationSummary
 
 logger = structlog.get_logger("agents.llm_client")
@@ -595,11 +596,21 @@ __all__ = [
 
 # Cost per token table (USD) — populated lazily from settings or env.
 # If a model is missing from the table, cost=0.0 with is_estimate=True.
+# US4 T108: this legacy helper is no longer called by
+# ``_build_ai_invocation_summary`` (which now delegates to
+# ``telemetry_contracts.costs.estimate_cost``). Kept for backward
+# compatibility with any external caller that imports it; not part
+# of the active cost-calculation path.
 _DEFAULT_COST_PER_TOKEN: float = 0.0  # conservative; US9 T040 says cost=0 if not configured
 
 
 def _get_cost_per_token(model: str) -> float:
-    """Return USD cost per token for ``model``.
+    """Return USD cost per token for ``model`` (legacy — US4 T108).
+
+    US4 T108 redirected the active cost path to
+    ``app.modules.telemetry_contracts.costs.estimate_cost``. This
+    function is retained as a back-compat shim and reads the same
+    ``Settings.deepseek_cost_per_token`` scalar it always did.
 
     Looks at:
 
@@ -651,9 +662,17 @@ def _build_ai_invocation_summary(
     except Exception:  # pragma: no cover — fail-open per SC-010
         fp = "unknown"
 
-    cost_per_token = _get_cost_per_token(model)
-    total_tokens = max(0, int(prompt_tokens)) + max(0, int(completion_tokens))
-    estimated_cost = float(total_tokens) * cost_per_token
+    # US4 T108: route cost computation through the canonical
+    # ``telemetry_contracts.costs.estimate_cost`` pure function so the
+    # PM Dashboard AI Operations panel and the LLM client hook agree
+    # on the same USD value for matching (prompt, completion, model)
+    # inputs. ``estimate_cost`` falls back to a conservative low rate
+    # for unknown models and clamps negative token counts to 0.
+    estimated_cost = estimate_cost(
+        prompt_tokens=int(prompt_tokens),
+        completion_tokens=int(completion_tokens),
+        model=model,
+    )
 
     return AIInvocationSummary(
         invocation_id=invocation_id,

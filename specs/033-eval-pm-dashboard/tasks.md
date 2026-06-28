@@ -249,21 +249,21 @@
 
 ### Tests for User Story 4
 
-- [ ] T100 [P] [US4] Write failing AI operations backend tests in `backend/tests/integration/test_033_ai_operations_metrics.py`.
-- [ ] T101 [P] [US4] Write failing AI operations panel frontend tests in `src/components/pm-dashboard/__tests__/AIOperationsPanel.test.tsx`.
-- [ ] T102 [P] [US4] Write failing AI cost-estimate unit tests in `backend/tests/unit/test_033_ai_cost_estimates.py`.
+- [x] T100 [P] [US4] Write failing AI operations backend tests in `backend/tests/integration/test_033_ai_operations_metrics.py`.
+- [x] T101 [P] [US4] Write failing AI operations panel frontend tests in `src/components/pm-dashboard/__tests__/AIOperationsPanel.test.tsx`.
+- [x] T102 [P] [US4] Write failing AI cost-estimate unit tests in `backend/tests/unit/test_033_ai_cost_estimates.py`.
 
 ### Implementation for User Story 4
 
-- [ ] T103 [US4] Add AIInvocationRecord persistence mapping in `backend/app/modules/pm_dashboard/repository.py`.
-- [ ] T104 [US4] Implement AI operations metric assembly in `backend/app/modules/pm_dashboard/service.py`.
-- [ ] T105 [US4] Add AI operations API response schema in `backend/app/modules/pm_dashboard/schemas.py`.
-- [ ] T106 [US4] Add AI operations route in `backend/app/modules/pm_dashboard/api.py`.
-- [ ] T107 [US4] Implement estimated cost calculator in `backend/app/modules/telemetry_contracts/costs.py`.
-- [ ] T108 [US4] Connect AI invocation summaries to existing LLM metrics in `backend/app/agents/llm_client.py`.
-- [ ] T109 [US4] Implement AI operations panel in `src/components/pm-dashboard/AIOperationsPanel.tsx`.
-- [ ] T110 [US4] Wire AI operations panel into `src/pages/PMDashboard.tsx`.
-- [ ] T111 [US4] Record US4 verification evidence in `test-reports/REQ-033-US4-test.md`.
+- [x] T103 [US4] Add AIInvocationRecord persistence mapping in `backend/app/modules/pm_dashboard/repository.py`.
+- [x] T104 [US4] Implement AI operations metric assembly in `backend/app/modules/pm_dashboard/service.py`.
+- [x] T105 [US4] Add AI operations API response schema in `backend/app/modules/pm_dashboard/schemas.py`.
+- [x] T106 [US4] Add AI operations route in `backend/app/modules/pm_dashboard/api.py`.
+- [x] T107 [US4] Implement estimated cost calculator in `backend/app/modules/telemetry_contracts/costs.py`.
+- [x] T108 [US4] Connect AI invocation summaries to existing LLM metrics in `backend/app/agents/llm_client.py`.
+- [x] T109 [US4] Implement AI operations panel in `src/components/pm-dashboard/AIOperationsPanel.tsx`.
+- [x] T110 [US4] Wire AI operations panel into `src/pages/PMDashboard.tsx`.
+- [x] T111 [US4] Record US4 verification evidence in `test-reports/REQ-033-US4-test.md`.
 
 **Checkpoint**: AI operations metrics are independently visible with cost estimates clearly labeled.
 

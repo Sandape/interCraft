@@ -1,9 +1,10 @@
-/** REQ-033 US1 T077 + US2 T089 + US3 T098 — PMDashboard page shell.
+/** REQ-033 US1 T077 + US2 T089 + US3 T098 + US4 T110 — PMDashboard page shell.
  *
  * Layout:
  * - Header: page title + date range picker + environment selector.
- * - Four-panel grid: Overview (top) + Funnel (middle) +
- *   Resume Diagnosis (US2 T089) + Mock Interview (US3 T098).
+ * - Five-panel grid: Overview (top) + Funnel (middle) +
+ *   Resume Diagnosis (US2 T089) + Mock Interview (US3 T098) +
+ *   AI Operations (US4 T110).
  * - Loading skeleton while data is in flight.
  * - Error state with a retry hint.
  * - Date range / environment changes re-fetch via TanStack Query.
@@ -16,6 +17,7 @@ import { OverviewPanel } from '@/components/pm-dashboard/OverviewPanel'
 import { FunnelPanel } from '@/components/pm-dashboard/FunnelPanel'
 import { ResumeDiagnosisPanel } from '@/components/pm-dashboard/ResumeDiagnosisPanel'
 import { MockInterviewPanel } from '@/components/pm-dashboard/MockInterviewPanel'
+import { AIOperationsPanel } from '@/components/pm-dashboard/AIOperationsPanel'
 import type { DashboardFilter } from '@/types/pm-dashboard'
 
 function ymd(d: Date): string {
@@ -87,17 +89,24 @@ export default function PMDashboard() {
     queryFn: () => pmDashboardApi.getMockInterview(filter),
     staleTime: 30_000,
   })
+  const aiOpsQuery = useQuery({
+    queryKey: ['pm-dashboard', 'ai-operations', filter],
+    queryFn: () => pmDashboardApi.getAIOperations(filter),
+    staleTime: 30_000,
+  })
 
   const isLoading =
     overviewQuery.isLoading ||
     funnelQuery.isLoading ||
     resumeQuery.isLoading ||
-    mockInterviewQuery.isLoading
+    mockInterviewQuery.isLoading ||
+    aiOpsQuery.isLoading
   const error =
     overviewQuery.error ||
     funnelQuery.error ||
     resumeQuery.error ||
-    mockInterviewQuery.error
+    mockInterviewQuery.error ||
+    aiOpsQuery.error
 
   return (
     <div className="p-6 max-w-7xl mx-auto" data-testid="pm-dashboard-page">
@@ -184,6 +193,7 @@ export default function PMDashboard() {
           {mockInterviewQuery.data && (
             <MockInterviewPanel panel={mockInterviewQuery.data} />
           )}
+          {aiOpsQuery.data && <AIOperationsPanel panel={aiOpsQuery.data} />}
         </div>
       )}
     </div>

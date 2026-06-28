@@ -1,4 +1,4 @@
-"""REQ-033 US1 + US2 + US3 — PM Dashboard repository queries (T071, T084, T093).
+"""REQ-033 US1 + US2 + US3 + US4 — PM Dashboard repository queries (T071, T084, T093, T103).
 
 Async SQLAlchemy 2.0 queries against the ``product_events``,
 ``ai_invocation_records``, ``pm_metric_snapshots``, and ``badcases``
@@ -611,12 +611,221 @@ async def avg_interview_question_count(
     return float(val)
 
 
+# ---------------------------------------------------------------------------
+# US4 (T103) — AI Operations Panel aggregations
+#
+# Reads directly from the existing ``AIInvocationRecord`` table (no new
+# table, no migration). The LLM client hook populates this table via
+# ``_extract_and_record_ai_invocation`` (US9 T040) on every invoke +
+# invoke_stream. Privacy: the panel returns counts + rates + percentiles
+# only; raw prompt / completion text is never read.
+# ---------------------------------------------------------------------------
+
+
+def _ai_invocations_base_stmt(filters: DashboardFilter) -> Any:
+    """Build a base AIInvocationRecord query filtered by date + model.
+
+    All US4 aggregations share this date + model filter; environment /
+    app_version filters are applied opportunistically when the column
+    is present (US4 T103 scope is the core date + model + RLS path;
+    the broader version filter set will land when the dedicated
+    ``ai_invocation_version_context`` join table arrives).
+    """
+    stmt = select(AIInvocationRecord).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    return stmt
+
+
+async def count_ai_invocations(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Total ``AIInvocationRecord`` rows in window (any status)."""
+    stmt = select(func.count(AIInvocationRecord.id)).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_ai_invocations_success(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Rows with ``status='SUCCESS'`` in window."""
+    stmt = select(func.count(AIInvocationRecord.id)).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+        AIInvocationRecord.status == "SUCCESS",
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_ai_invocations_failure(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Rows with status != 'SUCCESS' in window (failure / timeout / cancelled)."""
+    stmt = select(func.count(AIInvocationRecord.id)).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+        AIInvocationRecord.status != "SUCCESS",
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_ai_invocations_retried(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Rows where ``retry_count > 0`` in window (a retry was needed)."""
+    stmt = select(func.count(AIInvocationRecord.id)).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+        AIInvocationRecord.retry_count > 0,
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def sum_ai_prompt_tokens(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Sum of ``prompt_tokens`` over invocations in window."""
+    stmt = select(
+        func.coalesce(func.sum(AIInvocationRecord.prompt_tokens), 0)
+    ).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def sum_ai_completion_tokens(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Sum of ``completion_tokens`` over invocations in window."""
+    stmt = select(
+        func.coalesce(func.sum(AIInvocationRecord.completion_tokens), 0)
+    ).where(
+        AIInvocationRecord.created_at >= filters.date_range_start,
+        AIInvocationRecord.created_at < filters.date_range_end,
+    )
+    if filters.model:
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def ai_latency_percentile(
+    session: AsyncSession,
+    filters: DashboardFilter,
+    percentile: float,
+) -> float:
+    """Compute a percentile of ``latency_ms`` via Postgres ``percentile_cont``.
+
+    Returns 0.0 when no rows match. ``percentile`` must be in (0, 1];
+    out-of-range values are clamped to (0, 1] to avoid silent misuse.
+
+    Privacy: only the aggregate is returned; individual latency values
+    are not surfaced.
+    """
+    # Clamp the percentile to (0, 1] to avoid silent misuse.
+    pct = max(0.0, min(1.0, float(percentile)))
+    if pct <= 0.0:
+        return 0.0
+    stmt = _ai_invocations_base_stmt(filters)
+    # Wrap as a subquery so we can apply percentile_cont to the
+    # selected latency_ms column. We use func.percentile_cont with
+    # ``within_group`` to use the ordered-set aggregate form.
+    from sqlalchemy import Float, literal
+
+    inner = stmt.with_only_columns(
+        AIInvocationRecord.latency_ms
+    ).subquery()
+    pct_expr = func.percentile_cont(literal(pct)).within_group(
+        inner.c.latency_ms.asc()
+    )
+    out_stmt = select(func.coalesce(pct_expr.cast(Float), 0.0))
+    result = await session.execute(out_stmt)
+    val = result.scalar() or 0.0
+    return float(val)
+
+
+async def ai_top_breakdown(
+    session: AsyncSession,
+    filters: DashboardFilter,
+    dimension: str,
+    top_n: int = 5,
+) -> dict[str, int]:
+    """Top-N breakdown of call counts by ``dimension``.
+
+    ``dimension`` must be one of: ``"model"``, ``"graph"``, ``"node"``,
+    ``"prompt_fingerprint"``. Other values return an empty dict
+    (defensive — never raises on bad caller input).
+
+    The breakdown is ordered by count DESC, then dimension ASC
+    (deterministic tiebreak). The result dict is ordered by count
+    (Python 3.7+ dict insertion order is the iteration order).
+    """
+    if dimension not in {"model", "graph", "node", "prompt_fingerprint"}:
+        return {}
+    col = getattr(AIInvocationRecord, dimension)
+    stmt = (
+        select(col.label("dim"), func.count(AIInvocationRecord.id).label("cnt"))
+        .where(
+            AIInvocationRecord.created_at >= filters.date_range_start,
+            AIInvocationRecord.created_at < filters.date_range_end,
+        )
+        .group_by(col)
+        .order_by(func.count(AIInvocationRecord.id).desc(), col.asc())
+        .limit(top_n)
+    )
+    if filters.model and dimension != "model":
+        stmt = stmt.where(AIInvocationRecord.model == filters.model)
+    result = await session.execute(stmt)
+    rows = result.all()
+    out: dict[str, int] = {}
+    for dim_val, cnt in rows:
+        # Normalize None → "unknown" so the panel never has null keys
+        # (SC-010). Stringify enum-like values defensively.
+        key = "unknown" if dim_val is None else str(dim_val)
+        out[key] = int(cnt)
+    return out
+
+
 __all__ = [
+    "ai_latency_percentile",  # US4 T103
+    "ai_top_breakdown",  # US4 T103
     "avg_interview_question_count",
     "avg_resume_score_after",
     "avg_resume_score_before",
     "compute_ai_success_rate",
     "count_active_users",
+    "count_ai_invocations",  # US4 T103
+    "count_ai_invocations_failure",  # US4 T103
+    "count_ai_invocations_retried",  # US4 T103
+    "count_ai_invocations_success",  # US4 T103
     "count_ai_tasks_total",
     "count_completed_ai_tasks",
     "count_event_rows",
@@ -635,6 +844,8 @@ __all__ = [
     "count_successful_resume_diagnoses",
     "count_visits",
     "list_product_events",
+    "sum_ai_completion_tokens",  # US4 T103
+    "sum_ai_prompt_tokens",  # US4 T103
     "sum_estimated_cost",
     "sum_token_usage",
 ]

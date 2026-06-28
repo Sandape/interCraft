@@ -102,16 +102,23 @@ export interface InterviewMetric {
 
 export interface AIOperationMetric {
   call_count: number
+  success_count: number
+  failure_count: number
   success_rate: number
   failure_rate: number
   retry_count: number
   p50_latency_ms: number
   p95_latency_ms: number
-  total_tokens: number
+  p99_latency_ms: number
   estimated_cost: number
-  cache_hit_rate: number | null
+  total_tokens: number
+  prompt_tokens: number
+  completion_tokens: number
+  is_estimate: boolean
   model_breakdown: Record<string, number>
-  graph_node_breakdown: Record<string, number>
+  graph_breakdown: Record<string, number>
+  node_breakdown: Record<string, number>
+  prompt_fingerprint_breakdown: Record<string, number>
 }
 
 export interface FeedbackBadcaseMetric {

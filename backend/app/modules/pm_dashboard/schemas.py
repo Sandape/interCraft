@@ -1,4 +1,4 @@
-"""REQ-033 US1 + US2 + US3 — PM Dashboard filter and response envelope schemas (T070, T086, T095).
+"""REQ-033 US1 + US2 + US3 + US4 — PM Dashboard filter and response envelope schemas (T070, T086, T095, T105).
 
 Pydantic v2 schemas for the PM Dashboard V1 endpoints:
 
@@ -14,6 +14,7 @@ Pydantic v2 schemas for the PM Dashboard V1 endpoints:
   conversion rates.
 - ``ResumeDiagnosisPanelData`` — US2 5 core resume diagnosis metrics.
 - ``MockInterviewPanelData`` — US3 5 core mock interview metrics.
+- ``AIOperationsPanelData`` — US4 7 core AI operations metrics.
 - ``QualityFlags`` — version-field unknowns, sampled data, delayed
   ingestion, partial data.
 
@@ -386,6 +387,75 @@ class MockInterviewPanelData(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# AI Operations panel payload (US4 T105)
+# ---------------------------------------------------------------------------
+
+
+class AIOperationsPanelData(BaseModel):
+    """The 7 core AI operations metrics per US4 (FR for US4).
+
+    Privacy: only counts + rates + aggregates are surfaced. No raw AI
+    content (no ``prompt_text``, ``completion_text``, ``system_prompt``,
+    ``messages``, ``tool_calls``, ``request_body``, ``response_body``,
+    or ``raw_response``). Per-call prompts/responses live in the
+    ``ai_invocation_records`` table for ops triage; the panel reports
+    the count + aggregate cost + latency, never the content.
+
+    Fields:
+
+    - ``call_count`` — total AI invocations in window (any status).
+    - ``success_count`` — invocations with ``status='SUCCESS'`` in window.
+    - ``failure_count`` — invocations with status != 'SUCCESS' in window.
+    - ``success_rate`` — ``success_count / call_count`` clamped to [0, 1].
+    - ``failure_rate`` — ``failure_count / call_count`` clamped to [0, 1].
+    - ``retry_count`` — invocations where ``retry_count > 0`` in window.
+    - ``p50_latency_ms`` — 50th-percentile ``latency_ms`` in window.
+    - ``p95_latency_ms`` — 95th-percentile ``latency_ms`` in window.
+    - ``p99_latency_ms`` — 99th-percentile ``latency_ms`` in window.
+    - ``estimated_cost`` — sum of ``estimated_cost`` in window, labeled
+      as estimate per FR-008 (see ``is_estimate`` below).
+    - ``total_tokens`` — sum of ``prompt_tokens + completion_tokens`` in
+      window.
+    - ``prompt_tokens`` — sum of ``prompt_tokens`` in window.
+    - ``completion_tokens`` — sum of ``completion_tokens`` in window.
+    - ``is_estimate`` — always True (FR-008: cost is not billing).
+    - ``model_breakdown`` — top-5 models by call count, ``{model: count}``.
+    - ``graph_breakdown`` — top-5 graphs by call count, ``{graph: count}``.
+    - ``node_breakdown`` — top-5 nodes by call count, ``{node: count}``.
+    - ``prompt_fingerprint_breakdown`` — top-5 prompt fingerprints by
+      call count, ``{fingerprint: count}``.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    call_count: int = Field(default=0, ge=0)
+    success_count: int = Field(default=0, ge=0)
+    failure_count: int = Field(default=0, ge=0)
+    success_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    failure_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    retry_count: int = Field(default=0, ge=0)
+    p50_latency_ms: float = Field(default=0.0, ge=0.0)
+    p95_latency_ms: float = Field(default=0.0, ge=0.0)
+    p99_latency_ms: float = Field(default=0.0, ge=0.0)
+    estimated_cost: float = Field(default=0.0, ge=0.0)
+    total_tokens: int = Field(default=0, ge=0)
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    is_estimate: bool = Field(default=True)
+    model_breakdown: dict[str, int] = Field(default_factory=dict)
+    graph_breakdown: dict[str, int] = Field(default_factory=dict)
+    node_breakdown: dict[str, int] = Field(default_factory=dict)
+    prompt_fingerprint_breakdown: dict[str, int] = Field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(by_alias=True)
+
+
+# ---------------------------------------------------------------------------
 # Convenience typed aliases (Pydantic generics)
 # ---------------------------------------------------------------------------
 
@@ -394,6 +464,7 @@ OverviewPanel = PanelResponse[OverviewPanelData]
 FunnelPanel = PanelResponse[FunnelPanelData]
 ResumeDiagnosisPanel = PanelResponse[ResumeDiagnosisPanelData]  # US2 T086
 MockInterviewPanel = PanelResponse[MockInterviewPanelData]  # US3 T095
+AIOperationsPanel = PanelResponse[AIOperationsPanelData]  # US4 T105
 
 
 # ---------------------------------------------------------------------------
@@ -466,6 +537,8 @@ class DashboardErrorEnvelope(BaseModel):
 
 
 __all__ = [
+    "AIOperationsPanel",  # US4 T105
+    "AIOperationsPanelData",  # US4 T105
     "DashboardError",
     "DashboardErrorEnvelope",
     "DashboardFilter",
@@ -482,4 +555,4 @@ __all__ = [
     "QualityFlags",
     "ResumeDiagnosisPanel",
     "ResumeDiagnosisPanelData",
-]  # US2 T086 + US3 T095
+]  # US2 T086 + US3 T095 + US4 T105
