@@ -303,20 +303,20 @@
 
 ### Tests for User Story 7
 
-- [ ] T122 [P] [US7] Write failing failed-case trace-link tests in `backend/tests/eval/test_033_failed_case_trace_links.py`.
-- [ ] T123 [P] [US7] Write failing trace-unavailable report tests in `backend/tests/eval/test_033_trace_unavailable.py`.
-- [ ] T124 [P] [US7] Write failing version experiment panel frontend tests in `src/components/pm-dashboard/__tests__/VersionExperimentPanel.test.tsx`.
+- [x] T122 [P] [US7] Write failing failed-case trace-link tests in `backend/tests/eval/test_033_failed_case_trace_links.py`.
+- [x] T123 [P] [US7] Write failing trace-unavailable report tests in `backend/tests/eval/test_033_trace_unavailable.py`.
+- [x] T124 [P] [US7] Write failing version experiment panel frontend tests in `src/components/pm-dashboard/__tests__/VersionExperimentPanel.test.tsx`.
 
 ### Implementation for User Story 7
 
-- [ ] T125 [US7] Add trace/run/case link fields to eval report rendering in `backend/app/eval/report.py`.
-- [ ] T126 [US7] Add TraceRunRef helpers in `backend/app/modules/telemetry_contracts/repository.py`.
-- [ ] T127 [US7] Add trace id extraction adapter in `backend/app/observability/tracing.py`.
-- [ ] T128 [US7] Add badcase evidence trace linking in `backend/app/modules/badcases/service.py`.
-- [ ] T129 [US7] Add version/experiment dashboard route in `backend/app/modules/pm_dashboard/api.py`.
-- [ ] T130 [US7] Implement version and experiment panel in `src/components/pm-dashboard/VersionExperimentPanel.tsx`.
-- [ ] T131 [US7] Wire version and experiment panel into `src/pages/PMDashboard.tsx`.
-- [ ] T132 [US7] Record US7 verification evidence in `test-reports/REQ-033-US7-test.md`.
+- [x] T125 [US7] Add trace/run/case link fields to eval report rendering in `backend/app/eval/report.py`.
+- [x] T126 [US7] Add TraceRunRef helpers in `backend/app/modules/telemetry_contracts/repository.py`.
+- [x] T127 [US7] Add trace id extraction adapter in `backend/app/observability/tracing.py`.
+- [x] T128 [US7] Add badcase evidence trace linking in `backend/app/modules/badcases/service.py`.
+- [x] T129 [US7] Add version/experiment dashboard route in `backend/app/modules/pm_dashboard/api.py`.
+- [x] T130 [US7] Implement version and experiment panel in `src/components/pm-dashboard/VersionExperimentPanel.tsx`.
+- [x] T131 [US7] Wire version and experiment panel into `src/pages/PMDashboard.tsx`.
+- [x] T132 [US7] Record US7 verification evidence in `test-reports/REQ-033-US7-test.md`.
 
 **Checkpoint**: Failed eval cases can be located without guessing, and missing traces are explicit.
 
