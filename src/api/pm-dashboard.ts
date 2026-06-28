@@ -196,7 +196,7 @@ export const pmDashboardApi = {
         period_start: filter.date_range_start,
         period_end: filter.date_range_end,
         dimensions: {},
-        source_of_truth: 'interview_outcomes',
+        source_of_truth: 'product_events (interview.*)',
         freshness_at: 'unknown',
         quality_flags: { partial_data: true },
         data: {

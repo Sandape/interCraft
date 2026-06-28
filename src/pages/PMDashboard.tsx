@@ -1,9 +1,9 @@
-/** REQ-033 US1 T077 + US2 T089 — PMDashboard page shell.
+/** REQ-033 US1 T077 + US2 T089 + US3 T098 — PMDashboard page shell.
  *
  * Layout:
  * - Header: page title + date range picker + environment selector.
- * - Three-panel grid: Overview (top) + Funnel (middle) +
- *   Resume Diagnosis (US2 T089, bottom).
+ * - Four-panel grid: Overview (top) + Funnel (middle) +
+ *   Resume Diagnosis (US2 T089) + Mock Interview (US3 T098).
  * - Loading skeleton while data is in flight.
  * - Error state with a retry hint.
  * - Date range / environment changes re-fetch via TanStack Query.
@@ -15,6 +15,7 @@ import { pmDashboardApi } from '@/api/pm-dashboard'
 import { OverviewPanel } from '@/components/pm-dashboard/OverviewPanel'
 import { FunnelPanel } from '@/components/pm-dashboard/FunnelPanel'
 import { ResumeDiagnosisPanel } from '@/components/pm-dashboard/ResumeDiagnosisPanel'
+import { MockInterviewPanel } from '@/components/pm-dashboard/MockInterviewPanel'
 import type { DashboardFilter } from '@/types/pm-dashboard'
 
 function ymd(d: Date): string {
@@ -81,13 +82,22 @@ export default function PMDashboard() {
     queryFn: () => pmDashboardApi.getResumeDiagnosis(filter),
     staleTime: 30_000,
   })
+  const mockInterviewQuery = useQuery({
+    queryKey: ['pm-dashboard', 'mock-interview', filter],
+    queryFn: () => pmDashboardApi.getMockInterview(filter),
+    staleTime: 30_000,
+  })
 
   const isLoading =
     overviewQuery.isLoading ||
     funnelQuery.isLoading ||
-    resumeQuery.isLoading
+    resumeQuery.isLoading ||
+    mockInterviewQuery.isLoading
   const error =
-    overviewQuery.error || funnelQuery.error || resumeQuery.error
+    overviewQuery.error ||
+    funnelQuery.error ||
+    resumeQuery.error ||
+    mockInterviewQuery.error
 
   return (
     <div className="p-6 max-w-7xl mx-auto" data-testid="pm-dashboard-page">
@@ -170,6 +180,9 @@ export default function PMDashboard() {
           {funnelQuery.data && <FunnelPanel panel={funnelQuery.data} />}
           {resumeQuery.data && (
             <ResumeDiagnosisPanel panel={resumeQuery.data} />
+          )}
+          {mockInterviewQuery.data && (
+            <MockInterviewPanel panel={mockInterviewQuery.data} />
           )}
         </div>
       )}

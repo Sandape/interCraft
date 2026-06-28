@@ -1,4 +1,4 @@
-"""REQ-033 US1 — PM Dashboard filter and response envelope schemas (T070).
+"""REQ-033 US1 + US2 + US3 — PM Dashboard filter and response envelope schemas (T070, T086, T095).
 
 Pydantic v2 schemas for the PM Dashboard V1 endpoints:
 
@@ -12,6 +12,8 @@ Pydantic v2 schemas for the PM Dashboard V1 endpoints:
   total_tokens, estimated_cost, open_badcases).
 - ``FunnelPanelData`` + ``FunnelStep`` — the core funnel rows with per-step
   conversion rates.
+- ``ResumeDiagnosisPanelData`` — US2 5 core resume diagnosis metrics.
+- ``MockInterviewPanelData`` — US3 5 core mock interview metrics.
 - ``QualityFlags`` — version-field unknowns, sampled data, delayed
   ingestion, partial data.
 
@@ -333,6 +335,57 @@ class ResumeDiagnosisPanelData(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Mock Interview panel payload (US3 T095)
+# ---------------------------------------------------------------------------
+
+
+class MockInterviewPanelData(BaseModel):
+    """The 5 core mock interview metrics per US3 (FR for US3).
+
+    Privacy: only counts + rates + average question count are surfaced.
+    No raw interview content (``interview_questions``, ``interview_answers``,
+    ``interview_transcript``, ``interview_audio``, ``raw_interview``,
+    ``feedback_text``, ``report_text``, ``report_markdown``) appears in
+    this payload.
+
+    Fields:
+
+    - ``starts`` — number of ``interview.started`` events in window.
+    - ``completions`` — number of ``interview.completed`` events in window.
+    - ``completion_rate`` — ``completions / starts`` in [0.0, 1.0]. 0.0
+      when ``starts == 0``.
+    - ``avg_question_count`` — average ``metadata.question_count`` over
+      completed sessions. 0.0 when no completed sessions.
+    - ``report_views`` — number of ``interview.report_viewed`` events in
+      window.
+    - ``retries`` — number of ``interview.retry`` events in window.
+    - ``failure_rate`` — ``failures / starts`` in [0.0, 1.0]. 0.0 when
+      ``starts == 0``.
+    - ``failure_categories`` — count of failures bucketed by
+      ``metadata.failure_category`` (e.g. ``{"timeout": 6,
+      "llm_error": 6}``). Empty dict when no failures.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    starts: int = Field(default=0, ge=0)
+    completions: int = Field(default=0, ge=0)
+    completion_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    avg_question_count: float = Field(default=0.0, ge=0.0)
+    report_views: int = Field(default=0, ge=0)
+    retries: int = Field(default=0, ge=0)
+    failure_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    failure_categories: dict[str, int] = Field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(by_alias=True)
+
+
+# ---------------------------------------------------------------------------
 # Convenience typed aliases (Pydantic generics)
 # ---------------------------------------------------------------------------
 
@@ -340,6 +393,7 @@ class ResumeDiagnosisPanelData(BaseModel):
 OverviewPanel = PanelResponse[OverviewPanelData]
 FunnelPanel = PanelResponse[FunnelPanelData]
 ResumeDiagnosisPanel = PanelResponse[ResumeDiagnosisPanelData]  # US2 T086
+MockInterviewPanel = PanelResponse[MockInterviewPanelData]  # US3 T095
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +472,8 @@ __all__ = [
     "FunnelPanel",
     "FunnelPanelData",
     "FunnelStep",
+    "MockInterviewPanel",
+    "MockInterviewPanelData",
     "OverviewPanel",
     "OverviewPanelData",
     "PanelEnvelope",
@@ -426,4 +482,4 @@ __all__ = [
     "QualityFlags",
     "ResumeDiagnosisPanel",
     "ResumeDiagnosisPanelData",
-]  # US2 T086
+]  # US2 T086 + US3 T095

@@ -1,4 +1,4 @@
-"""REQ-033 US1 — PM Dashboard service layer (T072).
+"""REQ-033 US1 + US2 + US3 — PM Dashboard service layer (T072, T085, T094).
 
 Pure orchestration: takes a ``DashboardFilter`` + DB session, calls the
 repository helpers, and assembles ``PanelResponse`` envelopes for the
@@ -10,6 +10,12 @@ Functions:
   — assembles the 6 built-in PM metrics into a single bundled panel.
 - ``get_funnel(session, filters) -> list[PanelResponse[FunnelPanelData]]``
   — assembles the 4-step core funnel.
+- ``get_resume_diagnosis(session, filters) ->
+  list[PanelResponse[ResumeDiagnosisPanelData]]`` — assembles the US2
+  resume diagnosis panel.
+- ``get_mock_interview(session, filters) ->
+  list[PanelResponse[MockInterviewPanelData]]`` — assembles the US3
+  mock interview panel.
 - ``validate_filters(filters) -> DashboardFilter`` — runs Pydantic
   validation; raises ``ValueError`` on bad input. Mapped to HTTP 400 by
   the FastAPI layer.
@@ -46,6 +52,7 @@ from app.modules.pm_dashboard.schemas import (
     DashboardFilter,
     FunnelPanelData,
     FunnelStep,
+    MockInterviewPanelData,
     OverviewPanelData,
     PanelResponse,
     QualityFlags,
@@ -364,9 +371,102 @@ async def get_resume_diagnosis(
     return [panel]
 
 
+# ---------------------------------------------------------------------------
+# US3 (T094) - Mock Interview Panel assembly
+# ---------------------------------------------------------------------------
+
+
+async def get_mock_interview(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> list[PanelResponse[Any]]:
+    """Assemble the mock interview panel (US3).
+
+    Returns a list of PanelResponse rows whose ``data`` field carries
+    the 5 core metrics: starts, completions, completion rate, avg
+    question count, report views, retries, failure rate, failure
+    categories.
+
+    Empty window: returns 0 values + ``quality_flags.partial_data=True``
+    + ``freshness_at="unknown"`` per SC-009.
+
+    Privacy: the panel surfaces counts + rates + average question count
+    only; raw interview content is never returned. The repository reads
+    ``ProductEvent`` rows tagged with ``event_name LIKE 'interview.%'``
+    (US3 fallback -- see repository.py docstring for the
+    migration-pending rationale).
+    """
+    validate_filters(filters)
+
+    # Pull aggregates.
+    starts = await repository.count_interview_starts(session, filters)
+    completions = await repository.count_interview_completions(session, filters)
+    failures = await repository.count_interview_failures(session, filters)
+    retries = await repository.count_interview_retries(session, filters)
+    report_views = await repository.count_interview_report_views(session, filters)
+    avg_qc = await repository.avg_interview_question_count(session, filters)
+
+    # Derived rates (clamped to [0, 1]).
+    completion_rate = (completions / starts) if starts > 0 else 0.0
+    completion_rate = max(0.0, min(1.0, completion_rate))
+    failure_rate = (failures / starts) if starts > 0 else 0.0
+    failure_rate = max(0.0, min(1.0, failure_rate))
+
+    # Failure categories — MVP placeholder: empty dict. The dedicated
+    # ``interview_outcomes.failure_category`` column is not yet landed
+    # in a migration (033-POLISH). When it lands, the repository layer
+    # will compute the breakdown.
+    failure_categories: dict[str, int] = {}
+
+    data_payload = MockInterviewPanelData(
+        starts=starts,
+        completions=completions,
+        completion_rate=completion_rate,
+        avg_question_count=avg_qc,
+        report_views=report_views,
+        retries=retries,
+        failure_rate=failure_rate,
+        failure_categories=failure_categories,
+    )
+
+    has_data = (
+        starts > 0
+        or completions > 0
+        or failures > 0
+        or retries > 0
+        or report_views > 0
+    )
+
+    quality_flags = QualityFlags(
+        missing_version_fields=_missing_version_fields_for(filters),
+        sampled_data=False,
+        delayed_ingestion=False,
+        partial_data=not has_data,
+    )
+
+    freshness = _now_iso() if has_data else "unknown"
+
+    panel = PanelResponse[MockInterviewPanelData](
+        metric_id="pm.mock_interview",
+        display_name="Mock Interview",
+        value=float(starts),
+        unit="count",
+        period_start=filters.date_range_start,
+        period_end=filters.date_range_end,
+        dimensions=filters.to_dimensions(),
+        source_of_truth="product_events (interview.*)",
+        freshness_at=freshness,
+        quality_flags=quality_flags,
+        data=data_payload,
+    )
+
+    return [panel]
+
+
 __all__ = [
     "FUNNEL_STEPS",
     "get_funnel",
+    "get_mock_interview",  # US3 T094
     "get_overview",
     "get_resume_diagnosis",  # US2 T085
     "validate_filters",

@@ -1,4 +1,4 @@
-"""REQ-033 US1 — PM Dashboard API routes (T073).
+"""REQ-033 US1 + US2 + US3 — PM Dashboard API routes (T073, T087, T096).
 
 FastAPI router for the PM Dashboard V1 endpoints (US1):
 
@@ -6,6 +6,8 @@ FastAPI router for the PM Dashboard V1 endpoints (US1):
   placeholder, retained).
 - ``GET /api/v1/pm-dashboard/metrics/overview`` — product overview panel.
 - ``GET /api/v1/pm-dashboard/metrics/funnel`` — core funnel panel.
+- ``GET /api/v1/pm-dashboard/metrics/resume-diagnosis`` — US2 panel.
+- ``GET /api/v1/pm-dashboard/metrics/mock-interview`` — US3 panel.
 
 Both metrics endpoints:
 
@@ -327,6 +329,85 @@ async def get_resume_diagnosis(
     try:
         panels: list[PanelResponse[Any]] = (
             await dashboard_service.get_resume_diagnosis(session, filters)
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_FILTER", "message": str(exc)},
+        ) from exc
+
+    freshness = panels[0].freshness_at if panels else "unknown"
+    return {
+        "panel": panels[0].model_dump(by_alias=True, mode="json")
+        if panels
+        else None,
+        "freshness_at": freshness,
+        "request_id": str(panels[0].metric_id) if panels else "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# T096 - Mock Interview endpoint (US3)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/metrics/mock-interview")
+async def get_mock_interview(
+    date_range_start: str = Query(
+        ...,
+        description="Inclusive ISO 8601 lower bound for the period.",
+    ),
+    date_range_end: str = Query(
+        ...,
+        description="Exclusive ISO 8601 upper bound for the period.",
+    ),
+    environment: Optional[str] = Query(default=None),
+    release_stage: Optional[str] = Query(default=None),
+    app_version: Optional[str] = Query(default=None),
+    prompt_fingerprint: Optional[str] = Query(default=None),
+    rubric_version: Optional[str] = Query(default=None),
+    model: Optional[str] = Query(default=None),
+    experiment_id: Optional[str] = Query(default=None),
+    graph: Optional[str] = Query(default=None),
+    node: Optional[str] = Query(default=None),
+    session: AsyncSession = Depends(_db_session_with_rls),
+) -> dict[str, Any]:
+    """Return the mock interview panel (US3 FR).
+
+    Surfaces the 5 core metrics:
+    - session starts (count)
+    - completions (count)
+    - completion rate (completions / starts) clamped to [0, 1]
+    - avg question count (average over completed sessions)
+    - report views (count)
+    - retries (count)
+    - failure rate (failures / starts) clamped to [0, 1]
+    - failure categories (breakdown by metadata.failure_category)
+
+    Same filter set as overview/funnel/resume-diagnosis. Empty window
+    returns 0 values + ``quality_flags.partial_data=true`` +
+    ``freshness_at="unknown"`` per SC-009.
+
+    Error mapping (mirrors US1):
+    - ``ValueError`` -> 400 (bad filter)
+    - missing/invalid required -> 422 (FastAPI Query validation)
+    """
+    filters = _parse_filters(
+        date_range_start=date_range_start,
+        date_range_end=date_range_end,
+        environment=environment,
+        release_stage=release_stage,
+        app_version=app_version,
+        prompt_fingerprint=prompt_fingerprint,
+        rubric_version=rubric_version,
+        model=model,
+        experiment_id=experiment_id,
+        graph=graph,
+        node=node,
+    )
+    try:
+        panels: list[PanelResponse[Any]] = (
+            await dashboard_service.get_mock_interview(session, filters)
         )
     except ValueError as exc:
         raise HTTPException(

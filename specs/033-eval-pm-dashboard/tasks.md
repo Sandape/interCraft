@@ -224,18 +224,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T091 [P] [US3] Write failing mock interview dashboard backend tests in `backend/tests/integration/test_033_mock_interview_metrics.py`.
-- [ ] T092 [P] [US3] Write failing mock interview panel frontend tests in `src/components/pm-dashboard/__tests__/MockInterviewPanel.test.tsx`.
+- [x] T091 [P] [US3] Write failing mock interview dashboard backend tests in `backend/tests/integration/test_033_mock_interview_metrics.py`.
+- [x] T092 [P] [US3] Write failing mock interview panel frontend tests in `src/components/pm-dashboard/__tests__/MockInterviewPanel.test.tsx`.
 
 ### Implementation for User Story 3
 
-- [ ] T093 [US3] Add InterviewOutcome persistence mapping in `backend/app/modules/pm_dashboard/repository.py`.
-- [ ] T094 [US3] Implement mock interview metric assembly in `backend/app/modules/pm_dashboard/service.py`.
-- [ ] T095 [US3] Add mock interview API response schema in `backend/app/modules/pm_dashboard/schemas.py`.
-- [ ] T096 [US3] Add mock interview route in `backend/app/modules/pm_dashboard/api.py`.
-- [ ] T097 [US3] Implement mock interview panel in `src/components/pm-dashboard/MockInterviewPanel.tsx`.
-- [ ] T098 [US3] Wire mock interview panel into `src/pages/PMDashboard.tsx`.
-- [ ] T099 [US3] Record US3 verification evidence in `test-reports/REQ-033-US3-test.md`.
+- [x] T093 [US3] Add InterviewOutcome persistence mapping in `backend/app/modules/pm_dashboard/repository.py`.
+- [x] T094 [US3] Implement mock interview metric assembly in `backend/app/modules/pm_dashboard/service.py`.
+- [x] T095 [US3] Add mock interview API response schema in `backend/app/modules/pm_dashboard/schemas.py`.
+- [x] T096 [US3] Add mock interview route in `backend/app/modules/pm_dashboard/api.py`.
+- [x] T097 [US3] Implement mock interview panel in `src/components/pm-dashboard/MockInterviewPanel.tsx`.
+- [x] T098 [US3] Wire mock interview panel into `src/pages/PMDashboard.tsx`.
+- [x] T099 [US3] Record US3 verification evidence in `test-reports/REQ-033-US3-test.md`.
 
 **Checkpoint**: Mock interview usage/completion metrics are independently visible.
 

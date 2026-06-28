@@ -1,4 +1,4 @@
-"""REQ-033 US1 + US2 — PM Dashboard repository queries (T071, T084).
+"""REQ-033 US1 + US2 + US3 — PM Dashboard repository queries (T071, T084, T093).
 
 Async SQLAlchemy 2.0 queries against the ``product_events``,
 ``ai_invocation_records``, ``pm_metric_snapshots``, and ``badcases``
@@ -34,6 +34,17 @@ US2 functions (T084) — Resume Diagnosis Panel:
 - ``avg_resume_score_after`` — average ``metadata.score_after`` over
   diagnosis completion events.
 
+US3 functions (T093) — Mock Interview Panel:
+
+- ``count_interview_starts`` — count of ``interview.started`` events.
+- ``count_interview_completions`` — count of ``interview.completed`` events.
+- ``count_interview_failures`` — count of ``interview.failed`` events.
+- ``count_interview_retries`` — count of ``interview.retry`` events.
+- ``count_interview_report_views`` — count of ``interview.report_viewed``
+  events.
+- ``avg_interview_question_count`` — average ``metadata.question_count``
+  over completed sessions.
+
 US2 fallback rationale (T084): the dedicated ``resume_diagnoses`` /
 ``resume_diagnosis_suggestions`` / ``resume_diagnosis_events`` tables
 were planned in spec.md §data-model but the migration (0024) has not
@@ -44,6 +55,17 @@ relevant metadata in the ``metadata`` JSONB column. This preserves
 privacy: the panel returns counts + deltas only — never raw resume
 content. When the dedicated tables land, the queries can be swapped
 without touching the service / API contract.
+
+US3 fallback rationale (T093): the dedicated ``interview_outcomes``
+table was planned in spec.md §data-model but the migration (0024) has
+not landed (033-POLISH restoration pending). To keep the panel
+functional, all US3 aggregations read from the ``product_events`` table
+using ``event_name LIKE 'interview.%'``. Each event row carries the
+relevant metadata in the ``metadata`` JSONB column. Privacy: the panel
+returns counts + rates + average question count only — never raw
+interview content (questions / answers / transcript / audio). When the
+dedicated tables land, the queries can be swapped without touching the
+service / API contract.
 
 All queries are filtered by ``date_range_start <= occurred_at <
 date_range_end`` and apply the optional filters from
@@ -476,7 +498,121 @@ async def avg_resume_score_after(
     return float(val)
 
 
+# ---------------------------------------------------------------------------
+# US3 (T093) — Mock Interview Panel aggregations
+#
+# Fallback to ``ProductEvent`` rows where
+# ``event_name LIKE 'interview.%'``. Each event row carries the
+# relevant metadata in the ``metadata`` JSONB column. Privacy: the panel
+# returns counts + rates + average question count only — never raw
+# interview content (questions / answers / transcript / audio).
+# ---------------------------------------------------------------------------
+
+#: Canonical event_name values for mock interview (US3).
+INTERVIEW_STARTED = "interview.started"
+INTERVIEW_COMPLETED = "interview.completed"
+INTERVIEW_FAILED = "interview.failed"
+INTERVIEW_RETRY = "interview.retry"
+INTERVIEW_REPORT_VIEWED = "interview.report_viewed"
+
+
+async def count_interview_starts(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count of ``interview.started`` events in the window.
+
+    Returns the raw row count. A single user may start multiple interview
+    sessions in a window; all are counted independently.
+    """
+    stmt = _base_event_query(INTERVIEW_STARTED, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_interview_completions(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count of ``interview.completed`` events in the window.
+
+    A session is considered complete when the interview pipeline finishes
+    without raising a fatal error.
+    """
+    stmt = _base_event_query(INTERVIEW_COMPLETED, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_interview_failures(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count of ``interview.failed`` events in the window.
+
+    These are sessions that ended in a fatal failure (timeout, LLM
+    error, etc.). Used together with ``count_interview_starts`` to
+    compute the failure rate.
+    """
+    stmt = _base_event_query(INTERVIEW_FAILED, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_interview_retries(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count of ``interview.retry`` events in the window.
+
+    A retry is recorded when the user explicitly requests another
+    attempt after a failure. Multiple retries per session are counted
+    independently.
+    """
+    stmt = _base_event_query(INTERVIEW_RETRY, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def count_interview_report_views(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> int:
+    """Count of ``interview.report_viewed`` events in the window.
+
+    Multiple views by the same user are counted independently (PM cares
+    about engagement, not unique viewers).
+    """
+    stmt = _base_event_query(INTERVIEW_REPORT_VIEWED, filters)
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def avg_interview_question_count(
+    session: AsyncSession,
+    filters: DashboardFilter,
+) -> float:
+    """Average ``metadata.question_count`` over completed sessions in window.
+
+    Returns 0.0 when no rows match. Privacy: only the aggregate is
+    returned; individual question counts are not surfaced, and no
+    question text is ever read.
+    """
+    from sqlalchemy import Float
+
+    qc_key = ProductFunnelEvent.metadata["question_count"].astext.cast(Float)
+    stmt = select(func.coalesce(func.avg(qc_key), 0.0)).where(
+        ProductFunnelEvent.event_name == INTERVIEW_COMPLETED,
+        ProductFunnelEvent.occurred_at >= filters.date_range_start,
+        ProductFunnelEvent.occurred_at < filters.date_range_end,
+    )
+    result = await session.execute(stmt)
+    val = result.scalar() or 0.0
+    return float(val)
+
+
 __all__ = [
+    "avg_interview_question_count",
     "avg_resume_score_after",
     "avg_resume_score_before",
     "compute_ai_success_rate",
@@ -485,6 +621,11 @@ __all__ = [
     "count_completed_ai_tasks",
     "count_event_rows",
     "count_distinct_users_for_event",
+    "count_interview_completions",
+    "count_interview_failures",
+    "count_interview_report_views",
+    "count_interview_retries",
+    "count_interview_starts",
     "count_open_badcases",
     "count_registered_users",
     "count_report_views",
