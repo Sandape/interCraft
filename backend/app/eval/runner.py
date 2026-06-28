@@ -114,6 +114,17 @@ class EvalReport:
     branch: str = "unknown"
     prompt_fingerprint: str = "unknown"
     rubric_version: str = "unknown"
+    # REQ-033 US5 (T049): nightly real-model budget tracking.
+    total_budget: str = "unknown"
+    budget_tokens_used: int = 0
+    budget_cost_used_usd: float = 0.0
+    nightly_real_model: bool = False
+    environment: str = "LOCAL"
+    # REQ-033 US5: explicit status (T049). Mirrors data-model.md §EvalRun
+    # status enum: STARTED / PASSED / FAILED / INCOMPLETE / SYNCED /
+    # SYNC_FAILED. ``None`` means "derive from failed_cases" (legacy
+    # callers).
+    status: str | None = None
 
     def to_json(self) -> str:
         """Serialize to JSON string per FR-013."""
@@ -183,6 +194,9 @@ class EvalRunner:
         tool_defs: list[dict[str, Any]] | None = None,
         messages: list[dict[str, Any]] | None = None,
         branch: str | None = None,
+        nightly_real_model: bool = False,
+        budget_tokens: int | None = None,
+        budget_cost_usd: float | None = None,
     ) -> None:
         self.cases = cases
         self.mode = mode
@@ -195,6 +209,10 @@ class EvalRunner:
         self.schema_version = schema_version
         self.rubric_version = rubric_version or "unknown"
         self.branch = branch or self._detect_branch()
+        # US5: nightly real-model budget tracking (T049).
+        self.nightly_real_model = nightly_real_model
+        self.budget_tokens = budget_tokens
+        self.budget_cost_usd = budget_cost_usd
         # US9: prompt fingerprint derivation.
         try:
             self.prompt_fingerprint = compute_prompt_fingerprint(
@@ -204,6 +222,53 @@ class EvalRunner:
             )
         except Exception:  # pragma: no cover — fail-open per SC-010
             self.prompt_fingerprint = "unknown"
+
+    def check_budget(self) -> tuple[bool, str]:
+        """Return ``(within_budget, reason)`` for the nightly real-model caps.
+
+        Per FR-022 / SC-011: about 5M tokens or $50 per night, $1000/month.
+        When ``nightly_real_model=False`` we always report within budget
+        (no gate). When True, we compare ``budget_tokens`` and
+        ``budget_cost_usd`` against the global caps from
+        ``Settings.eval_nightly_*``.
+
+        Returns:
+            (True, "ok")   — within budget, safe to run.
+            (False, reason) — budget exhausted; caller should mark run
+                              INCOMPLETE and exit 1 (contracts §Eval Run).
+        """
+        if not self.nightly_real_model:
+            return True, "ok"
+        try:
+            from app.core.config import get_settings
+
+            settings = get_settings()
+        except Exception:  # pragma: no cover — defensive
+            return True, "settings_unavailable"
+
+        cap_tokens = int(settings.eval_nightly_token_budget)
+        cap_cost = float(settings.eval_nightly_cost_budget_usd)
+
+        # Zero / negative caps (e.g. ops disabled nightly by setting both
+        # budgets to 0) → treat as exhausted so the CLI exits 1 with
+        # INCOMPLETE rather than burning real-model quota.
+        if cap_tokens <= 0 or cap_cost <= 0:
+            return False, (
+                f"nightly budget cap is zero or negative "
+                f"(tokens={cap_tokens}, cost=${cap_cost:.2f})"
+            )
+
+        if self.budget_tokens is not None and self.budget_tokens > cap_tokens:
+            return False, (
+                f"nightly token budget exceeded: "
+                f"{self.budget_tokens} > {cap_tokens}"
+            )
+        if self.budget_cost_usd is not None and self.budget_cost_usd > cap_cost:
+            return False, (
+                f"nightly cost budget exceeded: "
+                f"${self.budget_cost_usd:.2f} > ${cap_cost:.2f}"
+            )
+        return True, "ok"
 
     @staticmethod
     def _detect_app_version() -> str:
@@ -432,6 +497,17 @@ class EvalRunner:
             branch=self.branch,
             prompt_fingerprint=self.prompt_fingerprint,
             rubric_version=self.rubric_version,
+            environment=self.environment,
+            total_budget=(
+                f"{self.budget_tokens} tokens / ${self.budget_cost_usd:.2f}"
+                if self.nightly_real_model
+                and self.budget_tokens is not None
+                and self.budget_cost_usd is not None
+                else "unknown"
+            ),
+            budget_tokens_used=self.budget_tokens or 0,
+            budget_cost_used_usd=self.budget_cost_usd or 0.0,
+            nightly_real_model=self.nightly_real_model,
         )
 
     # ------------------------------------------------------------------
@@ -595,6 +671,9 @@ async def run_eval_suite(
     tool_defs: list[dict[str, Any]] | None = None,
     messages: list[dict[str, Any]] | None = None,
     branch: str | None = None,
+    nightly_real_model: bool = False,
+    budget_tokens: int | None = None,
+    budget_cost_usd: float | None = None,
 ) -> EvalReport:
     """Convenience wrapper: build an ``EvalRunner`` and run all cases.
 
@@ -607,6 +686,12 @@ async def run_eval_suite(
     forwards them to ``EvalRunner.__init__``. All kwargs are optional —
     legacy callers that pass only ``cases / mode / model_name`` continue
     to work and get ``"unknown"`` defaults for all version fields.
+
+    REQ-033 US5 (T049): accepts ``nightly_real_model``,
+    ``budget_tokens``, ``budget_cost_usd`` for budget-gated nightly
+    runs. The runner checks caps via ``EvalRunner.check_budget`` and
+    stamps ``total_budget`` / ``nightly_real_model`` fields on the
+    report.
     """
     runner = EvalRunner(
         cases=cases,
@@ -621,5 +706,8 @@ async def run_eval_suite(
         tool_defs=tool_defs,
         messages=messages,
         branch=branch,
+        nightly_real_model=nightly_real_model,
+        budget_tokens=budget_tokens,
+        budget_cost_usd=budget_cost_usd,
     )
     return await runner.run_all()

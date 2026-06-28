@@ -1,0 +1,159 @@
+name: 033 Eval Gate (Golden-Case PR)
+
+# REQ-033 US5 (T052): run deterministic golden-case eval on PRs that
+# change prompt-adjacent, agent, or eval behavior. Non-prompt-adjacent
+# PRs are NOT required to run the heavy eval suite as a merge gate
+# (per FR-021, US5 acceptance scenario 3).
+#
+# Triggering paths (prompt-adjacent):
+#   backend/app/agents/**                  — agent graph + nodes
+#   backend/app/eval/**                    — eval runner / checker
+#   backend/app/modules/telemetry_contracts/** — telemetry contracts
+#                                              (PM dashboard, redaction)
+#
+# When a PR changes one of these paths we:
+#   1. checkout
+#   2. setup python + uv
+#   3. sync deps
+#   4. run pytest tests/eval/  (smoke + contracts)
+#   5. run the eval CLI in --suite golden --env ci mode, producing
+#      JSON + Markdown report artifacts in docs/evidence/<run_id>/
+#   6. upload the report folder as a workflow artifact
+#
+# Failure modes (per contracts/eval-langsmith-cli.md §Shared CLI Rules):
+#   - exit 4  → deterministic prompt-adjacent failure → block PR
+#   - exit 1  → operational failure (rare) → block PR (nightly budget)
+#   - exit 0  → green
+#   - exit 3  → policy violation → block PR (only relevant for
+#               override-record which is NOT called here)
+#   - exit 2  → invalid args (should not happen on CI; surface bug)
+#
+# Override flow (FR-024, T051): a failing gate may be unblocked by a
+# subsequent PR that records a dual-approval override via:
+#   python -m app.eval.cli override-record --run-id <id> --gate pr_eval \
+#     --pm-approver <name> --technical-approver <name> \
+#     --reason "<text>" --evidence <path-or-url> --json
+# The override CLI lives outside this workflow's gate; the dual-approval
+# policy is enforced via exit 3 on missing approver.
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "backend/app/agents/**"
+      - "backend/app/eval/**"
+      - "backend/app/modules/telemetry_contracts/**"
+      - ".github/workflows/033-eval-gate.yml"
+
+# Cancel in-flight runs when a new commit lands on the same PR.
+concurrency:
+  group: eval-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  eval-gate:
+    name: Run golden-case eval + dual-approval gate
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch enough history for `git rev-parse` SHA / branch.
+          fetch-depth: 0
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Sync backend deps
+        working-directory: backend
+        run: uv sync --extra dev
+
+      - name: Run eval pytest suite (smoke + contracts)
+        working-directory: backend
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: ci-only-dummy-32bytes-xxxxxxxxxxxxxxxxxxxxxx
+          MASTER_KEY: ${{ secrets.MASTER_KEY || 'ZGV2LW9ubHktZHVtbXktMzJiLWJhc2U2NC0xMjM0NTY3ODkwYWI=' }}
+          # CI mode — non-prompt-adjacent defaults.
+          EVAL_NIGHTLY_TOKEN_BUDGET: "5000000"
+          EVAL_NIGHTLY_COST_BUDGET_USD: "50"
+          EVAL_MONTHLY_COST_BUDGET_USD: "1000"
+        run: |
+          uv run pytest tests/eval/ -v --tb=short
+
+      - name: Run golden-case eval CLI
+        id: eval_cli
+        working-directory: backend
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: ci-only-dummy-32bytes-xxxxxxxxxxxxxxxxxxxxxx
+          MASTER_KEY: ${{ secrets.MASTER_KEY || 'ZGV2LW9ubHktZHVtbXktMzJiLWJhc2U2NC0xMjM0NTY3ODkwYWI=' }}
+        run: |
+          set -e
+          RUN_ID="run-${{ github.event.pull_request.number }}-$(date -u +%Y%m%dT%H%M%S)"
+          OUT_DIR="docs/evidence/${RUN_ID}"
+          mkdir -p "${OUT_DIR}"
+          REPORT_JSON="${OUT_DIR}/eval-report.json"
+          REPORT_MD="${OUT_DIR}/eval-report.md"
+
+          # Source revision / branch from the PR head.
+          SOURCE_REV="${{ github.event.pull_request.head.sha }}"
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+
+          echo "[033-eval-gate] run_id=${RUN_ID}"
+          echo "[033-eval-gate] source_revision=${SOURCE_REV}"
+          echo "[033-eval-gate] branch=${BRANCH}"
+
+          uv run python -m app.eval.cli run \
+            --suite golden \
+            --env ci \
+            --source-revision "${SOURCE_REV}" \
+            --branch "${BRANCH}" \
+            --report-out "${REPORT_JSON}" \
+            --markdown-out "${REPORT_MD}" \
+            --json | tee "${OUT_DIR}/cli-output.json"
+
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload eval report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 033-eval-report-${{ steps.eval_cli.outputs.run_id }}
+          path: docs/evidence/${{ steps.eval_cli.outputs.run_id }}/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Summarize
+        if: always()
+        working-directory: backend
+        run: |
+          echo "## 033 Eval Gate Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Run ID: \`${{ steps.eval_cli.outputs.run_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Report path: \`docs/evidence/${{ steps.eval_cli.outputs.run_id }}/eval-report.md\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Exit code contract (per contracts/eval-langsmith-cli.md):" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 0 = PASSED" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 4 = gate failed (deterministic prompt-adjacent failure)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 1 = operational failure (nightly budget exhaustion, etc.)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Override flow (FR-024): if this gate blocks a hotfix, record" >> "$GITHUB_STEP_SUMMARY"
+          echo "a dual-approval override via:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo "uv run python -m app.eval.cli override-record \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  --run-id ${{ steps.eval_cli.outputs.run_id }} \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  --gate pr_eval \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  --pm-approver <name> --technical-approver <name> \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  --reason '<short reason>' --evidence <path-or-url> --json" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
