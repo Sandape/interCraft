@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import sys
 from datetime import datetime, timezone
@@ -324,12 +325,66 @@ def cmd_override_record(args: argparse.Namespace) -> str | int:
     return 0
 
 
+def _validate_evidence(raw: str) -> None:
+    """Validate override evidence path/URL; raise PolicyViolation on bad input.
+
+    Rules (governance — reviewer issue #4):
+    - ``http(s)://`` URLs: reject loopback / private / link-local hosts to
+      avoid exfiltration of override records to internal admin pages.
+      Public DNS names and IPs are accepted.
+    - ``file://`` URLs and absolute filesystem paths: accepted as-is (CI
+      runners may legitimately reference ``/var/log/eval-report.md``).
+    - Bare relative paths: reject ``..`` segments to prevent path traversal.
+    - Any other scheme: rejected (avoid ``ftp://``, ``javascript:``, etc.).
+    """
+    parsed = urlparse(raw)
+    if parsed.scheme in ("http", "https"):
+        host = (parsed.hostname or "").lower()
+        if host == "localhost":
+            raise PolicyViolation(
+                f"override evidence URL points to loopback {host!r}",
+                environment="n/a",
+                violations=["evidence_private_url"],
+                sample_id="",
+            )
+        try:
+            if ipaddress.ip_address(host).is_private:
+                raise PolicyViolation(
+                    f"override evidence URL points to private address {host!r}",
+                    environment="n/a",
+                    violations=["evidence_private_url"],
+                    sample_id="",
+                )
+        except ValueError:
+            # host is a DNS name, not an IP literal — assume public.
+            pass
+        return
+    if parsed.scheme == "file":
+        return
+    if parsed.scheme == "":
+        if ".." in Path(raw).parts:
+            raise PolicyViolation(
+                f"override evidence path contains '..': {raw!r}",
+                environment="n/a",
+                violations=["evidence_path_traversal"],
+                sample_id="",
+            )
+        return
+    raise PolicyViolation(
+        f"override evidence scheme {parsed.scheme!r} not allowed "
+        "(use http/https/file/relative path)",
+        environment="n/a",
+        violations=["evidence_bad_scheme"],
+        sample_id="",
+    )
+
+
 def _build_override_record(args: argparse.Namespace) -> dict[str, object]:
     """Validate + build the override record; raise PolicyViolation on hard fail.
 
     The CLI-level wrapper (:func:`cmd_override_record`) catches this and
     emits the JSON error / exit-3. Programmatic callers can call
-    :func:`build_override_record_payload` directly to get the dict.
+    :func:`_build_override_record` directly to get the dict.
     """
     if not args.pm_approver or not str(args.pm_approver).strip():
         raise PolicyViolation(
@@ -377,48 +432,16 @@ def _build_override_record(args: argparse.Namespace) -> dict[str, object]:
         )
     _evidence_raw = str(args.evidence or "").strip()
     if _evidence_raw:
-        parsed = urlparse(_evidence_raw)
-        if parsed.scheme in ("http", "https"):
-            # Reject loopback / private IPs / link-local to avoid exfiltration
-            # of override records to internal admin pages.
-            host = (parsed.hostname or "").lower()
-            if (
-                host in ("localhost",)
-                or host.startswith("127.")
-                or host.startswith("10.")
-                or host.startswith("192.168.")
-                or host.startswith("169.254.")
-                or host.startswith("172.")
-                and 16 <= int(host.split(".")[1] or 0) <= 31
-            ):
-                raise PolicyViolation(
-                    f"override evidence URL points to private/loopback address {host!r}",
-                    environment="n/a",
-                    violations=["evidence_private_url"],
-                    sample_id=str(args.run_id or ""),
-                )
-        elif parsed.scheme == "file":
-            # file:// URLs and absolute filesystem paths are accepted as-is —
-            # callers are responsible for path safety (governance trade-off:
-            # we do not block absolute paths because evidence may legitimately
-            # be /var/log/eval-report.md on a CI runner).
-            pass
-        elif parsed.scheme in ("",):
-            # Bare relative path: refuse to descend with "..".
-            if ".." in Path(_evidence_raw).parts:
-                raise PolicyViolation(
-                    f"override evidence path contains '..': {_evidence_raw!r}",
-                    environment="n/a",
-                    violations=["evidence_path_traversal"],
-                    sample_id=str(args.run_id or ""),
-                )
-        else:
+        try:
+            _validate_evidence(_evidence_raw)
+        except PolicyViolation as exc:
+            # Re-raise with the actual run_id on the sample_id field.
             raise PolicyViolation(
-                f"override evidence scheme {parsed.scheme!r} not allowed (use http/https/file/relative path)",
-                environment="n/a",
-                violations=["evidence_bad_scheme"],
+                str(exc),
+                environment=exc.environment,
+                violations=exc.violations,
                 sample_id=str(args.run_id or ""),
-            )
+            ) from exc
 
     record: dict[str, object] = {
         "overrideId": f"override-{uuid4()}",
