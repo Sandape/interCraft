@@ -25,7 +25,7 @@ end-to-end testable without auth infra. Tests override it via
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -65,7 +65,7 @@ async def require_pm() -> UUID:
 
 async def _db_session_with_rls(
     user_id: UUID = Depends(require_pm),
-) -> AsyncSession:
+) -> AsyncIterator[AsyncSession]:
     """Yield an async session whose RLS GUC is bound to ``user_id``.
 
     Wraps :func:`app.core.db.get_db_session_no_rls` and explicitly
@@ -196,7 +196,7 @@ async def get_overview(
         node=node,
     )
     try:
-        panels: list[PanelResponse] = await dashboard_service.get_overview(
+        panels: list[PanelResponse[Any]] = await dashboard_service.get_overview(
             session, filters
         )
     except ValueError as exc:
@@ -249,7 +249,7 @@ async def get_funnel(
         node=node,
     )
     try:
-        panels: list[PanelResponse] = await dashboard_service.get_funnel(
+        panels: list[PanelResponse[Any]] = await dashboard_service.get_funnel(
             session, filters
         )
     except ValueError as exc:

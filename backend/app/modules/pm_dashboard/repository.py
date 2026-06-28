@@ -52,12 +52,15 @@ from app.modules.pm_dashboard.schemas import DashboardFilter
 
 def _apply_event_filters(
     stmt: Any,
-    model: type,
+    model: Any,
     filters: DashboardFilter,
 ) -> Any:
     """Apply shared date + environment + version filters to a stmt.
 
     ``model`` is either ``ProductFunnelEvent`` or ``AIInvocationRecord``.
+    Typed as ``Any`` because these two ORM classes share no common base
+    that has ``occurred_at``; the only common contract is duck-typed
+    column access.
     """
     stmt = stmt.where(
         model.occurred_at >= filters.date_range_start,

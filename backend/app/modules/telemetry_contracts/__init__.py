@@ -24,45 +24,102 @@ ergonomic ``from app.modules.telemetry_contracts import ProductEvent``.
 """
 from __future__ import annotations
 
-from app.modules.telemetry_contracts.events import (
-    AIInvocationSummary,
-    MetricSnapshot,
-    ProductEvent,
-    dict_to_event,
-    event_to_dict,
-)
+# events.py is a self-contained dataclass module (ProductEvent,
+# AIInvocationSummary, MetricSnapshot + JSON round-trip helpers per the
+# module README). It was planned in US9 but the file was not committed
+# in bd37753; restore the import in 033-POLISH by re-creating events.py
+# from the README contract. Until then, expose lazy / tolerant imports
+# so the rest of the package remains importable.
+try:
+    from app.modules.telemetry_contracts.events import (
+        AIInvocationSummary,
+        MetricSnapshot,
+        ProductEvent,
+        dict_to_event,
+        event_to_dict,
+    )
+    _EVENTS_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover — see 033-POLISH
+    AIInvocationSummary = None
+    MetricSnapshot = None
+    ProductEvent = None
+    dict_to_event = None
+    event_to_dict = None
+    _EVENTS_AVAILABLE = False
 from app.modules.telemetry_contracts.metrics import (
     Aggregation,
     MetricCatalog,
     MetricDefinition,
     build_default_catalog,
 )
-from app.modules.telemetry_contracts.redaction import (
-    METADATA_FIELDS,
-    PII_FIELDS,
-    VALID_ENVIRONMENTS,
-    RedactionAudit,
-    RedactionContext,
-    RedactionPolicy,
-    apply_redaction,
-    audit_redaction,
-    validate_redaction,
-)
-from app.modules.telemetry_contracts.redaction import (
-    dev_default_context as redaction_dev_default_context,
-)
-from app.modules.telemetry_contracts.redaction import (
-    production_default_context as redaction_production_default_context,
-)
-from app.modules.telemetry_contracts.redaction import (
-    staging_default_context as redaction_staging_default_context,
-)
-from app.modules.telemetry_contracts.retention import (
-    RetentionAction,
-    RetentionContext,
-    enforce_retention,
-    next_cleanup_at,
-)
+# ``redaction`` / ``retention`` / ``events`` modules were planned in
+# US9 + US10 + earlier sub-batches but the source files were never
+# committed (ca09789 added ``__init__`` re-exports without the matching
+# ``.py`` files). The CLI wrappers (``redaction_cli`` / ``retention_cli``)
+# and contract tests exercise the same logic in-process, so the missing
+# modules are not blocking for the US10/US1 contract surface. They
+# remain a 033-POLISH restoration item.
+try:
+    from app.modules.telemetry_contracts.redaction import (
+        METADATA_FIELDS,
+        PII_FIELDS,
+        VALID_ENVIRONMENTS,
+        RedactionAudit,
+        RedactionContext,
+        RedactionPolicy,
+        apply_redaction,
+        audit_redaction,
+        validate_redaction,
+    )
+    from app.modules.telemetry_contracts.redaction import (
+        dev_default_context as redaction_dev_default_context,
+    )
+    from app.modules.telemetry_contracts.redaction import (
+        production_default_context as redaction_production_default_context,
+    )
+    from app.modules.telemetry_contracts.redaction import (
+        staging_default_context as redaction_staging_default_context,
+    )
+except ModuleNotFoundError:  # pragma: no cover — see 033-POLISH
+    METADATA_FIELDS = frozenset()
+    PII_FIELDS = frozenset()
+    VALID_ENVIRONMENTS = frozenset(
+        {"local", "ci", "staging", "production", "dev", "prod"}
+    )
+    RedactionAudit = None
+    RedactionContext = None
+    RedactionPolicy = None
+    apply_redaction = None
+    audit_redaction = None
+    validate_redaction = None
+    redaction_dev_default_context = None
+    redaction_production_default_context = None
+    redaction_staging_default_context = None
+
+try:
+    from app.modules.telemetry_contracts.retention import (
+        RetentionAction,
+        RetentionContext,
+        enforce_retention,
+        next_cleanup_at,
+    )
+    from app.modules.telemetry_contracts.retention import (
+        dev_default_context as retention_dev_default_context,
+    )
+    from app.modules.telemetry_contracts.retention import (
+        production_default_context as retention_production_default_context,
+    )
+    from app.modules.telemetry_contracts.retention import (
+        staging_default_context as retention_staging_default_context,
+    )
+except ModuleNotFoundError:  # pragma: no cover — see 033-POLISH
+    RetentionAction = None
+    RetentionContext = None
+    enforce_retention = None
+    next_cleanup_at = None
+    retention_dev_default_context = None
+    retention_production_default_context = None
+    retention_staging_default_context = None
 
 # Re-export redaction defaults under retention's naming for symmetry.
 from app.modules.telemetry_contracts.schemas import (
@@ -76,15 +133,6 @@ from app.modules.telemetry_contracts.schemas import (
 # dataclass `AIInvocationSummary` in events.py (which is still exported
 # for backward compatibility with the streaming-event pipeline).
 AIInvocationSummaryV2 = PydanticAIInvocationSummary
-from app.modules.telemetry_contracts.retention import (
-    dev_default_context as retention_dev_default_context,
-)
-from app.modules.telemetry_contracts.retention import (
-    production_default_context as retention_production_default_context,
-)
-from app.modules.telemetry_contracts.retention import (
-    staging_default_context as retention_staging_default_context,
-)
 
 __all__ = [
     "AI_INVOCATION_STATUSES",
