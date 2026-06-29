@@ -5,30 +5,18 @@
 // unknown ids) — this is the single entry point used by the editor
 // preview, the export pipeline, and the snapshot tests.
 //
-// Note on lazy loading: We use STATIC imports here (not React.lazy) so
-// the dispatcher can be exercised in unit tests under vitest's jsdom
-// environment, which does not support the dynamic `import()` calls that
-// React.lazy requires. In production, Vite tree-shakes + code-splits
-// the templates naturally when they are imported into separate pages;
-// the size impact is small (each template is ~3-5 kB of CSS + a thin
-// React component) and the cost of getting the bundling wrong is
-// higher than the savings. If a real-world perf issue is observed we
-// can switch to React.lazy() at the PreviewPane entry point in US3.
+// REQ-032 v2 MVP scope: only Onyx has a real component. The other
+// 9 TemplateIds are placeholder fallbacks — they all resolve to the
+// Onyx template so the Template Gallery picker can render 10
+// thumbnails without crashing. When the real templates ship
+// (after MVP), replace each entry with the matching `import`
+// + component reference.
 
 import type { ComponentType } from "react";
 import type { TemplateId } from "../schema/templates";
 import type { ResumeDataV2 } from "../schema/data";
 
 import OnyxTemplate from "./onyx/Template";
-import AzurillTemplate from "./azurill/Template";
-import KakunaTemplate from "./kakuna/Template";
-import ChikoritaTemplate from "./chikorita/Template";
-import DitgarTemplate from "./ditgar/Template";
-import BronzorTemplate from "./bronzor/Template";
-import PikachuTemplate from "./pikachu/Template";
-import LaprasTemplate from "./lapras/Template";
-import ScizorTemplate from "./scizor/Template";
-import RhyhornTemplate from "./rhyhorn/Template";
 
 export interface TemplateProps {
   data: ResumeDataV2;
@@ -38,15 +26,17 @@ export type TemplateComponent = ComponentType<TemplateProps>;
 
 export const templateMap: Record<TemplateId, TemplateComponent> = {
   onyx: OnyxTemplate,
-  azurill: AzurillTemplate,
-  kakuna: KakunaTemplate,
-  chikorita: ChikoritaTemplate,
-  ditgar: DitgarTemplate,
-  bronzor: BronzorTemplate,
-  pikachu: PikachuTemplate,
-  lapras: LaprasTemplate,
-  scizor: ScizorTemplate,
-  rhyhorn: RhyhornTemplate,
+  // 9/10 templates are placeholders for the 032 v2 MVP — they fall
+  // back to Onyx until the real layouts ship.
+  azurill: OnyxTemplate,
+  kakuna: OnyxTemplate,
+  chikorita: OnyxTemplate,
+  ditgar: OnyxTemplate,
+  bronzor: OnyxTemplate,
+  pikachu: OnyxTemplate,
+  lapras: OnyxTemplate,
+  scizor: OnyxTemplate,
+  rhyhorn: OnyxTemplate,
 };
 
 /**
