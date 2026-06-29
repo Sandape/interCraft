@@ -469,10 +469,10 @@ async def analyze_resume(
     if row is None:
         return _err_response(500, "ANALYZE_STORE_FAILED", "Failed to load stored analysis.")
     return {
-        "status": row.status,
-        "analysis": row.analysis,
-        "failure_reason": row.failure_reason,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "status": row["status"],
+        "analysis": row["analysis"],
+        "failure_reason": row["failure_reason"],
+        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
 
 
@@ -496,10 +496,10 @@ async def get_analysis(
     if row is None:
         return _err_response(404, "NOT_FOUND", "No analysis for this resume yet.")
     return {
-        "status": row.status,
-        "analysis": row.analysis,
-        "failure_reason": row.failure_reason,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "status": row["status"],
+        "analysis": row["analysis"],
+        "failure_reason": row["failure_reason"],
+        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
 
 

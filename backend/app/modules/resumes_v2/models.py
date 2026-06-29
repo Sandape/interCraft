@@ -1,17 +1,34 @@
-"""M032 — Resume v2 ORM models (REB-032 v2 MVP stub).
+"""M032 — Resume v2 ORM models (REQ-032 v2, US11 + US14).
 
-The real models live in feature 032 v2 US1 (T018 — schema + Alembic
-migration). For the REB-032 v2 MVP we only need ``ResumeV2`` and
-``ResumeStatisticsV2`` to exist so the service layer's import-time
-references resolve. The full table definitions (JSONB data blob,
-RLS binding, soft delete, public sharing, statistics counters,
-analysis cache) ship in a later US phase via Alembic migration.
+Tables created by Alembic migration 0022:
+- ``resumes_v2``               — authoring + content (RLS-bound on app.user_id)
+- ``resume_statistics_v2``     — public-access counters (FK CASCADE)
+- ``resume_analysis_v2``       — LLM analysis snapshot (FK CASCADE, UPSERT)
 
-We declare minimal table shells so ``app.modules.resumes_v2.service``
-can import the class names without raising ``ModuleNotFoundError``.
-Runtime SQL is exercised through Alembic-migrated tables in the real
-schema; the stubs below are intentionally not registered with the
-shared ``Base.metadata`` so they don't shadow the production DDL.
+Column notes
+------------
+- ``resumes_v2.tags`` is ``text[]`` (Postgres array), stored as Python
+  ``list[str]``. The ORM mapping uses ``ARRAY(Text)`` so reads /
+  writes round-trip the array form without JSON serialization
+  surprises.
+- ``resumes_v2.version`` is the optimistic-concurrency counter
+  authored in service.py via ``repo.update_with_version``. DB default
+  is 0; new rows inserted by ``repo.create`` set ``version=0`` to
+  match the migration.
+- ``resumes_v2.password_hash`` only valid when ``is_public=True`` —
+  enforced by the CHECK constraint
+  ``ck_resumes_v2_password_only_when_public``.
+- ``resumes_v2.data`` is a JSONB blob mirroring the
+  ``ResumeDataV2`` shape (see
+  ``specs/032-resume-renderer-v2/contracts/02-resume-data-schema.md``).
+
+The ``__table_args__ = {"extend_existing": True}`` is needed because
+the v2 test fixtures (T016) instantiate models with the same
+tablename registered against ``Base.metadata``; without it, two
+declarations of the same table name would raise
+``InvalidRequestError`` on import. The real DDL lives in the migration
+not the ORM, so the model columns below are kept in sync with that
+DDL by hand (verified against ``information_schema`` in Batch 5).
 """
 from __future__ import annotations
 
@@ -20,45 +37,60 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import JSON, Boolean, DateTime, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
 
 
 class ResumeV2(Base):
-    """Stub: full table definition ships in 032 v2 US1 (T018).
+    """The v2 resume authoring + content row.
 
-    This minimal model exposes the column names the service layer
-    references (``id``, ``user_id``, ``name``, ``slug``, ``tags``,
-    ``is_public``, ``is_locked``, ``password_hash``, ``data``,
-    ``version``, ``created_at``, ``updated_at``) so type checkers
-    and the import chain stay green. The Alembic migration that
-    creates the production table is a separate concern (tracked in
-    specs/032-resume-renderer-v2/tasks.md).
+    RLS is bound via ``app.user_id`` GUC by the API dependency
+    ``db_session_user_dep``; the repository does not need to set it.
     """
 
     __tablename__ = "resumes_v2"
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
-    name: Mapped[str] = mapped_column(String(64))
-    slug: Mapped[str] = mapped_column(String(64), index=True)
-    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
-    is_public: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    slug: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    tags: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list
+    )
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
-    version: Mapped[int] = mapped_column(Integer, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    # DB default is 0; new rows from repo.create() pin version=0 so
+    # the audit log + E2E assertions both see the same baseline.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
     )
 
 
 class ResumeStatisticsV2(Base):
-    """Stub: view + download counters. Production schema ships in 032 v2 US11."""
+    """Public-access counters (US11, T141).
+
+    Rows are inserted lazily by the service's
+    ``ensure_statistics_row`` so private resumes never materialize a
+    row. Children of ``resumes_v2.id`` with ON DELETE CASCADE, so a
+    parent soft-delete cleans the counters too.
+
+    No RLS: the parent row's RLS already gates access — see migration
+    0022's note on the design choice.
+    """
 
     __tablename__ = "resume_statistics_v2"
     __table_args__ = {"extend_existing": True}
@@ -66,8 +98,37 @@ class ResumeStatisticsV2(Base):
     resume_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True
     )
-    views: Mapped[int] = mapped_column(Integer, default=0)
-    downloads: Mapped[int] = mapped_column(Integer, default=0)
+    views: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    downloads: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_downloaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
-__all__ = ["ResumeV2", "ResumeStatisticsV2"]
+class ResumeAnalysisV2(Base):
+    """AI-analysis snapshot (US14, T151).
+
+    One row per resume, UPSERT'd by ``repo.upsert_analysis`` so the
+    latest attempt always wins. ``status`` is either ``"success"``
+    or ``"failed"`` per the CHECK constraint
+    ``ck_resume_analysis_v2_status``.
+    """
+
+    __tablename__ = "resume_analysis_v2"
+    __table_args__ = {"extend_existing": True}
+
+    resume_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True
+    )
+    analysis: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="success")
+    failure_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+
+__all__ = ["ResumeV2", "ResumeStatisticsV2", "ResumeAnalysisV2"]
