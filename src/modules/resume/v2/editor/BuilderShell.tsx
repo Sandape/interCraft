@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { ResumeDataV2 } from "../schema/data";
 import { Header } from "./Header";
-import { SectionsPanel } from "./left/SectionsPanel";
+import SectionsPanel from "./left/SectionsPanel";
 import { PreviewPane } from "./center/PreviewPane";
 import { SettingsPanel } from "./right/SettingsPanel";
 import { Dock } from "./center/Dock";

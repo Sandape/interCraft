@@ -1,49 +1,173 @@
-// REQ-032 v2 MVP stub — SectionsPanel.
+// REQ-032 v2 Batch 2 — SectionsPanel (real implementation).
 //
-// The left panel normally renders a draggable list of the resume's
-// 12 section types so users can add / reorder / hide them. The real
-// implementation (drag-drop + per-item visibility + add/remove UI)
-// ships in a later US phase. For the MVP we render the 12 sections
-// as disabled buttons so the editor's left rail has the right shape
-// for E2E selectors and visual regression baselines.
+// Replaces the disabled 12-button stub with a click-to-expand row per
+// section. Each row exposes:
+//   - section id (read-only label, e.g. "experience")
+//   - title (editable text input → `data.sections.{id}.title`)
+//   - icon (editable text input → `data.sections.{id}.icon`)
+//   - hidden (toggle → `data.sections.{id}.hidden`)
 //
-// The 12 section types mirror `backend/app/modules/resumes_v2/schemas.py`
-// `SectionType`. We deliberately show all of them so the test
-// selectors (`data-testid="section-button-{id}"`) can be exercised.
+// Drag/reorder (US4) is deferred; this batch covers visibility + meta
+// edits only. The 12 section keys mirror `Sections` in
+// `schema/data.ts` and the defaults in `schema/defaults.ts`.
+//
+// Mutations route through `setDataMut` so the store's debounced-save +
+// undo-stack pipeline picks them up automatically.
+//
+// E2E selectors: `section-row-{id}`, `section-title-{id}`,
+// `section-icon-{id}`, `section-hidden-{id}`.
 
-const SECTION_TYPES: { id: string; label: string }[] = [
-  { id: "profiles", label: "Profiles" },
-  { id: "experience", label: "Experience" },
-  { id: "education", label: "Education" },
-  { id: "projects", label: "Projects" },
-  { id: "skills", label: "Skills" },
-  { id: "languages", label: "Languages" },
-  { id: "interests", label: "Interests" },
-  { id: "awards", label: "Awards" },
-  { id: "certifications", label: "Certifications" },
-  { id: "publications", label: "Publications" },
-  { id: "volunteer", label: "Volunteer" },
-  { id: "references", label: "References" },
+import { useState } from "react";
+import { useResumeV2Store } from "../../store";
+import type { Sections, SectionType } from "../../schema/data";
+
+// ── constants ─────────────────────────────────────────────────────────────
+
+// Order matches the Onyx template's main column (see schema/defaults.ts).
+const SECTION_IDS: readonly SectionType[] = [
+  "profiles",
+  "experience",
+  "education",
+  "projects",
+  "skills",
+  "languages",
+  "interests",
+  "awards",
+  "certifications",
+  "publications",
+  "volunteer",
+  "references",
 ];
 
-export default function SectionsPanel(): JSX.Element {
+// ── helpers ───────────────────────────────────────────────────────────────
+
+type SectionValue = Sections[SectionType];
+
+function getSection(sections: Sections, id: SectionType): SectionValue {
+  return sections[id];
+}
+
+// ── row component ─────────────────────────────────────────────────────────
+
+interface SectionRowProps {
+  id: SectionType;
+  value: SectionValue;
+}
+
+function SectionRow({ id, value }: SectionRowProps): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const setDataMut = useResumeV2Store((s) => s.setDataMut);
+
+  const patchSection = (mutator: (draft: SectionValue) => void) => {
+    setDataMut((draft) => {
+      mutator(draft.sections[id] as SectionValue);
+    });
+  };
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    patchSection((d) => {
+      d.title = e.target.value;
+    });
+  };
+
+  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    patchSection((d) => {
+      d.icon = e.target.value;
+    });
+  };
+
+  const handleHiddenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    patchSection((d) => {
+      d.hidden = e.target.checked;
+    });
+  };
+
   return (
     <div
-      data-testid="sections-panel-stub"
+      data-testid={`section-row-${id}`}
+      data-section-id={id}
+      data-expanded={expanded ? "true" : "false"}
+      className="rounded border border-surface-border bg-surface-base"
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs text-ink-1"
+      >
+        <span className="font-medium">{value.title || id}</span>
+        <span className="flex items-center gap-2 text-ink-3">
+          {value.hidden && (
+            <span
+              data-testid={`section-hidden-badge-${id}`}
+              className="rounded bg-amber-100 px-1 text-[10px] text-amber-700"
+            >
+              hidden
+            </span>
+          )}
+          <span aria-hidden="true">{expanded ? "−" : "+"}</span>
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="space-y-2 border-t border-surface-border p-2">
+          <label className="block space-y-1">
+            <span className="text-[10px] uppercase tracking-wide text-ink-3">
+              Title
+            </span>
+            <input
+              type="text"
+              value={value.title}
+              onChange={handleTitleChange}
+              placeholder={id}
+              data-testid={`section-title-${id}`}
+              className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-[10px] uppercase tracking-wide text-ink-3">
+              Icon (lucide key)
+            </span>
+            <input
+              type="text"
+              value={value.icon}
+              onChange={handleIconChange}
+              placeholder="briefcase"
+              data-testid={`section-icon-${id}`}
+              className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-1">
+            <input
+              type="checkbox"
+              checked={value.hidden}
+              onChange={handleHiddenChange}
+              data-testid={`section-hidden-${id}`}
+              className="accent-primary-500"
+            />
+            <span>Hide this section</span>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── main panel ────────────────────────────────────────────────────────────
+
+export default function SectionsPanel(): JSX.Element {
+  const sections = useResumeV2Store((s) => s.data.sections);
+
+  return (
+    <div
+      data-testid="sections-panel"
       className="flex h-full flex-col gap-1 overflow-y-auto p-2"
     >
       <div className="mb-2 text-xs font-semibold text-ink-3">Sections</div>
-      {SECTION_TYPES.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          disabled
-          data-testid={`section-button-${s.id}`}
-          className="cursor-not-allowed rounded border border-surface-border bg-surface-muted px-2 py-1.5 text-left text-xs text-ink-3"
-          title={`TODO: ${s.label} drag/reorder UI ships in a later US phase`}
-        >
-          {s.label}
-        </button>
+      {SECTION_IDS.map((id) => (
+        <SectionRow key={id} id={id} value={getSection(sections, id)} />
       ))}
     </div>
   );
