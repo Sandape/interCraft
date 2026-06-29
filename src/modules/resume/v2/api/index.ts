@@ -18,6 +18,8 @@
 //   analyzeResume   POST   /api/v1/v2/resumes/{id}/analyze    → { analysis }
 //   getAnalysis     GET    /api/v1/v2/resumes/{id}/analysis   → { analysis }
 //   renderExport    POST   /api/v1/v2/export/render           → binary
+//   getPublicResume GET    /api/v1/v2/public/{username}/{slug} → resume (public)
+//   verifyPublicPw  POST   /api/v1/v2/public/{username}/{slug}/verify-password
 
 import { request } from "@/api/client";
 import type { ResumeDataV2, TemplateId } from "../schema/data";
@@ -259,6 +261,15 @@ export async function getAnalysis(id: string): Promise<AnalysisResponse> {
 export async function renderExport(
   id: string,
   format: ExportFormat,
+  /**
+   * Batch 3 (REQ-032 v2) — Optional rendered HTML payload. The
+   * backend `POST /api/v1/v2/export/render` requires non-empty `html`
+   * for PDF / PNG / JPEG (it returns 400 EMPTY_CONTENT otherwise).
+   * Callers that have the current store data should render the live
+   * preview pane to HTML and pass it here so the PDF reflects the
+   * user's unsaved local edits. JSON exports ignore this field.
+   */
+  html?: string,
 ): Promise<Blob> {
   // Export returns binary (PDF / PNG / JPEG) so we bypass the JSON
   // helper and use raw fetch to preserve the response body as a Blob.
@@ -277,14 +288,81 @@ export async function renderExport(
   if (access) headers["Authorization"] = `Bearer ${access}`;
 
   const url = `${env.API_BASE_URL}/api/v1/v2/export/render`;
+  const body: Record<string, unknown> = { resume_id: id, format };
+  if (html) body.html = html;
   const res = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({ resume_id: id, format }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw classifyBackendError(res.status, body, headers["X-Request-ID"]);
   }
   return res.blob();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public resume endpoints (Batch 3 — REQ-032 v2).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Response shape of `GET /api/v1/v2/public/{username}/{slug}`.
+ * Mirrors the regular ResumeV2 envelope — public callers see the full
+ * `data` blob so the page can render via the same `PreviewPane`.
+ */
+export interface PublicResumeV2 {
+  id: string;
+  username: string;
+  name: string;
+  slug: string;
+  /** Always true on this endpoint (the route returns 404 otherwise). */
+  is_public: boolean;
+  /** True when a password is required to view; the page will then
+   *  render the password form before fetching the body. */
+  password_set: boolean;
+  version: number;
+  updated_at: string | null;
+  /** Full template data — same shape as `ResumeDataV2`. May be `null`
+   *  when the resume is password-protected and the caller hasn't yet
+   *  presented the cookie. The route returns 401 in that case. */
+  data: ResumeDataV2 | null;
+}
+
+/**
+ * Fetch a public resume by owner username + slug. Returns the full
+ * resume document including the `data` template blob. Throws the
+ * shared `ApiError` family on non-2xx — `status === 401` means a
+ * password is required, `status === 404` means the slug is unknown or
+ * the resume isn't public.
+ */
+export async function getPublicResume(
+  username: string,
+  slug: string,
+): Promise<PublicResumeV2> {
+  return request<PublicResumeV2>({
+    method: "GET",
+    path: `/api/v1/v2/public/${encodeURIComponent(username)}/${encodeURIComponent(slug)}`,
+    skipAuth: true,
+  });
+}
+
+/**
+ * POST `{password}` to the password-unlock endpoint. On success the
+ * backend sets an HttpOnly cookie (`v2_public_pw_<hash>`) that the
+ * browser will replay on subsequent `getPublicResume` calls. The
+ * response itself is `{ ok: true }` — we don't return any data; the
+ * caller should refetch via `getPublicResume`.
+ */
+export async function verifyPublicPassword(
+  username: string,
+  slug: string,
+  password: string,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>({
+    method: "POST",
+    path: `/api/v1/v2/public/${encodeURIComponent(username)}/${encodeURIComponent(slug)}/verify-password`,
+    body: { password },
+    skipAuth: true,
+  });
 }
