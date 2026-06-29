@@ -21,6 +21,7 @@ import { useEffect, useRef } from "react";
 import { create } from "zustand";
 import { BasicsDialog } from "./BasicsDialog";
 import { PictureDialog } from "./PictureDialog";
+import { ExperienceDialog } from "./ExperienceDialog";
 import { useResumeV2Store } from "../../store";
 
 // ── type namespace ─────────────────────────────────────────────────────────
@@ -28,15 +29,34 @@ import { useResumeV2Store } from "../../store";
 /**
  * Dialog types dispatched by `DialogHost`.
  *
- * Today: `'basics' | 'picture'`. Future US2–US6 add per-item dialogs
- * under the `'section.verb'` shape (e.g. `'experience.create'`).
+ * Today:
+ *   - `'basics' | 'picture'` (US1, single-instance editors — bare section
+ *     name, no verb suffix).
+ *   - `'experience.create' | 'experience.update'` (US2, per-item editors
+ *     — `{section}.{verb}` shape). `'experience.delete'` is intentionally
+ *     absent: delete actions live inline in the calling UI and do NOT
+ *     route through this dispatcher.
  */
-export type DialogType = "basics" | "picture";
+export type DialogType =
+  | "basics"
+  | "picture"
+  | "experience.create"
+  | "experience.update";
+
+export interface ExperienceUpdatePayload {
+  sectionId: string;
+  itemId: string;
+}
 
 export interface DialogSpec {
   type: DialogType;
-  /** Opaque per-dialog payload — currently unused for `'basics'` / `'picture'`. */
-  payload?: unknown;
+  /**
+   * Per-dialog payload:
+   *   - `'basics' | 'picture'`: undefined.
+   *   - `'experience.create'`: `{ sectionId: string }`.
+   *   - `'experience.update'`: `{ sectionId: string, itemId: string }`.
+   */
+  payload?: ExperienceUpdatePayload | { sectionId: string };
 }
 
 interface DialogState {
@@ -106,12 +126,39 @@ export function DialogHost(): JSX.Element | null {
       return <BasicsDialog onClose={handleClose} />;
     case "picture":
       return <PictureDialog onClose={handleClose} />;
+    case "experience.create": {
+      // The create flow is "add an empty item, then open the update
+      // dialog on it". The SectionItem list component does the push
+      // and then dispatches `experience.update` immediately; we keep
+      // this case as a defensive fallback (e.g. a future caller that
+      // wants the dispatcher to handle the push itself).
+      const sectionId =
+        (active.payload as { sectionId?: string } | undefined)?.sectionId ??
+        "experience";
+      // Promote to update by synthesising an empty item.
+      return <ExperienceDialog onClose={handleClose} sectionId={sectionId} itemId="" />;
+    }
+    case "experience.update": {
+      const payload = active.payload as
+        | { sectionId?: string; itemId?: string }
+        | undefined;
+      const sectionId = payload?.sectionId ?? "experience";
+      const itemId = payload?.itemId ?? "";
+      return (
+        <ExperienceDialog
+          onClose={handleClose}
+          sectionId={sectionId}
+          itemId={itemId}
+        />
+      );
+    }
     default: {
-      // Exhaustiveness guard. If a new type is added without extending the
-      // switch, this assignment is a compile-time error.
-      const _exhaustive: never = active.type;
-      void _exhaustive;
-      return null;
+      // Fail loud (AC-11b-revised): an unknown type means a new verb
+      // was added without extending this switch. Silent `return null`
+      // would result in a black-screen dialog in production. We throw
+      // so the failure surfaces immediately in dev/test.
+      const unknown = (active as { type: string }).type;
+      throw new Error(`unknown dialog type: ${unknown}`);
     }
   }
 }

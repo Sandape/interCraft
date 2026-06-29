@@ -20,6 +20,7 @@
 import { useState } from "react";
 import { useResumeV2Store } from "../../store";
 import { useDialogStore } from "../dialogs/DialogHost";
+import { ExperienceSectionList } from "./ExperienceSectionList";
 import type { Sections, SectionType } from "../../schema/data";
 
 // ── constants ─────────────────────────────────────────────────────────────
@@ -150,6 +151,11 @@ function SectionRow({ id, value }: SectionRowProps): JSX.Element {
             />
             <span>Hide this section</span>
           </label>
+
+          {/* REQ-034 US2: mount the experience items list inside the
+              experience row. The list provides add-button, drag-reorder,
+              and three inline actions (edit / duplicate / delete). */}
+          {id === "experience" && <ExperienceSectionList sectionId={id} />}
         </div>
       )}
     </div>
