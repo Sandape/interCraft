@@ -22,6 +22,7 @@ import { Dock } from "./center/Dock";
 import { useResumeV2Store } from "../store";
 import { fireToast } from "./center/toast";
 import { duplicateResume } from "../api";
+import { DialogHost } from "./dialogs/DialogHost";
 
 const STORAGE_KEY = "v2.panel-sizes";
 const DEFAULT_SIZES: [number, number, number] = [22, 56, 22];
@@ -375,6 +376,9 @@ export function BuilderShell({
 
         </PanelGroup>
       </div>
+      {/* REQ-034 US1: mount the dialog dispatcher once near the root. It
+          renders nothing when no dialog is open (returns null). */}
+      <DialogHost />
     </div>
   );
 }

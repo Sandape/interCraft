@@ -19,6 +19,7 @@
 
 import { useState } from "react";
 import { useResumeV2Store } from "../../store";
+import { useDialogStore } from "../dialogs/DialogHost";
 import type { Sections, SectionType } from "../../schema/data";
 
 // ── constants ─────────────────────────────────────────────────────────────
@@ -159,6 +160,7 @@ function SectionRow({ id, value }: SectionRowProps): JSX.Element {
 
 export default function SectionsPanel(): JSX.Element {
   const sections = useResumeV2Store((s) => s.data.sections);
+  const openDialog = useDialogStore((s) => s.openDialog);
 
   return (
     <div
@@ -166,6 +168,42 @@ export default function SectionsPanel(): JSX.Element {
       className="flex h-full flex-col gap-1 overflow-y-auto p-2"
     >
       <div className="mb-2 text-xs font-semibold text-ink-3">Sections</div>
+      {/* REQ-034 US1: Basics + Picture entries sit ABOVE the 12 section rows
+          so the editor exposes the "metadata" block first. `data-section-group`
+          is asserted by AC-01b (DOM order) and AC-01 (testid for clicks). */}
+      <button
+        type="button"
+        data-section-group="metadata"
+        data-testid="section-row-basics"
+        data-section-id="basics"
+        onClick={() => openDialog({ type: "basics" })}
+        className="flex w-full items-center justify-between gap-2 rounded border border-surface-border bg-surface-base px-2 py-1.5 text-left text-xs text-ink-1"
+      >
+        <span className="font-medium">Basics</span>
+        <span aria-hidden="true" className="text-ink-3">→</span>
+      </button>
+      <button
+        type="button"
+        data-section-group="metadata"
+        data-testid="section-row-picture"
+        data-section-id="picture"
+        onClick={() => openDialog({ type: "picture" })}
+        className="flex w-full items-center justify-between gap-2 rounded border border-surface-border bg-surface-base px-2 py-1.5 text-left text-xs text-ink-1"
+      >
+        <span className="font-medium">Picture</span>
+        <span aria-hidden="true" className="text-ink-3">→</span>
+      </button>
+      {/* Summary placeholder hook (US3 will replace this row with the
+          real SummaryDialog opener). Keep the DOM order explicit so AC-01b
+          snapshot can assert its position. */}
+      <div
+        data-section-group="metadata"
+        data-testid="section-row-summary"
+        data-section-id="summary"
+        className="hidden"
+      >
+        summary
+      </div>
       {SECTION_IDS.map((id) => (
         <SectionRow key={id} id={id} value={getSection(sections, id)} />
       ))}

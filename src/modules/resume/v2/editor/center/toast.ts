@@ -8,7 +8,7 @@
 
 export function fireToast(
   message: string,
-  kind: "info" | "error" = "info",
+  kind: "info" | "warn" | "error" = "info",
 ): void {
   // TODO: wire to actual toast system (Mantine notifications or similar)
   // For MVP, console.warn only.
