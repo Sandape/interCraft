@@ -349,3 +349,187 @@ describe("DialogHost dispatcher (AC-11, AC-11b)", () => {
     expect(src).not.toMatch(/default:\s*null/);
   });
 });
+
+// ── US4 (REQ-034) profile dispatcher cases (AC-16, AC-23) ──────────────────
+
+describe("DialogHost profile dispatcher (AC-16, AC-23)", () => {
+  beforeEach(() => {
+    fireToastMock.mockReset();
+  });
+
+  it("renders ProfileDialog after openDialog({type:'profile.update'}) (AC-16)", async () => {
+    const { DialogHost, useDialogStore } = await importDialog();
+    const storeMod = await import("../../../store");
+    const defaultsMod = await import("../../../schema/defaults");
+    storeMod.useResumeV2Store.setState((s) => ({
+      ...s,
+      data: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      version: 1,
+      id: "r1",
+      hydrated: true,
+      original: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      undoStack: [],
+      redoStack: [],
+    }));
+    act(() => {
+      storeMod.useResumeV2Store.getState().setDataMut((d) => {
+        d.sections.profiles.items = [
+          {
+            id: "pr1",
+            hidden: false,
+            icon: "github",
+            iconColor: "rgba(0,0,0,1)",
+            network: "GH",
+            username: "u",
+            website: { url: "", label: "", inlineLink: false },
+          },
+        ];
+      });
+    });
+    render(<DialogHost />);
+    act(() => {
+      useDialogStore.getState().openDialog({
+        type: "profile.update",
+        payload: { sectionId: "profiles", itemId: "pr1" },
+      });
+    });
+    expect(screen.getByTestId("profile-dialog")).toBeTruthy();
+  });
+
+  it("renders ProfileDialog after openDialog({type:'profile.create'}) (AC-16, AC-23)", async () => {
+    const { DialogHost, useDialogStore } = await importDialog();
+    const storeMod = await import("../../../store");
+    const defaultsMod = await import("../../../schema/defaults");
+    storeMod.useResumeV2Store.setState((s) => ({
+      ...s,
+      data: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      version: 1,
+      id: "r1",
+      hydrated: true,
+      original: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      undoStack: [],
+      redoStack: [],
+    }));
+    // Seed an item so the dialog has something to render (the dialog
+    // looks up the last item when itemId="" via the create flow).
+    act(() => {
+      storeMod.useResumeV2Store.getState().setDataMut((d) => {
+        d.sections.profiles.items = [
+          {
+            id: "pr1",
+            hidden: false,
+            icon: "github",
+            iconColor: "rgba(0,0,0,1)",
+            network: "GH",
+            username: "u",
+            website: { url: "", label: "", inlineLink: false },
+          },
+        ];
+      });
+    });
+    render(<DialogHost />);
+    act(() => {
+      useDialogStore.getState().openDialog({
+        type: "profile.create",
+        payload: { sectionId: "profiles" },
+      });
+    });
+    expect(screen.getByTestId("profile-dialog")).toBeTruthy();
+  });
+
+  it("profile.create and profile.update both render ProfileDialog (AC-23)", async () => {
+    const { DialogHost, useDialogStore } = await importDialog();
+    const storeMod = await import("../../../store");
+    const defaultsMod = await import("../../../schema/defaults");
+    storeMod.useResumeV2Store.setState((s) => ({
+      ...s,
+      data: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      version: 1,
+      id: "r1",
+      hydrated: true,
+      original: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      undoStack: [],
+      redoStack: [],
+    }));
+    act(() => {
+      storeMod.useResumeV2Store.getState().setDataMut((d) => {
+        d.sections.profiles.items = [
+          {
+            id: "pr1",
+            hidden: false,
+            icon: "github",
+            iconColor: "rgba(0,0,0,1)",
+            network: "GH",
+            username: "u",
+            website: { url: "", label: "", inlineLink: false },
+          },
+        ];
+      });
+    });
+    render(<DialogHost />);
+    act(() => {
+      useDialogStore.getState().openDialog({ type: "profile.create" });
+    });
+    expect(screen.getByTestId("profile-dialog")).toBeTruthy();
+    act(() => {
+      useDialogStore.getState().closeDialog();
+    });
+    act(() => {
+      useDialogStore.getState().openDialog({
+        type: "profile.update",
+        payload: { sectionId: "profiles", itemId: "pr1" },
+      });
+    });
+    expect(screen.getByTestId("profile-dialog")).toBeTruthy();
+  });
+
+  it("profile unknown type throws (AC-16)", async () => {
+    const { DialogHost, useDialogStore } = await importDialog();
+    render(<DialogHost />);
+    expect(() => {
+      act(() => {
+        useDialogStore.getState().openDialog({
+          type: "profile.unknown" as never,
+        });
+      });
+    }).toThrow(/unknown dialog type/);
+  });
+
+  it("dispatcher: profile case labels exist (AC-23)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.join(process.cwd(), "src/modules/resume/v2/editor/dialogs/DialogHost.tsx");
+    const src = fs.readFileSync(file, "utf-8");
+    // Either shared helper pattern (`case 'profile.create': case 'profile.update':`)
+    // or explicit 2-case pattern. Both must reference the strings.
+    const createLabel = src.includes('"profile.create"');
+    const updateLabel = src.includes('"profile.update"');
+    expect(createLabel).toBe(true);
+    expect(updateLabel).toBe(true);
+  });
+
+  it("no leaked profile verb variants (AC-16)", async () => {
+    const fs = await import("node:fs");
+    const srcDir = "src/modules/resume/v2/editor";
+    const files = fs.readdirSync(srcDir, { recursive: true }) as string[];
+    let bad: string[] = [];
+    for (const f of files) {
+      if (typeof f !== "string" || !f.endsWith(".tsx")) continue;
+      // Skip test files — they intentionally reference variants as data.
+      if (f.includes("__tests__")) continue;
+      const text = fs.readFileSync(`${srcDir}/${f}`, "utf-8");
+      for (const badType of [
+        "profile.create-item",
+        "profile.update-item",
+        "profile.add",
+        "profile.edit",
+        "profile.delete",
+      ]) {
+        if (text.includes(`"${badType}"`)) {
+          bad.push(`${f}:${badType}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

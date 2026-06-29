@@ -25,6 +25,7 @@ import { ExperienceDialog } from "./ExperienceDialog";
 import { EducationDialog } from "./EducationDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
 import { SkillsDialog } from "./SkillsDialog";
+import { ProfileDialog } from "./ProfileDialog";
 import { useResumeV2Store } from "../../store";
 
 // ── type namespace ─────────────────────────────────────────────────────────
@@ -40,6 +41,11 @@ import { useResumeV2Store } from "../../store";
  *   - `'education.{create,update}' | 'projects.{create,update}' | 'skills.{create,update}'`
  *     (US3, per-item editors — same `{section}.{verb}` shape). Delete
  *     actions live inline and do NOT route through this dispatcher.
+ *   - `'profile.create' | 'profile.update'` (US4, per-item editors —
+ *     same shape). AC-23 (R15): dev may optionally collapse both into
+ *     a shared helper with `case 'profile.create': case 'profile.update':
+ *     return <ProfileDialog mode=... />` — the dispatcher accepts either
+ *     pattern.
  */
 export type DialogType =
   | "basics"
@@ -51,7 +57,9 @@ export type DialogType =
   | "projects.create"
   | "projects.update"
   | "skills.create"
-  | "skills.update";
+  | "skills.update"
+  | "profile.create"
+  | "profile.update";
 
 export interface ExperienceUpdatePayload {
   sectionId: string;
@@ -210,6 +218,29 @@ export function DialogHost(): JSX.Element | null {
       const itemId = payload?.itemId ?? "";
       return (
         <SkillsDialog
+          onClose={handleClose}
+          sectionId={sectionId}
+          itemId={itemId}
+        />
+      );
+    }
+    // REQ-034 US4 — profile.create / profile.update.
+    // AC-23 (R15): shared helper pattern — both verbs collapse into a
+    // single `case` block since the dialog component is identical.
+    case "profile.create": {
+      const sectionId =
+        (active.payload as { sectionId?: string } | undefined)?.sectionId ??
+        "profiles";
+      return <ProfileDialog onClose={handleClose} sectionId={sectionId} itemId="" />;
+    }
+    case "profile.update": {
+      const payload = active.payload as
+        | { sectionId?: string; itemId?: string }
+        | undefined;
+      const sectionId = payload?.sectionId ?? "profiles";
+      const itemId = payload?.itemId ?? "";
+      return (
+        <ProfileDialog
           onClose={handleClose}
           sectionId={sectionId}
           itemId={itemId}

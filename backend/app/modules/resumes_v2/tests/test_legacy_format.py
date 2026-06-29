@@ -770,3 +770,249 @@ class TestSkillRoundTrip(_Us3Base):
         )
         got_k = data["sections"]["skills"]["items"][0]["keywords"]
         assert got_k == [], f"expected empty array, got {got_k!r}"
+
+
+# ── US4 (REQ-034) profile round-trip cases (AC-03, AC-05, AC-06, AC-08,
+#    AC-09, AC-10, AC-15) ──────────────────────────────────────────────────
+
+
+class TestProfileRoundTrip(_Us3Base):
+    """ProfileItem backend round-trip coverage.
+
+    Mirrors the frontend ProfileDialog AC matrix: full round-trip,
+    URL scheme whitelist/blacklist, hidden field, icon whitelist
+    passthrough, iconColor rgba round-trip, and free-form username
+    (handles / phone / Chinese / URL).
+    """
+
+    async def test_profile_full_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-03: PUT a profile item, GET it back, all 7 fields match."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pr-full-{suffix}@intercraft.io",
+            f"fp-pr-full-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="ProfileFull"
+        )
+        items = [
+            {
+                "id": f"prfull-{suffix}",
+                "hidden": False,
+                "icon": "github",
+                "iconColor": "rgba(20,30,40,0.9)",
+                "network": "GitHub",
+                "username": "alice",
+                "website": {
+                    "url": "https://github.com/alice",
+                    "label": "GH",
+                    "inlineLink": True,
+                },
+            }
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"profiles": {"items": items}}},
+        )
+        got = data["sections"]["profiles"]["items"][0]
+        for key in (
+            "id", "hidden", "icon", "iconColor", "network", "username",
+        ):
+            assert got[key] == items[0][key], key
+        assert got["website"]["url"] == items[0]["website"]["url"]
+        assert got["website"]["label"] == items[0]["website"]["label"]
+        assert got["website"]["inlineLink"] is True
+
+    async def test_profile_url_scheme_whitelist_and_blacklist(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-08: GET round-trip preserves the URL as-is (backend is
+        passthrough — frontend dialog enforces whitelist/blacklist).
+        Whitelisted schemes (https / tel / mailto / IPv6 / unicode host)
+        round-trip byte-identical, proving the backend makes no
+        transformation. The frontend rejects javascript: at write time
+        so we only verify storage integrity here."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pr-url-{suffix}@intercraft.io",
+            f"fp-pr-url-{suffix}",
+        )
+        for url in [
+            "https://[::1]:8080",
+            "tel:+86-010-1234",
+            "mailto:a@b.com",
+            "https://中文.cn",
+        ]:
+            iter_suffix = f"{suffix}-{secrets.token_hex(3)}"
+            rid = await self._create_via_api(
+                v2_client, user["access"], suffix=iter_suffix, name="ProfileUrl"
+            )
+            items = [
+                {
+                    "id": f"prurl-{iter_suffix}",
+                    "hidden": False,
+                    "icon": "github",
+                    "iconColor": "rgba(0,0,0,1)",
+                    "network": "X",
+                    "username": "u",
+                    "website": {"url": url, "label": "", "inlineLink": False},
+                }
+            ]
+            data = await self._put_and_get(
+                v2_client, rid, user["access"],
+                {"sections": {"profiles": {"items": items}}},
+            )
+            got_url = data["sections"]["profiles"]["items"][0]["website"]["url"]
+            assert got_url == url, f"expected {url!r}, got {got_url!r}"
+
+    async def test_profile_hidden_field_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-19: hidden=true round-trips, and SectionItem should render
+        the row with reduced opacity on the frontend."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pr-hidden-{suffix}@intercraft.io",
+            f"fp-pr-hidden-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="ProfileHidden"
+        )
+        items = [
+            {
+                "id": f"prhid-{suffix}",
+                "hidden": True,
+                "icon": "github",
+                "iconColor": "rgba(0,0,0,1)",
+                "network": "HiddenX",
+                "username": "h",
+                "website": {"url": "", "label": "", "inlineLink": False},
+            }
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"profiles": {"items": items}}},
+        )
+        item = data["sections"]["profiles"]["items"][0]
+        assert item["hidden"] is True
+        assert item["network"] == "HiddenX"
+
+    async def test_profile_icon_whitelist_passthrough(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-09: backend IconName is length-only (1..64). Whitelisted
+        icons (``github`` / ``linkedin`` / ``twitter`` / ``facebook``)
+        round-trip — the frontend enforces the semantic whitelist."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pr-icon-{suffix}@intercraft.io",
+            f"fp-pr-icon-{suffix}",
+        )
+        for icon in ["github", "linkedin", "twitter", "facebook"]:
+            iter_suffix = f"{suffix}-{secrets.token_hex(3)}"
+            rid = await self._create_via_api(
+                v2_client, user["access"], suffix=iter_suffix, name="ProfileIcon"
+            )
+            items = [
+                {
+                    "id": f"pricon-{iter_suffix}",
+                    "hidden": False,
+                    "icon": icon,
+                    "iconColor": "rgba(0,0,0,1)",
+                    "network": "N",
+                    "username": "u",
+                    "website": {"url": "", "label": "", "inlineLink": False},
+                }
+            ]
+            data = await self._put_and_get(
+                v2_client, rid, user["access"],
+                {"sections": {"profiles": {"items": items}}},
+            )
+            got_icon = data["sections"]["profiles"]["items"][0]["icon"]
+            assert got_icon == icon, f"expected {icon!r}, got {got_icon!r}"
+
+    async def test_profile_icon_color_rgba_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-10 / AC-06: a hex picker value ``#ff0000`` is converted to
+        ``rgba(255,0,0,1)`` on the frontend and stored verbatim. Verify
+        the canonical rgba shape round-trips and an alpha < 1 is
+        preserved."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pr-clr-{suffix}@intercraft.io",
+            f"fp-pr-clr-{suffix}",
+        )
+        for color in [
+            "rgba(0,0,0,1)",
+            "rgba(255,0,0,1)",
+            "rgba(20,30,40,0.5)",
+            "rgba(255,255,255,0)",
+        ]:
+            iter_suffix = f"{suffix}-{secrets.token_hex(3)}"
+            rid = await self._create_via_api(
+                v2_client, user["access"], suffix=iter_suffix, name="ProfileColor"
+            )
+            items = [
+                {
+                    "id": f"prclr-{iter_suffix}",
+                    "hidden": False,
+                    "icon": "github",
+                    "iconColor": color,
+                    "network": "N",
+                    "username": "u",
+                    "website": {"url": "", "label": "", "inlineLink": False},
+                }
+            ]
+            data = await self._put_and_get(
+                v2_client, rid, user["access"],
+                {"sections": {"profiles": {"items": items}}},
+            )
+            got_c = data["sections"]["profiles"]["items"][0]["iconColor"]
+            assert got_c == color, f"expected {color!r}, got {got_c!r}"
+
+    async def test_profile_username_free_format_passthrough(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-05 / AC-08: username is free-form. Handles, phone numbers,
+        Chinese names, and full URLs all round-trip verbatim."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pr-usr-{suffix}@intercraft.io",
+            f"fp-pr-usr-{suffix}",
+        )
+        for username in [
+            "foo@bar",
+            "+86-138-0013-8000",
+            "李祖荫",
+            "https://github.com/foo",
+        ]:
+            iter_suffix = f"{suffix}-{secrets.token_hex(3)}"
+            rid = await self._create_via_api(
+                v2_client, user["access"], suffix=iter_suffix, name="ProfileUser"
+            )
+            items = [
+                {
+                    "id": f"prusr-{iter_suffix}",
+                    "hidden": False,
+                    "icon": "github",
+                    "iconColor": "rgba(0,0,0,1)",
+                    "network": "N",
+                    "username": username,
+                    "website": {"url": "", "label": "", "inlineLink": False},
+                }
+            ]
+            data = await self._put_and_get(
+                v2_client, rid, user["access"],
+                {"sections": {"profiles": {"items": items}}},
+            )
+            got_u = data["sections"]["profiles"]["items"][0]["username"]
+            assert got_u == username, f"expected {username!r}, got {got_u!r}"

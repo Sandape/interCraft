@@ -24,6 +24,7 @@ import { ExperienceSectionList } from "./ExperienceSectionList";
 import { EducationSectionList } from "./EducationSectionList";
 import { ProjectsSectionList } from "./ProjectsSectionList";
 import { SkillsSectionList } from "./SkillsSectionList";
+import { ProfileSectionList } from "./ProfileSectionList";
 import type { Sections, SectionType } from "../../schema/data";
 
 // ── constants ─────────────────────────────────────────────────────────────
@@ -166,6 +167,10 @@ function SectionRow({ id, value }: SectionRowProps): JSX.Element {
           {id === "education" && <EducationSectionList sectionId={id} />}
           {id === "projects" && <ProjectsSectionList sectionId={id} />}
           {id === "skills" && <SkillsSectionList sectionId={id} />}
+          {/* REQ-034 US4: mount profiles items list inside the profiles
+              row. Shares `SectionItem` wrapper + uses
+              `data-dnd-context="profiles"` for cross-section isolation. */}
+          {id === "profiles" && <ProfileSectionList sectionId={id} />}
         </div>
       )}
     </div>

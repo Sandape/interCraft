@@ -51,6 +51,14 @@ export interface SectionItemRowProps {
   /** Optional testid for the title text node — defaults to
    *  `${sectionKey}-name-display` (matching AC-04c/05c/06c assertions). */
   titleTestId?: string;
+  /** Optional prefix icon — a small chip rendered to the left of the
+   *  grip handle. Used by ProfileSectionList for the network icon
+   *  (AC-05 / AC-19). When set, a `data-icon={value}` attribute is
+   *  applied so tests can assert which icon is rendered. */
+  prefixIcon?: string;
+  /** Optional testid for the prefix icon node — defaults to
+   *  `${sectionKey}-prefix-icon-display` when prefixIcon is set. */
+  prefixIconTestId?: string;
   /** Handlers — typically `(id) => openDialog({...})` etc. */
   onEdit: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -66,6 +74,8 @@ export function SectionItem({
   title,
   subtitle,
   titleTestId,
+  prefixIcon,
+  prefixIconTestId,
   onEdit,
   onDuplicate,
   onDelete,
@@ -101,6 +111,20 @@ export function SectionItem({
       ].join(" ")}
     >
       <GripVertical className="h-3 w-3 shrink-0 text-ink-3" aria-hidden />
+      {prefixIcon && (
+        <span
+          data-testid={prefixIconTestId ?? `${sectionKey}-prefix-icon-display`}
+          data-icon={prefixIcon}
+          aria-hidden
+          className={[
+            "flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold uppercase",
+            hidden ? "opacity-50" : "",
+          ].join(" ")}
+          title={prefixIcon}
+        >
+          {prefixIcon.slice(0, 2)}
+        </span>
+      )}
       <div className="flex-1 truncate">
         <div
           className="truncate font-medium"

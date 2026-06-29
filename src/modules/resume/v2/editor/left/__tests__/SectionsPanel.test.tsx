@@ -151,6 +151,17 @@ describe("SectionsPanel mounts education/projects/skills lists (US3 AC-01)", () 
     });
     expect(screen.queryByTestId("skills-section-list")).toBeTruthy();
   });
+
+  it("profiles row exposes SectionList when expanded (US4 AC-01)", async () => {
+    const SectionsPanelMod = await import("../SectionsPanel");
+    render(<SectionsPanelMod.default />);
+    const row = screen.getByTestId("section-row-profiles") as HTMLElement;
+    const toggle = row.querySelector("button") as HTMLElement;
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    expect(screen.queryByTestId("profile-section-list")).toBeTruthy();
+  });
 });
 
 describe("SectionsPanel cross-section drag isolation (AC-17b)", () => {
@@ -174,17 +185,27 @@ describe("SectionsPanel cross-section drag isolation (AC-17b)", () => {
     }));
   });
 
-  it("education dndContext is 'education', projects is 'projects', skills is 'skills'", async () => {
+  it("education dndContext is 'education', projects is 'projects', skills is 'skills', profiles is 'profiles'", async () => {
     const SectionsPanelMod = await import("../SectionsPanel");
     render(<SectionsPanelMod.default />);
-    for (const id of ["education", "projects", "skills"] as const) {
-      const row = screen.getByTestId(`section-row-${id}`) as HTMLElement;
+    // Per US4 (REQ-034): profile SectionList testid is singular
+    // (`profile-section-list`) per AC-01; data-dnd-context remains
+    // `profiles` (plural) per AC-12 R14 explicit cast. The other
+    // section lists match their section key (education/projects/skills).
+    const cases: Array<{ sectionKey: string; testidKey: string; expectedCtx: string }> = [
+      { sectionKey: "education", testidKey: "education", expectedCtx: "education" },
+      { sectionKey: "projects", testidKey: "projects", expectedCtx: "projects" },
+      { sectionKey: "skills", testidKey: "skills", expectedCtx: "skills" },
+      { sectionKey: "profiles", testidKey: "profile", expectedCtx: "profiles" },
+    ];
+    for (const c of cases) {
+      const row = screen.getByTestId(`section-row-${c.sectionKey}`) as HTMLElement;
       const toggle = row.querySelector("button") as HTMLElement;
       act(() => {
         fireEvent.click(toggle);
       });
-      const list = screen.getByTestId(`${id}-section-list`) as HTMLElement;
-      expect(list.getAttribute("data-dnd-context")).toBe(id);
+      const list = screen.getByTestId(`${c.testidKey}-section-list`) as HTMLElement;
+      expect(list.getAttribute("data-dnd-context")).toBe(c.expectedCtx);
     }
   });
 
