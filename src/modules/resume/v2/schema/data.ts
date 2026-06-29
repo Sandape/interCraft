@@ -156,6 +156,8 @@ export interface EducationItem extends ItemBase {
   period: string;
   website: ItemWebsite;
   description: string;
+  /** Free-form course list (US3). */
+  courses: string[];
 }
 
 export interface ProjectItem extends ItemBase {
@@ -163,6 +165,8 @@ export interface ProjectItem extends ItemBase {
   period: string;
   website: ItemWebsite;
   description: string;
+  /** Bullet-style highlights (US3). */
+  highlights: string[];
 }
 
 export interface SkillItem extends ItemBase {

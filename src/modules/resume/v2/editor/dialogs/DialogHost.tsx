@@ -22,6 +22,9 @@ import { create } from "zustand";
 import { BasicsDialog } from "./BasicsDialog";
 import { PictureDialog } from "./PictureDialog";
 import { ExperienceDialog } from "./ExperienceDialog";
+import { EducationDialog } from "./EducationDialog";
+import { ProjectsDialog } from "./ProjectsDialog";
+import { SkillsDialog } from "./SkillsDialog";
 import { useResumeV2Store } from "../../store";
 
 // ── type namespace ─────────────────────────────────────────────────────────
@@ -33,15 +36,22 @@ import { useResumeV2Store } from "../../store";
  *   - `'basics' | 'picture'` (US1, single-instance editors — bare section
  *     name, no verb suffix).
  *   - `'experience.create' | 'experience.update'` (US2, per-item editors
- *     — `{section}.{verb}` shape). `'experience.delete'` is intentionally
- *     absent: delete actions live inline in the calling UI and do NOT
- *     route through this dispatcher.
+ *     — `{section}.{verb}` shape).
+ *   - `'education.{create,update}' | 'projects.{create,update}' | 'skills.{create,update}'`
+ *     (US3, per-item editors — same `{section}.{verb}` shape). Delete
+ *     actions live inline and do NOT route through this dispatcher.
  */
 export type DialogType =
   | "basics"
   | "picture"
   | "experience.create"
-  | "experience.update";
+  | "experience.update"
+  | "education.create"
+  | "education.update"
+  | "projects.create"
+  | "projects.update"
+  | "skills.create"
+  | "skills.update";
 
 export interface ExperienceUpdatePayload {
   sectionId: string;
@@ -53,8 +63,8 @@ export interface DialogSpec {
   /**
    * Per-dialog payload:
    *   - `'basics' | 'picture'`: undefined.
-   *   - `'experience.create'`: `{ sectionId: string }`.
-   *   - `'experience.update'`: `{ sectionId: string, itemId: string }`.
+   *   - `'*.create'`: `{ sectionId: string }`.
+   *   - `'*.update'`: `{ sectionId: string, itemId: string }`.
    */
   payload?: ExperienceUpdatePayload | { sectionId: string };
 }
@@ -127,15 +137,9 @@ export function DialogHost(): JSX.Element | null {
     case "picture":
       return <PictureDialog onClose={handleClose} />;
     case "experience.create": {
-      // The create flow is "add an empty item, then open the update
-      // dialog on it". The SectionItem list component does the push
-      // and then dispatches `experience.update` immediately; we keep
-      // this case as a defensive fallback (e.g. a future caller that
-      // wants the dispatcher to handle the push itself).
       const sectionId =
         (active.payload as { sectionId?: string } | undefined)?.sectionId ??
         "experience";
-      // Promote to update by synthesising an empty item.
       return <ExperienceDialog onClose={handleClose} sectionId={sectionId} itemId="" />;
     }
     case "experience.update": {
@@ -146,6 +150,66 @@ export function DialogHost(): JSX.Element | null {
       const itemId = payload?.itemId ?? "";
       return (
         <ExperienceDialog
+          onClose={handleClose}
+          sectionId={sectionId}
+          itemId={itemId}
+        />
+      );
+    }
+    case "education.create": {
+      const sectionId =
+        (active.payload as { sectionId?: string } | undefined)?.sectionId ??
+        "education";
+      return <EducationDialog onClose={handleClose} sectionId={sectionId} itemId="" />;
+    }
+    case "education.update": {
+      const payload = active.payload as
+        | { sectionId?: string; itemId?: string }
+        | undefined;
+      const sectionId = payload?.sectionId ?? "education";
+      const itemId = payload?.itemId ?? "";
+      return (
+        <EducationDialog
+          onClose={handleClose}
+          sectionId={sectionId}
+          itemId={itemId}
+        />
+      );
+    }
+    case "projects.create": {
+      const sectionId =
+        (active.payload as { sectionId?: string } | undefined)?.sectionId ??
+        "projects";
+      return <ProjectsDialog onClose={handleClose} sectionId={sectionId} itemId="" />;
+    }
+    case "projects.update": {
+      const payload = active.payload as
+        | { sectionId?: string; itemId?: string }
+        | undefined;
+      const sectionId = payload?.sectionId ?? "projects";
+      const itemId = payload?.itemId ?? "";
+      return (
+        <ProjectsDialog
+          onClose={handleClose}
+          sectionId={sectionId}
+          itemId={itemId}
+        />
+      );
+    }
+    case "skills.create": {
+      const sectionId =
+        (active.payload as { sectionId?: string } | undefined)?.sectionId ??
+        "skills";
+      return <SkillsDialog onClose={handleClose} sectionId={sectionId} itemId="" />;
+    }
+    case "skills.update": {
+      const payload = active.payload as
+        | { sectionId?: string; itemId?: string }
+        | undefined;
+      const sectionId = payload?.sectionId ?? "skills";
+      const itemId = payload?.itemId ?? "";
+      return (
+        <SkillsDialog
           onClose={handleClose}
           sectionId={sectionId}
           itemId={itemId}

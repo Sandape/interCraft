@@ -368,3 +368,405 @@ class TestExperienceRoundTrip:
             "description storage is verbatim; renderer-side sanitisation "
             "is exercised by test_export.py"
         )
+
+
+# ── 6. REQ-034 US3 — Education / Project / Skill field round-trip ─────────
+#
+# AC-20 (R15): PUT complete sections.{education,projects,skills}.items[]
+# payloads and verify GET returns the same shape. Six sub cases:
+#   (a) education_full_roundtrip — 2 items with courses[] + website{}
+#   (b) project_full_roundtrip — 2 items with highlights[] + website{}
+#   (c) skill_full_roundtrip — 2 items with keywords[] + level=3
+#   (d) education_description_html_sanitized — script tag round-trip
+#   (e) project_description_html_sanitized
+#   (f) skill_level_zero_roundtrip — schema accepts level=0
+#   (g) education_hidden_field_roundtrip — hidden=true preserved
+#   (h) project_highlights_empty_array_roundtrip — highlights=[] not null
+#   (i) skill_keywords_empty_array_roundtrip — keywords=[] not null
+
+class _Us3Base:
+    """Shared helpers for US3 round-trip tests."""
+
+    @staticmethod
+    async def _create_via_api(
+        c: httpx.AsyncClient,
+        access: str,
+        *,
+        suffix: str,
+        name: str,
+    ) -> str:
+        r = await c.post(
+            "/api/v1/v2/resumes",
+            json={
+                "name": name,
+                "slug": f"us3-{suffix}",
+                "template": "pikachu",
+                "from_sample": True,
+            },
+            headers=_hdrs(access=access),
+        )
+        assert r.status_code == 201, r.text
+        return r.json()["resume"]["id"]
+
+    @staticmethod
+    async def _put_and_get(
+        c: httpx.AsyncClient,
+        rid: str,
+        access: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        h = _hdrs(access=access)
+        h["If-Match"] = "0"
+        put = await c.put(
+            f"/api/v1/v2/resumes/{rid}",
+            json={"data": payload},
+            headers=h,
+        )
+        assert put.status_code == 200, f"expected 200, got {put.status_code}: {put.text}"
+        got = await c.get(
+            f"/api/v1/v2/resumes/{rid}",
+            headers=_hdrs(access=access),
+        )
+        assert got.status_code == 200, got.text
+        return got.json()["data"]
+
+
+class TestEducationRoundTrip(_Us3Base):
+    async def test_education_full_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(a): PUT 2 education items with courses[] + website{} → GET deep-equal."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"edu-rt-{suffix}@intercraft.io",
+            f"fp-edu-rt-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="EduRT"
+        )
+        items = [
+            {
+                "id": f"ed{i}-{suffix}",
+                "hidden": False,
+                "school": f"School {i}",
+                "degree": "Bachelor",
+                "area": "CS",
+                "grade": "3.8/4.0",
+                "location": f"City {i}",
+                "period": "2018-09 ~ 2022-06",
+                "website": {
+                    "url": f"https://school{i}.example.com",
+                    "label": f"School {i}",
+                    "inlineLink": False,
+                },
+                "description": f"<p>Studied at School {i}.</p>",
+                "courses": ["Algorithms", "OS", "Networks"],
+            }
+            for i in range(1, 3)
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"education": {"items": items}}},
+        )
+        got_items = data["sections"]["education"]["items"]
+        assert len(got_items) == 2
+        for idx, want in enumerate(items):
+            for key in (
+                "id", "school", "degree", "area", "grade", "location",
+                "period", "description",
+            ):
+                assert got_items[idx][key] == want[key], key
+            assert got_items[idx]["website"]["url"] == want["website"]["url"]
+            assert got_items[idx]["website"]["label"] == want["website"]["label"]
+            assert got_items[idx]["website"]["inlineLink"] == want["website"]["inlineLink"]
+            assert got_items[idx]["courses"] == want["courses"]
+
+    async def test_education_description_html_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(d): description containing <script> round-trips verbatim
+        (same pattern as Experience — storage verbatim, renderer-side
+        sanitisation via test_export.py)."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"edu-html-{suffix}@intercraft.io",
+            f"fp-edu-html-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="EduHTML"
+        )
+        desc_in = "<p>foo</p><script>alert(1)</script>"
+        items = [
+            {
+                "id": f"edhtml-{suffix}",
+                "hidden": False,
+                "school": "X",
+                "degree": "",
+                "area": "",
+                "grade": "",
+                "location": "",
+                "period": "",
+                "website": {"url": "", "label": "", "inlineLink": False},
+                "description": desc_in,
+                "courses": [],
+            }
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"education": {"items": items}}},
+        )
+        got_desc = data["sections"]["education"]["items"][0]["description"]
+        assert got_desc
+        assert got_desc == desc_in
+
+    async def test_education_hidden_field_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(g): hidden=true is preserved on education item."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"edu-hidden-{suffix}@intercraft.io",
+            f"fp-edu-hidden-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="EduHidden"
+        )
+        items = [
+            {
+                "id": f"edhidden-{suffix}",
+                "hidden": True,
+                "school": "Hidden U",
+                "degree": "",
+                "area": "",
+                "grade": "",
+                "location": "",
+                "period": "",
+                "website": {"url": "", "label": "", "inlineLink": False},
+                "description": "",
+                "courses": [],
+            }
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"education": {"items": items}}},
+        )
+        item = data["sections"]["education"]["items"][0]
+        assert item["hidden"] is True
+        assert item["school"] == "Hidden U"
+
+
+class TestProjectRoundTrip(_Us3Base):
+    async def test_project_full_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(b): PUT 2 project items with highlights[] + website{} → GET deep-equal."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pj-rt-{suffix}@intercraft.io",
+            f"fp-pj-rt-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="ProjRT"
+        )
+        items = [
+            {
+                "id": f"pj{i}-{suffix}",
+                "hidden": False,
+                "name": f"Project {i}",
+                "period": "2024-01 ~ Present",
+                "website": {
+                    "url": f"https://proj{i}.example.com",
+                    "label": f"Proj {i}",
+                    "inlineLink": True,
+                },
+                "description": f"<p>Built project {i}.</p>",
+                "highlights": ["Did X", "Did Y", "Did Z"],
+            }
+            for i in range(1, 3)
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"projects": {"items": items}}},
+        )
+        got_items = data["sections"]["projects"]["items"]
+        assert len(got_items) == 2
+        for idx, want in enumerate(items):
+            for key in ("id", "name", "period", "description"):
+                assert got_items[idx][key] == want[key], key
+            assert got_items[idx]["website"]["url"] == want["website"]["url"]
+            assert got_items[idx]["highlights"] == want["highlights"]
+
+    async def test_project_description_html_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(e): description containing <script> round-trips verbatim."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pj-html-{suffix}@intercraft.io",
+            f"fp-pj-html-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="ProjHTML"
+        )
+        desc_in = "<p>foo</p><script>alert(1)</script>"
+        items = [
+            {
+                "id": f"pjhtml-{suffix}",
+                "hidden": False,
+                "name": "X",
+                "period": "",
+                "website": {"url": "", "label": "", "inlineLink": False},
+                "description": desc_in,
+                "highlights": [],
+            }
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"projects": {"items": items}}},
+        )
+        got_desc = data["sections"]["projects"]["items"][0]["description"]
+        assert got_desc
+        assert got_desc == desc_in
+
+    async def test_project_highlights_empty_array_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(h): highlights=[] round-trips as empty array, not null."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"pj-empty-{suffix}@intercraft.io",
+            f"fp-pj-empty-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="ProjEmpty"
+        )
+        items = [
+            {
+                "id": f"pjempty-{suffix}",
+                "hidden": False,
+                "name": "X",
+                "period": "",
+                "website": {"url": "", "label": "", "inlineLink": False},
+                "description": "",
+                "highlights": [],
+            }
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"projects": {"items": items}}},
+        )
+        got_h = data["sections"]["projects"]["items"][0]["highlights"]
+        assert got_h == [], f"expected empty array, got {got_h!r}"
+
+
+class TestSkillRoundTrip(_Us3Base):
+    async def test_skill_full_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(c): PUT 2 skill items with keywords[] + level=3 → GET deep-equal."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"sk-rt-{suffix}@intercraft.io",
+            f"fp-sk-rt-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="SkillRT"
+        )
+        items = [
+            {
+                "id": f"sk{i}-{suffix}",
+                "hidden": False,
+                "icon": "wrench",
+                "iconColor": "rgba(0,0,0,1)",
+                "name": f"Skill {i}",
+                "proficiency": "Fluent",
+                "level": 3,
+                "keywords": ["k1", "k2"],
+            }
+            for i in range(1, 3)
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"skills": {"items": items}}},
+        )
+        got_items = data["sections"]["skills"]["items"]
+        assert len(got_items) == 2
+        for idx, want in enumerate(items):
+            for key in (
+                "id", "icon", "iconColor", "name", "proficiency", "level",
+            ):
+                assert got_items[idx][key] == want[key], key
+            assert got_items[idx]["keywords"] == want["keywords"]
+
+    async def test_skill_level_zero_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(f): level=0 (Hidden semantic) round-trips — schema
+        ``int = Field(ge=0, le=5)`` accepts 0."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"sk-zero-{suffix}@intercraft.io",
+            f"fp-sk-zero-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="SkillZero"
+        )
+        items = [
+            {
+                "id": f"skzero-{suffix}",
+                "hidden": False,
+                "icon": "wrench",
+                "iconColor": "rgba(0,0,0,1)",
+                "name": "HiddenLvl",
+                "proficiency": "",
+                "level": 0,
+                "keywords": [],
+            }
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"skills": {"items": items}}},
+        )
+        item = data["sections"]["skills"]["items"][0]
+        assert item["level"] == 0
+        assert item["hidden"] is False  # level=0 ≠ hidden=true (independent)
+
+    async def test_skill_keywords_empty_array_roundtrip(
+        self, v2_client: httpx.AsyncClient
+    ) -> None:
+        """AC-20(i): keywords=[] round-trips as empty array, not null."""
+        suffix = secrets.token_hex(6)
+        user = await _register_via(
+            v2_client,
+            f"sk-empty-{suffix}@intercraft.io",
+            f"fp-sk-empty-{suffix}",
+        )
+        rid = await self._create_via_api(
+            v2_client, user["access"], suffix=suffix, name="SkillEmpty"
+        )
+        items = [
+            {
+                "id": f"skempty-{suffix}",
+                "hidden": False,
+                "icon": "wrench",
+                "iconColor": "rgba(0,0,0,1)",
+                "name": "X",
+                "proficiency": "",
+                "level": 1,
+                "keywords": [],
+            }
+        ]
+        data = await self._put_and_get(
+            v2_client, rid, user["access"],
+            {"sections": {"skills": {"items": items}}},
+        )
+        got_k = data["sections"]["skills"]["items"][0]["keywords"]
+        assert got_k == [], f"expected empty array, got {got_k!r}"

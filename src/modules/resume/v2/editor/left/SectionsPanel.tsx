@@ -21,6 +21,9 @@ import { useState } from "react";
 import { useResumeV2Store } from "../../store";
 import { useDialogStore } from "../dialogs/DialogHost";
 import { ExperienceSectionList } from "./ExperienceSectionList";
+import { EducationSectionList } from "./EducationSectionList";
+import { ProjectsSectionList } from "./ProjectsSectionList";
+import { SkillsSectionList } from "./SkillsSectionList";
 import type { Sections, SectionType } from "../../schema/data";
 
 // ── constants ─────────────────────────────────────────────────────────────
@@ -156,6 +159,13 @@ function SectionRow({ id, value }: SectionRowProps): JSX.Element {
               experience row. The list provides add-button, drag-reorder,
               and three inline actions (edit / duplicate / delete). */}
           {id === "experience" && <ExperienceSectionList sectionId={id} />}
+          {/* REQ-034 US3: mount education / projects / skills items
+              lists inside their respective rows. Each list reuses the
+              shared `SectionItem` wrapper (AC-01, R7) for consistent
+              inline actions + hidden=true strikethrough rendering. */}
+          {id === "education" && <EducationSectionList sectionId={id} />}
+          {id === "projects" && <ProjectsSectionList sectionId={id} />}
+          {id === "skills" && <SkillsSectionList sectionId={id} />}
         </div>
       )}
     </div>

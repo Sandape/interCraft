@@ -185,4 +185,167 @@ describe("DialogHost dispatcher (AC-11, AC-11b)", () => {
       });
     }).toThrow(/unknown dialog type/);
   });
+
+  // ── US3 (REQ-034) AC-18, AC-18b — 6 new dispatcher cases ──────────────
+
+  it("renders EducationDialog after openDialog({type:'education.update'}) (US3 AC-18)", async () => {
+    const { DialogHost, useDialogStore } = await importDialog();
+    const storeMod = await import("../../../store");
+    const defaultsMod = await import("../../../schema/defaults");
+    storeMod.useResumeV2Store.setState((s) => ({
+      ...s,
+      data: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      version: 1,
+      id: "r1",
+      hydrated: true,
+      original: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      undoStack: [],
+      redoStack: [],
+    }));
+    act(() => {
+      storeMod.useResumeV2Store.getState().setDataMut((d) => {
+        d.sections.education.items = [
+          {
+            id: "ed1",
+            hidden: false,
+            school: "X",
+            degree: "",
+            area: "",
+            grade: "",
+            location: "",
+            period: "",
+            website: { url: "", label: "", inlineLink: false },
+            description: "",
+            courses: [],
+          },
+        ];
+      });
+    });
+    render(<DialogHost />);
+    act(() => {
+      useDialogStore.getState().openDialog({
+        type: "education.update",
+        payload: { sectionId: "education", itemId: "ed1" },
+      });
+    });
+    expect(screen.getByTestId("education-dialog")).toBeTruthy();
+  });
+
+  it("renders ProjectsDialog after openDialog({type:'projects.update'}) (US3 AC-18)", async () => {
+    const { DialogHost, useDialogStore } = await importDialog();
+    const storeMod = await import("../../../store");
+    const defaultsMod = await import("../../../schema/defaults");
+    storeMod.useResumeV2Store.setState((s) => ({
+      ...s,
+      data: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      version: 1,
+      id: "r1",
+      hydrated: true,
+      original: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      undoStack: [],
+      redoStack: [],
+    }));
+    act(() => {
+      storeMod.useResumeV2Store.getState().setDataMut((d) => {
+        d.sections.projects.items = [
+          {
+            id: "pj1",
+            hidden: false,
+            name: "P",
+            period: "",
+            website: { url: "", label: "", inlineLink: false },
+            description: "",
+            highlights: [],
+          },
+        ];
+      });
+    });
+    render(<DialogHost />);
+    act(() => {
+      useDialogStore.getState().openDialog({
+        type: "projects.update",
+        payload: { sectionId: "projects", itemId: "pj1" },
+      });
+    });
+    expect(screen.getByTestId("projects-dialog")).toBeTruthy();
+  });
+
+  it("renders SkillsDialog after openDialog({type:'skills.update'}) (US3 AC-18)", async () => {
+    const { DialogHost, useDialogStore } = await importDialog();
+    const storeMod = await import("../../../store");
+    const defaultsMod = await import("../../../schema/defaults");
+    storeMod.useResumeV2Store.setState((s) => ({
+      ...s,
+      data: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      version: 1,
+      id: "r1",
+      hydrated: true,
+      original: JSON.parse(JSON.stringify(defaultsMod.defaultResumeDataV2)),
+      undoStack: [],
+      redoStack: [],
+    }));
+    act(() => {
+      storeMod.useResumeV2Store.getState().setDataMut((d) => {
+        d.sections.skills.items = [
+          {
+            id: "sk1",
+            hidden: false,
+            icon: "wrench",
+            iconColor: "rgba(0,0,0,1)",
+            name: "React",
+            proficiency: "",
+            level: 1,
+            keywords: [],
+          },
+        ];
+      });
+    });
+    render(<DialogHost />);
+    act(() => {
+      useDialogStore.getState().openDialog({
+        type: "skills.update",
+        payload: { sectionId: "skills", itemId: "sk1" },
+      });
+    });
+    expect(screen.getByTestId("skills-dialog")).toBeTruthy();
+  });
+
+  it("unknown education/projects/skills type throws (US3 AC-18)", async () => {
+    const { DialogHost, useDialogStore } = await importDialog();
+    render(<DialogHost />);
+    expect(() => {
+      act(() => {
+        useDialogStore.getState().openDialog({
+          type: "education.unknown" as never,
+        });
+      });
+    }).toThrow(/unknown dialog type/);
+  });
+
+  it("dispatcher: 6 explicit case labels exist (US3 AC-18b)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.join(process.cwd(), "src/modules/resume/v2/editor/dialogs/DialogHost.tsx");
+    const src = fs.readFileSync(file, "utf-8");
+    const labels = [
+      "education.create",
+      "education.update",
+      "projects.create",
+      "projects.update",
+      "skills.create",
+      "skills.update",
+    ];
+    for (const lbl of labels) {
+      expect(src).toContain(`"${lbl}"`);
+    }
+  });
+
+  it("no default: return null in switch (US3 AC-18b)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.join(process.cwd(), "src/modules/resume/v2/editor/dialogs/DialogHost.tsx");
+    const src = fs.readFileSync(file, "utf-8");
+    expect(src).not.toMatch(/default:\s*return null/);
+    expect(src).not.toMatch(/default:\s*null/);
+  });
 });
