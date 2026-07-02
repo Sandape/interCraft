@@ -176,6 +176,92 @@ async def health() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Trace listing + node tree (FR-001 + detail panel support)
+#
+# B1 shipped the replay / diff / payload-slicing endpoints but did not
+# expose a list endpoint or a per-trace node tree endpoint. The
+# frontend LogCenter cannot operate without these two, so they land in
+# B2 as a minimal completion. The shape mirrors admin_console service
+# conventions — JSON envelopes, no streaming, RLS inherited via the
+# admin caller resolution.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/traces",
+    status_code=200,
+    responses={
+        200: {"description": "Latest traces (manual-refresh surface)"},
+        401: {"description": "Auth required"},
+    },
+)
+async def list_traces(
+    user_id: Annotated[UUID, Depends(get_caller_user_id)],
+    session: AsyncSession = Depends(_db_session_with_rls),
+    limit: int = Query(100, ge=1, le=500),
+    task_type: str | None = Query(None, description="Filter by task_type"),
+    status_filter: str | None = Query(
+        None,
+        alias="status",
+        description="Filter by status (success/failed/pending/running)",
+    ),
+) -> dict[str, Any]:
+    """Return the most-recent traces as a JSON envelope.
+
+    B2 addition: supports ``GET /traces?limit=100`` (FR-001) plus the
+    filter dimensions needed by the LogCenter filter bar (US1 / SC-001).
+    """
+    rows = await service.list_traces(
+        session,
+        limit=limit,
+        task_type=task_type,
+        status_filter=status_filter,
+    )
+    return {
+        "traces": [
+            {
+                "id": str(r["id"]),
+                "task_id": str(r["task_id"]) if r["task_id"] else None,
+                "task_type": r["task_type"],
+                "prompt_version": r["prompt_version"],
+                "model": r["model"],
+                "status": r["status"],
+                "error_message": r["error_message"],
+                "replay_of": str(r["replay_of"]) if r["replay_of"] else None,
+                "started_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "ended_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+                "duration_ms": None,
+            }
+            for r in rows
+        ],
+        "total": len(rows),
+    }
+
+
+@router.get(
+    "/traces/{trace_id}/nodes",
+    status_code=200,
+    responses={
+        200: {"description": "Node tree for the trace (master-detail span panel)"},
+        404: {"description": "Trace not found"},
+    },
+)
+async def list_trace_nodes(
+    trace_id: UUID,
+    user_id: Annotated[UUID, Depends(get_caller_user_id)],
+    session: AsyncSession = Depends(_db_session_with_rls),
+) -> dict[str, Any]:
+    """Return the hierarchical node tree of one trace.
+
+    The frontend detail panel renders this as a tree; INPUT/OUTPUT
+    payloads are still served via ``/traces/{id}/nodes/{nid}/payload``
+    with byte-range paging.
+    """
+    nodes = await service.list_trace_nodes(session, trace_id=trace_id)
+    return {"trace_id": str(trace_id), "nodes": nodes}
+
+
+# ---------------------------------------------------------------------------
 # Tag endpoints (FR-017, FR-018, FR-020, FR-031)
 # ---------------------------------------------------------------------------
 

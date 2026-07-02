@@ -127,6 +127,108 @@ async def list_tags(
     return list(await repository.list_tags(session, task_id))
 
 
+# ---------------------------------------------------------------------------
+# Trace listing + node tree (B2 addition)
+#
+# These functions back the LogCenter frontend's master/detail view.
+# They are intentionally minimal: SELECT-most-recent N, then derive
+# the hierarchical node view from the trace's `node_payloads` JSON.
+# ---------------------------------------------------------------------------
+
+
+async def list_traces(
+    session: AsyncSession,
+    *,
+    limit: int = 100,
+    task_type: str | None = None,
+    status_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return up to ``limit`` traces ordered by most-recent-first.
+
+    Filters apply at SQL level. ``status_filter`` accepts the same
+    vocabulary the frontend uses (``success`` / ``failed`` /
+    ``pending`` / ``running``). Unknown filters are ignored (empty
+    result) rather than rejected so the frontend can safely pass user
+    input without sanitizing.
+
+    Implementation note: raw ``text()`` SQL is used here instead of
+    ``select(Trace)`` because the auth module's ``User.avatar`` mapper
+    relationship forward-references ``UserAvatar`` which is not in the
+    registry when this service runs from a non-app process. Raw SQL
+    keeps the response deterministic and mapper-free.
+    """
+    from sqlalchemy import text
+
+    where_clauses: list[str] = []
+    params: dict[str, Any] = {"lim": limit}
+    if task_type:
+        where_clauses.append("task_type = :task_type")
+        params["task_type"] = task_type
+    if status_filter:
+        where_clauses.append("status = :status_filter")
+        params["status_filter"] = status_filter
+
+    where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    sql = text(
+        "SELECT id, task_id, task_type, prompt_version, model, status, "
+        "error_message, replay_of, created_at, updated_at "
+        "FROM traces"
+        f"{where_sql} "
+        "ORDER BY created_at DESC LIMIT :lim"
+    ).bindparams(**params)
+
+    result = await session.execute(sql)
+    return [dict(row._mapping) for row in result.fetchall()]
+
+
+async def list_trace_nodes(
+    session: AsyncSession,
+    *,
+    trace_id: UUID,
+) -> list[dict[str, Any]]:
+    """Return the node tree for a trace as a flat list.
+
+    The frontend renders a hierarchical view; the JSON layout here
+    keeps each node self-describing with name + status + timing so
+    the panel can build the tree in one pass. ``payloads`` is the
+    node_id set the frontend will lazy-load via the byte-range
+    endpoint (FR-025..FR-027).
+    """
+    from app.modules.admin_console.models import Trace
+
+    trace = await repository.get_trace(session, trace_id)
+    if trace is None:
+        return []
+    payloads = trace.node_payloads or {}
+    # node_payloads may be a dict of { node_id: { input, output, status, started_at, ended_at, parent } }
+    # or a list — normalize to dict-of-dicts.
+    if isinstance(payloads, list):
+        normalized: dict[str, dict[str, Any]] = {}
+        for idx, item in enumerate(payloads):
+            if not isinstance(item, dict):
+                continue
+            nid = str(item.get("name") or item.get("node_id") or f"node_{idx}")
+            normalized[nid] = item
+        payloads = normalized
+    nodes: list[dict[str, Any]] = []
+    for nid, payload in payloads.items():
+        if not isinstance(payload, dict):
+            continue
+        nodes.append(
+            {
+                "node_id": str(nid),
+                "name": str(payload.get("name") or nid),
+                "status": str(payload.get("status") or trace.status or "unknown"),
+                "parent": payload.get("parent"),
+                "started_at": payload.get("started_at"),
+                "ended_at": payload.get("ended_at"),
+                "has_input": "input" in payload,
+                "has_output": "output" in payload,
+            }
+        )
+    return nodes
+
+
 async def add_tag(
     session: AsyncSession,
     *,
