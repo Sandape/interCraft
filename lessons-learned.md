@@ -159,3 +159,38 @@
 **适用场景**: 任何「CLI subprocess 调一次写一行」模式下使用 `app.core.db.get_db_session_no_rls()` 都必须显式 `commit()`，因为这个 helper **不是** `async with` context manager。如果想要自动 commit/rollback 包装，看 `app.core.db._session_cm`（internal `@asynccontextmanager`），但 CLI 路径一般走 no_rls 模式（要自己 set RLS GUC）。
 **避免**: (1) 不要在 `async for db in get_db_session_no_rls(): ... return 0` 后以为事务会 commit——`async for` 不会 commit，只是用完释放，asyncpg 默认 rollback。(2) 不要在 `get_db_session_no_rls()` 上 `async with`——它是 async generator，不是 async context manager（`TypeError: 'async_generator' object does not support the asynchronous context manager protocol`）。要么显式 commit，要么包到 `async with _session_cm():` 内部（要看是否在 RLS 路径）。
 
+## 第9轮修正（REQ-039 B2 r2 review） — 2026-07-03
+
+### FastAPI 静默忽略未知 query param——契约契约契约
+**问题**: reviewer 抓出 `GET /traces?since=<ts>` 静默失效。dev 自报「list endpoint 加了 limit / task_type / status 三个 filter」并通过 93 单测，但 spec FR-001 明确要求 `?since=<ts>` 是 delta-query 的核心。FastAPI 默认对 handler 未声明的 query param **静默忽略**（不 422）。dev 的 list_traces 函数没声明 `since` 参数 → 前端发 `?since=...` → FastAPI 200 但完全忽略 → 时间范围筛选对用户不可见地失效。这是 reviewer 救的——只跑 import smoke 和 mock 单测永远发现不了。
+**修复**: (1) api.py `list_traces` 加 `since: datetime | None = Query(None, description=...)`；(2) service.list_traces 加 `if since is not None: where_clauses.append("created_at >= :since"); params["since"] = since`；(3) **新单测 `test_039_since_param.py` 必须断言 stmt 字符串含 `created_at >= :since` + params 字典含 `since`**（这是契约契约，不允许 mock 让测试通过而 SQL 不变）。(4) 路由层独立测试用 FastAPI app + ASGITransport 真发 `?since=` 验证 handler 接受它并把 kwargs 透传 service——这是 reviewer 强调的「静默忽略是 FastAPI 默认行为，必须真发 since 验证 SQL where 生效」。
+**适用场景**: 任何 FastAPI handler 添加 query param 时。前端可能发 10 个 param，后端声明 5 个——缺的那 5 个会静默失效且无报错。grep `Query(` 计数 = grep 真实声明数；与前端 query string 计数对照必须一致。
+**避免**: (1) 不要只测「参数存在不被 mock 掉」——mock 让 service 收到正确 kwargs 但 SQL 不变也算 bug，必须用 fake session 拦截 `stmt.text` 验证 SQL 字符串含 where 子句。(2) 不要用 `assert "since" in captured_kwargs` 就报完成——必须断言 SQL `text` 真的含 `created_at >= :since`（mock 路径可能 kwargs 对但 SQL 不变）。(3) Frontend 持续发 `?since=` 但后端不收——前端只能看到「永远返回最近 100 条」的症状，从未 422，必须配合「前端 query 计数 vs 后端 handler 声明数」做静态对齐。(4) 不要靠 Pydantic 自动 reject 未知 query——Pydantic 是 body validation，query 走的是 FastAPI 自己的解析器，默认不 reject 未知 key。
+
+### 服务层返回顺序依赖 dict insertion order——必须显式排序
+**问题**: reviewer 抓出 `list_trace_nodes` 用 `for nid, payload in payloads.items()` 迭代，nodes 顺序 = dict insertion order = LangGraph 写 `node_payloads` JSON 时的顺序，不是逻辑顺序。detail panel 节点树顺序不可预测。同类问题：`_align_nodes` 已经 `sorted(set(...) | set(...))`（diff 用 key sort），但 `list_trace_nodes` 漏了——同一模块两种顺序语义，contract 不一致。
+**修复**: service.list_trace_nodes 在收集 nodes 之后 `nodes.sort(key=lambda n: n["name"])`。新单测 `test_039_nodes_sort.py` 4 个 case：reverse-alphabetical insertion → asc sorted output / mixed keys (parent/has_input) → sort 仍生效 / list-shaped payloads → sort 仍生效 / empty payloads → 空数组。**关键教训**：测试必须显式断言 `names == sorted(names)`，不能仅断言「节点存在 + 字段正确」——后者 bug 永远过。
+**适用场景**: 任何从 `dict.items()` / `JSON .items()` / `dict().values()` 返回 list 给 UI 渲染的场景。Python 3.7+ dict insertion order 是语言保证的，但「insertion 顺序」对 UI 不等于「逻辑顺序」。前端 tree / list / table 看到跳来跳去 = 后端没显式 sort。
+**避免**: (1) 不要写「断言节点存在 + 字段正确」就算 list 测试通过——必须断言顺序稳定。(2) 不要在 UI 层做 sort 修正后端错序——UI 排错只是掩盖 bug，detail panel 可能多组件消费同一接口，错序会扩散。(3) `_align_nodes` 内部 `sorted(...)` 是个正面例子——保持同一模块所有「返回 list 给 UI」的函数都显式 sort。
+
+### `set_default_role("admin")` 是全员 admin 反模式——只能显式 grant
+**问题**: bootstrap.py 调 `auth.set_default_role("admin")` 把默认 role 设为 admin，让所有未显式赋权的用户也是 admin。这是「最小权限原则」反模式——E2E 之外的生产部署如果误用这个 bootstrap（直接 `python -m tests.manual_e2e_bootstrap` 起服务），所有用户都是 admin。Reviewer 抓到但 IC-6 没明确禁止「默认 role」vs「显式 grant」区别——只是注释里说"未来迁 DB-backed RBAC 弃用"。
+**修复**: (1) bootstrap.py 删 `set_default_role("admin")`，只留 `auth.grant_role(DEMO_USER_ID, "admin")`；(2) 顶部 docstring 加 `# FIXME: REQ-039 临时方案` + `# SECURITY: ...只对 demo 用户显式 grant_role("admin")，不调 set_default_role("admin")` ——把「为什么不全员 admin」写进代码注释，下个改 bootstrap 的人不会无脑复制。
+**适用场景**: 任何 RBAC helper 区分 `grant_role(uid, role)` vs `set_default_role(role)` 的项目。`set_default_role` 只在「默认拒绝一切」+「极小 E2E 范围」下安全——一旦把它和"demo 用户 admin"混用，权限会扩散到所有用户。
+**避免**: (1) 不要在 bootstrap 同时调 `set_default_role` + `grant_role`——这是双倍反模式，前者让全员默认 high，后者让 demo 显式 high，两者叠加把「最小权限原则」完全丢弃。(2) 不要让 bootstrap 直接被生产启动脚本链入——它本质是 E2E fixture，集成到 production 路径 = 生产环境继承了「全员 admin」的临时安全模型。(3) 删 `set_default_role` 调用前确认 E2E 测试用 demo 用户 ID 都能跑——如果某些 test 用了非 demo 用户 + 依赖默认 admin，会暴露；这是好事，强迫显式 grant。
+
+### Frontend `<span style="display:none">` tree-shake 占位是反模式
+**问题**: dev 在 LogCenter.tsx 末尾加 `<span style={{display:'none'}} data-debug={HARD_LIMIT_BYTES}>{PAGE_BYTES}</span>` "防 tree-shake 把 const 删掉"。这是错误的——Vite/esbuild 的 tree-shaking 决策基于 ESM `import`/`export` 拓扑，不是「const 被引用与否」；display:none 引用不影响任何 bundler 决策，纯粹是 DOM 噪音 + 增加 reviewer 的可读性负担。
+**修复**: 直接删 span。`HARD_LIMIT_BYTES` / `PAGE_BYTES` 在 LogCenterDialogs.tsx 已定义并真正使用——单一来源 truth 即可，不需要 LogCenter.tsx 重复声明。如果将来真的有"防 tree-shake"需求（实际非常罕见），用 `import.meta.glob` 或显式 `import { x } from './constants'` 在模块顶部 import 即可，不要用 invisible DOM hack。
+**适用场景**: 任何 React/Vue 项目看到 `<span style={{display:'none'}}>` + `data-debug={...}` 类「防 tree-shake 占位」模式——100% 是误解 tree-shake 机制，应直接删除。Vite/esbuild 不做 CSS-only const stripping，const 是否被引用不影响 bundler 决策。
+**避免**: (1) 不要相信「const 必须被引用否则会被 tree-shake 删」——tree-shake 只对未导出的 dead code 起作用，模块级 const 始终保留。(2) 不要用 invisible DOM 占位解决「声明但未用」——ESLint `@typescript-eslint/no-unused-vars` 是正确工具，删除未用变量是正解。(3) 删 const 前 grep `HARD_LIMIT_BYTES` / `PAGE_BYTES` 在 src/admin/ 全部使用点——确认 LogCenterDialogs.tsx 已经有副本，否则删后 LogCenter.tsx 仍引用会编译失败。
+
+### B2 frontend 实施笔记（4 surface 集成 / demo user 硬编码 / localStorage 离线 cache）
+**问题**: B2 frontend 实施只 commit 代码没 commit lessons；后续 dev 接手要重新摸索 4 surface 集成模式 + demo 用户 ID 硬编码风险 + localStorage 作为离线 cache 而非真源的设计权衡。
+**修复**: 在 lessons-learned 记下面 4 条，作为未来类似 admin frontend 模块（admin_console / pm_dashboard / eval_center）复用参考：
+- (a) **4 surface 串通**: `index.admin.html`（仓库根，#admin-root 挂载点 + 引 `/src/admin/main.tsx`） + `vite.config.ts` rollupOptions.input 加 admin entry + `src/admin/main.tsx` QueryClient/BrowserRouter/AdminAppRoutes + `src/admin/routes.tsx` Routes + AdminAuthGuard 包裹。漏任一项 = 构建成功但运行时 admin 路由 404。
+- (b) **demo user ID 硬编码**: 跨 bootstrap.py / seed.py / dbq.py 3 文件必须保持一致 `019ebc56-fb4f-7978-bf91-29abc5c13d93`。当前一致，未来 split merge 风险——单一来源常量文件可缓解。
+- (c) **localStorage 作为离线 cache 而非真源**: `LogCenterDialogs.tsx` 注释明写 "FR-019: write-through to localStorage as offline cache only"，server 仍是单一来源。这种模式前端乐观更新 + 后台 async write 适合「重连后能看到上次状态」但绝不作为主数据流。
+- (d) **capability placeholder**: LogCenter.tsx 用 `user?.email === 'demo@intercraft.io' ? ['REPLAY_TRIGGER', 'TASK_TAG'] : ['TASK_TAG']` 作为 cap 集合 placeholder，直到后端 `/api/v1/me/capabilities` 端点上线。production 部署非 demo 用户只会拿到 `TASK_TAG`——这是 design 的临时妥协，不是 bug。
+**适用场景**: 任何「admin console」类前端模块（带 capability check + localStorage cache + demo user 集成）的实施 review。
+
