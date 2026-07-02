@@ -1,0 +1,19 @@
+{
+  "_scenario": "timeout",
+  "_schema_hint": "OutputSchema",
+  "_description": "HTTP 504 / connect timeout trigger — expected category='timeout' (NOT 'schema_invalid')",
+  "_raw": "{\"_kind\": \"timeout_504\"}",
+  "_expected_category": "timeout",
+  "_raw_examples": [
+    "{\"_kind\": \"timeout_504\"}",
+    "{\"_kind\": \"timeout\", \"elapsed_ms\": 30000}",
+    "{\"_kind\": \"timeout_504\", \"endpoint\": \"chat/completions\"}",
+    "{\"_kind\": \"timeout\", \"deadline\": \"2026-07-03T00:00:00Z\"}",
+    "{\"_kind\": \"timeout_504\", \"model\": \"deepseek-v4-pro\"}",
+    "{\"_kind\": \"timeout\", \"max_retries\": 3}",
+    "{\"_kind\": \"timeout_504\", \"retry_after\": 2}",
+    "{\"_kind\": \"timeout\", \"reason\": \"connect_timeout\"}",
+    "{\"_kind\": \"timeout_504\", \"request_id\": \"def-456\"}",
+    "{\"_kind\": \"timeout\", \"backoff_seconds\": [1, 2, 4]}"
+  ]
+}

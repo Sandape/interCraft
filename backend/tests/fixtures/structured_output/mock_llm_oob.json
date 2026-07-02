@@ -1,0 +1,19 @@
+{
+  "_scenario": "oob",
+  "_schema_hint": "InterviewScoreOutput",
+  "_description": "Numeric field above Pydantic Field(le=100) bound — expected category='oob'",
+  "_raw": "{\"score\": 200}",
+  "_expected_category": "oob",
+  "_raw_examples": [
+    "{\"score\": 200}",
+    "{\"score\": 101.5}",
+    "{\"score\": 99999}",
+    "{\"score\": -1}",
+    "{\"score\": -0.01}",
+    "{\"score\": -1000}",
+    "{\"score\": 1e9}",
+    "{\"score\": 1.7976931348623157e+308}",
+    "{\"score\": 100.0001}",
+    "{\"score\": 1.1}"
+  ]
+}
