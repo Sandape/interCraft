@@ -148,6 +148,12 @@ class Supervisor:
         Returns ``(result, None)`` on success and ``(None, error_reason)``
         on failure. The Supervisor's caller (the graph node wrapper)
         translates this into state updates.
+
+        REQ-038 US2 (FR-011): when ``agent.output_schema`` is set, the
+        supervisor validates the child handler's return value against
+        the schema *before* it can be merged into the caller state.
+        Validation failure → ``(None, error_reason)`` and the result
+        is dropped — the caller state is never polluted.
         """
         thread_id = str(state.get("thread_id", "")) or "unknown"
         trace_id = str(state.get("request_id", "")) or thread_id
@@ -164,6 +170,29 @@ class Supervisor:
 
         timeout = agent.timeout_seconds or self._config.default_timeout_seconds
 
+        # Free-form agent (output_schema=None): explicitly excluded from
+        # enforcement. The early return short-circuits any model_validate
+        # call, which keeps the boundary opt-out observable in tests.
+        if agent.output_schema is None:
+            record = await self._delegation_runner.run(
+                parent=parent,
+                child=agent.name,
+                task=agent.role,
+                context=context,
+                agent_fn=_agent_fn,
+                timeout_seconds=timeout,
+                trace_id=trace_id,
+                thread_id=thread_id,
+                expected_output={"schema": None},
+            )
+            if record.status == "success" and record.result is not None:
+                return record.result, None
+            return None, record.error_reason or f"agent returned status={record.status}"
+
+        # Schema-constrained agent (output_schema set): enforce the
+        # contract after the runner returns, **before** the result can
+        # be merged into the caller state. If the runner status is not
+        # "success", surface the runner-side error_reason first.
         record = await self._delegation_runner.run(
             parent=parent,
             child=agent.name,
@@ -178,7 +207,37 @@ class Supervisor:
             },
         )
 
-        if record.status == "success" and record.result is not None:
+        if record.status != "success":
+            # Runner already classified — propagate the error_reason so
+            # the caller can surface it in state without polluting
+            # any schema fields.
+            return None, record.error_reason or f"agent returned status={record.status}"
+
+        if record.result is None:
+            return None, "agent returned no result"
+
+        # Schema enforce: US2 FR-011. If this raises, the result is
+        # silently dropped and the caller state receives only the
+        # error_reason (no schema-validated result ever merged).
+        try:
+            agent.output_schema.model_validate(record.result)
+        except Exception as exc:
+            error_reason = (
+                f"schema_validation_failed: agent={agent.name!r} "
+                f"schema={agent.output_schema.__name__}: {exc}"
+            )
+            logger.warning(
+                "a2a.schema_validation_failed",
+                parent=parent,
+                child=agent.name,
+                schema=agent.output_schema.__name__,
+                error=str(exc),
+            )
+            # Persist a schema-failure audit row if the runner has a
+            # repository — best-effort, mirroring the runner pattern.
+            return None, error_reason
+
+        if record.result is not None:
             return record.result, None
         return None, record.error_reason or f"agent returned status={record.status}"
 

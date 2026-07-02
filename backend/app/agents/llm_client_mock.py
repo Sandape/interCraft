@@ -37,7 +37,7 @@ _SCENARIO_FIXTURES: dict[str, str] = {
     "malformed": "{ next_question: ... }",            # truncated brace
     "missing": "{}",                                   # empty object
     "enum_violation": '{"severity": "extreme"}',       # not in {low,medium,high}
-    "oob": '{"score": 200}',                           # > Field(le=100)
+    "oob": '{"score": 200, "feedback": "too high"}',  # > Field(le=100)
     "quota": '{"_kind": "quota_429"}',                 # HTTP 429 trigger
     "timeout": '{"_kind": "timeout_504"}',             # HTTP 504 trigger
 }

@@ -93,6 +93,13 @@ def parse_structured_output(
             cause=exc,
         ) from exc
 
+    if isinstance(data, dict):
+        kind = data.get("_kind")
+        if kind == "quota_429":
+            raise Quota("quota exceeded", node_name=node_name)
+        if kind == "timeout_504":
+            raise Timeout("timeout", node_name=node_name)
+
     try:
         return schema.model_validate(data)
     except ValidationError as exc:
@@ -123,8 +130,8 @@ def with_structured_output(
     """
     if node_id not in STRUCTURED_NODES:
         raise KeyError(
-            f"'{node_id}' is not a structured node. "
-            f"Available: {', '.join(STRUCTURED_NODES)}"
+            f"Unknown structured node '{node_id}'. "
+            f"Available: {', '.join(sorted(STRUCTURED_NODES))}"
         )
 
     output_schema = get_output_schema(node_id)
@@ -156,7 +163,7 @@ def by_scenario(name: str, schema: type[BaseModel] | None = None) -> str:
         "malformed": "{ next_question: ... }",
         "missing": "{}",
         "enum_violation": '{"severity": "extreme"}',
-        "oob": '{"score": 200}',
+        "oob": '{"score": 200, "feedback": "too high"}',
         "quota": '{"_kind": "quota_429"}',
         "timeout": '{"_kind": "timeout_504"}',
     }
