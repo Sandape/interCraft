@@ -203,45 +203,58 @@ async def list_trace_nodes(
     node_id set the frontend will lazy-load via the byte-range
     endpoint (FR-025..FR-027).
     """
-    from app.modules.admin_console.models import Trace
+    from sqlalchemy import text
 
-    trace = await repository.get_trace(session, trace_id)
-    if trace is None:
-        return []
-    payloads = trace.node_payloads or {}
-    # node_payloads may be a dict of { node_id: { input, output, status, started_at, ended_at, parent } }
-    # or a list — normalize to dict-of-dicts.
-    if isinstance(payloads, list):
-        normalized: dict[str, dict[str, Any]] = {}
-        for idx, item in enumerate(payloads):
-            if not isinstance(item, dict):
-                continue
-            nid = str(item.get("name") or item.get("node_id") or f"node_{idx}")
-            normalized[nid] = item
-        payloads = normalized
-    nodes: list[dict[str, Any]] = []
-    for nid, payload in payloads.items():
-        if not isinstance(payload, dict):
-            continue
-        nodes.append(
-            {
-                "node_id": str(nid),
-                "name": str(payload.get("name") or nid),
-                "status": str(payload.get("status") or trace.status or "unknown"),
-                "parent": payload.get("parent"),
-                "started_at": payload.get("started_at"),
-                "ended_at": payload.get("ended_at"),
-                "has_input": "input" in payload,
-                "has_output": "output" in payload,
-            }
-        )
-    # Sort by `name` ascending so the master/detail panel renders a
-    # stable node tree. ``node_payloads`` is a dict whose iteration
-    # order matches insertion order — which depends on the order the
-    # LangGraph writer serialized nodes, NOT on any logical ordering.
-    # AC matrix "B1 supplement" explicitly requires node_name sort.
-    nodes.sort(key=lambda n: n["name"])
-    return nodes
+    result = await session.execute(
+        text(
+            """
+            WITH t AS (
+                SELECT status, node_payloads
+                FROM traces
+                WHERE id = :trace_id
+            ),
+            object_nodes AS (
+                SELECT
+                    key AS node_id,
+                    value AS payload,
+                    t.status AS trace_status
+                FROM t, jsonb_each(t.node_payloads)
+                WHERE jsonb_typeof(t.node_payloads) = 'object'
+                  AND jsonb_typeof(value) = 'object'
+            ),
+            array_nodes AS (
+                SELECT
+                    COALESCE(
+                        value ->> 'name',
+                        value ->> 'node_id',
+                        'node_' || (ord - 1)::text
+                    ) AS node_id,
+                    value AS payload,
+                    t.status AS trace_status
+                FROM t, jsonb_array_elements(t.node_payloads) WITH ORDINALITY AS arr(value, ord)
+                WHERE jsonb_typeof(t.node_payloads) = 'array'
+                  AND jsonb_typeof(value) = 'object'
+            )
+            SELECT
+                node_id,
+                COALESCE(payload ->> 'name', node_id) AS name,
+                COALESCE(payload ->> 'status', trace_status, 'unknown') AS status,
+                payload ->> 'parent' AS parent,
+                payload ->> 'started_at' AS started_at,
+                payload ->> 'ended_at' AS ended_at,
+                payload ? 'input' AS has_input,
+                payload ? 'output' AS has_output
+            FROM (
+                SELECT * FROM object_nodes
+                UNION ALL
+                SELECT * FROM array_nodes
+            ) nodes
+            ORDER BY name ASC
+            """
+        ),
+        {"trace_id": trace_id},
+    )
+    return [dict(row) for row in result.mappings().all()]
 
 
 async def add_tag(

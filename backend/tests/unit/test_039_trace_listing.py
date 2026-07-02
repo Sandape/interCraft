@@ -28,6 +28,14 @@ class _Row:
         self._mapping = data
 
 
+class _MappingResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
 class _FakeResult:
     def __init__(self, rows):
         self._rows = rows
@@ -35,26 +43,29 @@ class _FakeResult:
     def fetchall(self):
         return self._rows
 
+    def mappings(self):
+        return _MappingResult(self._rows)
+
 
 class _FakeSession:
-    """Pretend AsyncSession that filters raw-SQL params by string match.
+    """Pretend AsyncSession that supports the raw SQL used by the service layer."""
 
-    The service layer uses ``text(\"...\")`` so we inspect the bound
-    params to decide what to return. Only supports ``task_type`` and
-    ``status_filter`` (the two filter dimensions this endpoint exposes).
-    """
-
-    def __init__(self, rows):
+    def __init__(self, rows, *, node_rows=None):
         self._rows = rows
+        self._node_rows = [] if node_rows is None else node_rows
         self.executed: list = []
 
-    async def execute(self, stmt):  # noqa: ANN001 - signature matches AsyncSession
-        self.executed.append(stmt)
-        params = getattr(stmt, "_bindparams", {}) or {}
+    async def execute(self, stmt, params=None):  # noqa: ANN001 - signature matches AsyncSession enough
+        self.executed.append((stmt, params))
+        sql = str(stmt)
+        if "jsonb_each" in sql or "jsonb_array_elements" in sql:
+            return _FakeResult(self._node_rows)
+
+        params_obj = getattr(stmt, "_bindparams", {}) or {}
         # SQLAlchemy text() bind params live on stmt._bindparams as a
         # _BindArguments; convert to dict for filtering.
         try:
-            params_dict = dict(params.items())  # type: ignore[union-attr]
+            params_dict = dict(params_obj.items())  # type: ignore[union-attr]
         except Exception:
             params_dict = {}
         # Extract bare values from BindParameter entries.
@@ -123,36 +134,35 @@ async def test_list_traces_returns_empty_when_no_rows():
 
 
 @pytest.mark.asyncio
-async def test_list_trace_nodes_returns_self_describing_nodes(monkeypatch):
+async def test_list_trace_nodes_returns_self_describing_nodes():
     trace_id = uuid4()
-    fake_trace = SimpleNamespace(
-        id=trace_id,
-        status="success",
-        node_payloads={
-            "plan": {
+    fake = _FakeSession(
+        [],
+        node_rows=[
+            {
+                "node_id": "generate",
+                "name": "generate",
+                "status": "success",
+                "parent": "plan",
+                "started_at": None,
+                "ended_at": None,
+                "has_input": True,
+                "has_output": False,
+            },
+            {
+                "node_id": "plan",
                 "name": "plan",
                 "status": "success",
                 "parent": None,
                 "started_at": "2026-07-03T00:00:00",
                 "ended_at": "2026-07-03T00:00:01",
-                "input": {"a": 1},
-                "output": {"b": 2},
+                "has_input": True,
+                "has_output": True,
             },
-            "generate": {
-                "name": "generate",
-                "status": "success",
-                "parent": "plan",
-                "input": {"x": 1},
-            },
-        },
+        ],
     )
 
-    class _Repo:
-        async def get_trace(self, session, trace_id):
-            return fake_trace
-
-    monkeypatch.setattr(service, "repository", _Repo())
-    nodes = await service.list_trace_nodes(_FakeSession([]), trace_id=trace_id)
+    nodes = await service.list_trace_nodes(fake, trace_id=trace_id)
     assert len(nodes) == 2
     by_name = {n["node_id"]: n for n in nodes}
     plan = by_name["plan"]
@@ -163,37 +173,47 @@ async def test_list_trace_nodes_returns_self_describing_nodes(monkeypatch):
     assert generate["parent"] == "plan"
     assert generate["has_input"] is True
     assert generate["has_output"] is False
+    sql = str(fake.executed[0][0])
+    assert "jsonb_each" in sql
+    assert "jsonb_array_elements" in sql
+    assert "ORDER BY name ASC" in sql
 
 
 @pytest.mark.asyncio
-async def test_list_trace_nodes_returns_empty_for_missing_trace(monkeypatch):
-    class _Repo:
-        async def get_trace(self, session, trace_id):
-            return None
-
-    monkeypatch.setattr(service, "repository", _Repo())
+async def test_list_trace_nodes_returns_empty_for_missing_trace():
     nodes = await service.list_trace_nodes(_FakeSession([]), trace_id=uuid4())
     assert nodes == []
 
 
 @pytest.mark.asyncio
-async def test_list_trace_nodes_normalizes_list_payloads(monkeypatch):
+async def test_list_trace_nodes_normalizes_list_payloads():
     trace_id = uuid4()
-    fake_trace = SimpleNamespace(
-        id=trace_id,
-        status="success",
-        node_payloads=[
-            {"name": "plan", "status": "success", "input": {"a": 1}},
-            {"node_id": "generate", "parent": "plan", "output": {"b": 2}},
-            "garbage-entry",
+    fake = _FakeSession(
+        [],
+        node_rows=[
+            {
+                "node_id": "plan",
+                "name": "plan",
+                "status": "success",
+                "parent": None,
+                "started_at": None,
+                "ended_at": None,
+                "has_input": True,
+                "has_output": False,
+            },
+            {
+                "node_id": "generate",
+                "name": "generate",
+                "status": "success",
+                "parent": "plan",
+                "started_at": None,
+                "ended_at": None,
+                "has_input": False,
+                "has_output": True,
+            },
         ],
     )
 
-    class _Repo:
-        async def get_trace(self, session, trace_id):
-            return fake_trace
-
-    monkeypatch.setattr(service, "repository", _Repo())
-    nodes = await service.list_trace_nodes(_FakeSession([]), trace_id=trace_id)
+    nodes = await service.list_trace_nodes(fake, trace_id=trace_id)
     names = {n["node_id"] for n in nodes}
     assert names == {"plan", "generate"}
