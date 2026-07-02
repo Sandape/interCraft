@@ -110,7 +110,7 @@ export function AdminShell() {
 
 export const ADMIN_ROUTE_CONFIG = [
   {
-    path: '/admin-console',
+    path: '/admin-console/*',
     element: <AdminShell />,
     children: [
       { index: true, element: <Navigate to="/admin-console/log-center" replace /> },

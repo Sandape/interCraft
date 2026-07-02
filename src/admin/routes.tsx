@@ -1,16 +1,17 @@
 /**
- * Admin Router — REQ-039 B2.
+ * Admin Router — REQ-039 B2/B3.
  *
- * Wraps the route config in <Routes>. Auth gate: any unauthenticated
- * caller is bounced to /login (which is the main app login page; admin
- * is hosted on the same origin as the app, so the token-storage keys
- * are shared).
+ * Auth gate: any unauthenticated caller is bounced to /login (which is
+ * the main app login page; admin is hosted on the same origin as the
+ * app, so the token-storage keys are shared).
  */
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { hasTokens } from '@/api/token-storage'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useCurrentUser } from '@/hooks/queries/useCurrentUser'
-import { ADMIN_ROUTE_CONFIG } from './components/AdminShell'
+import { AdminShell } from './components/AdminShell'
+import { LogCenter } from './pages/LogCenter'
+import { PlaceholderPage } from './pages/PlaceholderPage'
 
 function AdminAuthGuard({ children }: { children: JSX.Element }) {
   useCurrentUser()
@@ -42,18 +43,21 @@ function AdminAuthGuard({ children }: { children: JSX.Element }) {
 export function AdminAppRoutes() {
   return (
     <Routes>
-      {ADMIN_ROUTE_CONFIG.map((route) => (
-        <Route key={route.path} path={route.path} element={<AdminAuthGuard>{route.element}</AdminAuthGuard>}>
-          {route.children?.map((child) => (
-            <Route
-              key={child.path ?? 'index'}
-              index={child.index ?? false}
-              path={child.path}
-              element={child.element}
-            />
-          ))}
-        </Route>
-      ))}
+      <Route
+        path="/admin-console/*"
+        element={(
+          <AdminAuthGuard>
+            <AdminShell />
+          </AdminAuthGuard>
+        )}
+      >
+        <Route index element={<Navigate to="log-center" replace />} />
+        <Route path="log-center" element={<LogCenter />} />
+        <Route path="dashboard" element={<PlaceholderPage title="产品看板" />} />
+        <Route path="trace-explorer" element={<PlaceholderPage title="链路追踪" />} />
+        <Route path="eval-center" element={<PlaceholderPage title="评测中心" />} />
+      </Route>
+      <Route path="/index.admin.html" element={<Navigate to="/admin-console/log-center" replace />} />
       <Route path="*" element={<Navigate to="/admin-console/log-center" replace />} />
     </Routes>
   )
