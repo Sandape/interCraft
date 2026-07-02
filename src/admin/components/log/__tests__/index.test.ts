@@ -76,6 +76,27 @@ describe('computeErrorHash', () => {
     expect(h2).toBe(h1)
   })
 
+  it('lowercases input before hashing (FR-022 normalization rule 1)', async () => {
+    if (typeof globalThis.crypto?.subtle?.digest !== 'function') return
+    const a = await computeErrorHash('Retry 3 Times')
+    const b = await computeErrorHash('retry 3 times')
+    expect(a).toBe(b)
+  })
+
+  it('strips leading and trailing whitespace (FR-022 normalization rule 2)', async () => {
+    if (typeof globalThis.crypto?.subtle?.digest !== 'function') return
+    const a = await computeErrorHash('   retry 3 times   ')
+    const b = await computeErrorHash('retry 3 times')
+    expect(a).toBe(b)
+  })
+
+  it('collapses internal whitespace to a single space (FR-022 rule 3)', async () => {
+    if (typeof globalThis.crypto?.subtle?.digest !== 'function') return
+    const a = await computeErrorHash('retry   3   times')
+    const b = await computeErrorHash('retry 3 times')
+    expect(a).toBe(b)
+  })
+
   it('strips UUIDs / hex blobs / 12+ digit numbers (FR-022)', async () => {
     if (typeof globalThis.crypto?.subtle?.digest !== 'function') return
     const a = await computeErrorHash('error at uuid 019ec1be-d7c2-7f4a-8b9e-1234567890ab again')

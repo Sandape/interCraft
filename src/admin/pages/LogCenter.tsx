@@ -47,8 +47,10 @@ const DEFAULT_FILTERS = {
 }
 
 const TAG_CACHE_KEY = 'log-center:tags:v1'
-const HARD_LIMIT_BYTES = 50 * 1024 * 1024
-const PAGE_BYTES = 51200
+// Pagination byte limits are imported from LogCenterDialogs where they
+// are actually used (NodeIODrawer's fetchNodePayload call). We keep a
+// single source of truth rather than re-declaring constants in this
+// module just to satisfy tree-shaking guesses.
 
 export function LogCenter() {
   const queryClient = useQueryClient()
@@ -543,11 +545,6 @@ export function LogCenter() {
           <Loader2 size={12} /> 正在刷新…
         </div>
       )}
-
-      {/* HARD_LIMIT reference so the import is recognised by bundler tree-shaking */}
-      <span style={{ display: 'none' }} data-debug={HARD_LIMIT_BYTES}>
-        {PAGE_BYTES}
-      </span>
     </div>
   )
 }
