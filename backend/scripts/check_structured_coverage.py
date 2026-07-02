@@ -1,8 +1,7 @@
 """REQ-038 US2 — local structured-output coverage check.
 
-This script is intentionally dependency-light so it can run in local and CI
-contexts. It enumerates the structured registry and scans agent node files for
-LLM-producing code that is not yet covered by STRUCTURED_NODES.
+Dependency-light script that enumerates the structured registry and scans
+agent node files for LLM-producing code not covered by STRUCTURED_NODES.
 """
 from __future__ import annotations
 
@@ -82,9 +81,6 @@ def main() -> int:
         failures.append(f"missing expected structured nodes: {', '.join(missing_expected)}")
 
     for node_id in sorted(registry):
-        if node_id not in NODE_SCHEMAS:
-            failures.append(f"{node_id}: missing output_schema in NODE_SCHEMAS")
-            continue
         input_schema, output_schema = NODE_SCHEMAS[node_id]
         if input_schema is None or output_schema is None:
             failures.append(f"{node_id}: missing output_schema")
