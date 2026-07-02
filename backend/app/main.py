@@ -144,6 +144,17 @@ def create_app() -> FastAPI:
         tags=["badcases"],
     )
 
+    # 039 B1: admin console observability (Log Center backend foundation).
+    # Mounted at /api/v1/admin-console/observability — 7 endpoints covering
+    # tag CRUD, replay, diff, and node IO pagination.
+    from app.modules.admin_console.api import router as admin_console_router
+
+    app.include_router(
+        admin_console_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/observability",
+        tags=["admin-console"],
+    )
+
     return app
 
 
