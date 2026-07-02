@@ -135,11 +135,22 @@ class DiffRequest(BaseModel):
 
 
 class DiffFieldEntry(BaseModel):
-    """One field-level change in a node diff."""
+    """One field-level change in a node diff.
+
+    NOTE: For B1 the diff engine is 1-level deep — ``path`` will only
+    contain a single ``.``-separated segment under the node prefix
+    (e.g. ``node1.temperature``). The example in ``description`` shows
+    the eventual FR-015 shape; deeper nested paths are a TODO for the
+    039-polish batch.
+    """
 
     path: str = Field(
         ...,
-        description="JSON-path-like location, e.g. 'input.messages[2].content'.",
+        description=(
+            "JSON-path-like location, e.g. 'input.messages[2].content'. "
+            "B1 emits only 1-level dotted paths under the node name; "
+            "deeper segments land with 039-polish."
+        ),
     )
     op: Literal["add", "del", "mod"]
     left: Any | None = None

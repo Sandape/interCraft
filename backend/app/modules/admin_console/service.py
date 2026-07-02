@@ -22,10 +22,9 @@ FR-030 / IC-7.
 """
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -319,6 +318,13 @@ def _diff_fields(
     Emits entries with ``path`` / ``op`` (``add`` | ``del`` | ``mod``)
     / ``left`` / ``right``. Path uses dotted notation for nested keys
     but only 1-level deep for B1; deeper traversal is a future FR.
+
+    TODO(039-polish): spec FR-015 example path ``input.messages[2].content``
+    implies nested traversal. When the polish batch lands, replace this
+    with a recursive walker that emits ``input.messages[2].content``
+    style paths and array-index segments. Until then the API contract
+    documents the 1-level limit via :class:`DiffFieldEntry`'s schema
+    description.
     """
     keys = sorted(set(left) | set(right))
     fields: list[dict[str, Any]] = []

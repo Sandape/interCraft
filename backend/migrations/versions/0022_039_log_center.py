@@ -23,13 +23,18 @@ for parity with the dev workflow.
 
 Worktree chain note:
 
-The worktree branch is missing intermediate migrations (0012-0016,
-0022-0026) because they belong to other concurrent teams. This
-migration is therefore declared as a **branch root** (``down_revision =
-None``) under ``branch_labels = ("039_log_center",)`` so ``alembic
-upgrade heads`` resolves cleanly. When merged to master, replace
-``down_revision`` with the actual head (``0021_a2a_messages`` for
-master as of 2026-07-02) and drop the branch label.
+The worktree branch was missing intermediate migrations 0012-0016
+because they belong to other concurrent teams. To make alembic's
+ScriptDirectory loader happy without touching any other team's files,
+five no-op stub bridges (0012-039-bridge through 0016-039-bridge)
+were inserted in this commit; the 0016 stub reuses the
+``"0016_interview_plan"`` revision ID so 0017 can resolve its parent.
+This migration reattaches to the real chain head (``0021_a2a_messages``)
+— no branch labels needed because the chain is now complete end-to-end.
+
+On merge to master, the stub bridges MUST be removed in the same
+commit (or the duplicate-revision check will fire), and 0022 must
+remain pointing at ``0021_a2a_messages``.
 """
 from __future__ import annotations
 
@@ -38,13 +43,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0022_039_log_center"
-# Standalone branch head — the worktree's migration chain is missing
-# 0012-0016 (intentional gap so 039 ships independently). Using
-# branch_labels makes this migration a separate branch root so
-# ``alembic upgrade heads`` resolves cleanly without traversing the
-# broken 0017 → 0016 link.
-down_revision = None
-branch_labels = ("039_log_center",)
+down_revision = "0021_a2a_messages"
+branch_labels = None
 depends_on = None
 
 
