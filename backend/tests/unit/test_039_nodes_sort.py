@@ -29,6 +29,21 @@ def _payload(name: str, **extra):
     return base
 
 
+class _FakeRepository:
+    """Stand-in for ``app.modules.admin_console.repository`` returning a fixed trace."""
+
+    def __init__(self, trace: SimpleNamespace) -> None:
+        self._trace = trace
+
+    async def get_trace(self, session, trace_id):  # noqa: ANN001 - signature matches repo
+        return self._trace
+
+
+def _patch_repo(monkeypatch, trace: SimpleNamespace) -> None:
+    """Patch ``service.repository`` with a ``_FakeRepository`` bound to ``trace``."""
+    monkeypatch.setattr(service, "repository", _FakeRepository(trace))
+
+
 @pytest.mark.asyncio
 async def test_list_trace_nodes_sorts_by_name_ascending(monkeypatch):
     """Nodes returned by service.list_trace_nodes must be sorted by `name` ascending."""
@@ -45,11 +60,7 @@ async def test_list_trace_nodes_sorts_by_name_ascending(monkeypatch):
         },
     )
 
-    class _Repo:
-        async def get_trace(self, session, trace_id):
-            return fake_trace
-
-    monkeypatch.setattr(service, "repository", _Repo())
+    _patch_repo(monkeypatch, fake_trace)
     nodes = await service.list_trace_nodes(SimpleNamespace(), trace_id=trace_id)
 
     names = [n["name"] for n in nodes]
@@ -76,11 +87,7 @@ async def test_list_trace_nodes_stable_order_with_mixed_keys(monkeypatch):
         },
     )
 
-    class _Repo:
-        async def get_trace(self, session, trace_id):
-            return fake_trace
-
-    monkeypatch.setattr(service, "repository", _Repo())
+    _patch_repo(monkeypatch, fake_trace)
     nodes = await service.list_trace_nodes(SimpleNamespace(), trace_id=trace_id)
 
     names = [n["name"] for n in nodes]
@@ -109,11 +116,7 @@ async def test_list_trace_nodes_sorts_when_payloads_is_list(monkeypatch):
         ],
     )
 
-    class _Repo:
-        async def get_trace(self, session, trace_id):
-            return fake_trace
-
-    monkeypatch.setattr(service, "repository", _Repo())
+    _patch_repo(monkeypatch, fake_trace)
     nodes = await service.list_trace_nodes(SimpleNamespace(), trace_id=trace_id)
     names = [n["name"] for n in nodes]
     assert names == ["alpha", "mango", "zebra"], (
@@ -127,10 +130,6 @@ async def test_list_trace_nodes_empty_returns_empty(monkeypatch):
     trace_id = uuid4()
     fake_trace = SimpleNamespace(id=trace_id, status="success", node_payloads={})
 
-    class _Repo:
-        async def get_trace(self, session, trace_id):
-            return fake_trace
-
-    monkeypatch.setattr(service, "repository", _Repo())
+    _patch_repo(monkeypatch, fake_trace)
     nodes = await service.list_trace_nodes(SimpleNamespace(), trace_id=trace_id)
     assert nodes == []
