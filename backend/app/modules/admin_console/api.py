@@ -32,6 +32,8 @@ from collections.abc import AsyncIterator
 from typing import Annotated, Any
 from uuid import UUID
 
+from datetime import datetime
+
 import structlog
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -205,17 +207,27 @@ async def list_traces(
         alias="status",
         description="Filter by status (success/failed/pending/running)",
     ),
+    since: datetime | None = Query(
+        None,
+        description=(
+            "Delta-query timestamp (FR-001): only return traces with "
+            "created_at >= since. Used by the frontend manual-refresh "
+            "path to fetch only what changed since the last fetch."
+        ),
+    ),
 ) -> dict[str, Any]:
     """Return the most-recent traces as a JSON envelope.
 
     B2 addition: supports ``GET /traces?limit=100`` (FR-001) plus the
     filter dimensions needed by the LogCenter filter bar (US1 / SC-001).
+    The ``since`` param enables delta-query for manual refresh (FR-001).
     """
     rows = await service.list_traces(
         session,
         limit=limit,
         task_type=task_type,
         status_filter=status_filter,
+        since=since,
     )
     return {
         "traces": [

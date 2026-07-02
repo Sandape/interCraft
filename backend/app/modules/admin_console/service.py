@@ -142,6 +142,7 @@ async def list_traces(
     limit: int = 100,
     task_type: str | None = None,
     status_filter: str | None = None,
+    since: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Return up to ``limit`` traces ordered by most-recent-first.
 
@@ -150,6 +151,11 @@ async def list_traces(
     ``pending`` / ``running``). Unknown filters are ignored (empty
     result) rather than rejected so the frontend can safely pass user
     input without sanitizing.
+
+    ``since`` enables delta-query (FR-001): when provided, only rows
+    with ``created_at >= since`` are returned. This is the manual-refresh
+    path the frontend uses to avoid re-fetching the full 100 most-recent
+    rows on every refresh.
 
     Implementation note: raw ``text()`` SQL is used here instead of
     ``select(Trace)`` because the auth module's ``User.avatar`` mapper
@@ -167,6 +173,9 @@ async def list_traces(
     if status_filter:
         where_clauses.append("status = :status_filter")
         params["status_filter"] = status_filter
+    if since is not None:
+        where_clauses.append("created_at >= :since")
+        params["since"] = since
 
     where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
     sql = text(
@@ -226,6 +235,12 @@ async def list_trace_nodes(
                 "has_output": "output" in payload,
             }
         )
+    # Sort by `name` ascending so the master/detail panel renders a
+    # stable node tree. ``node_payloads`` is a dict whose iteration
+    # order matches insertion order — which depends on the order the
+    # LangGraph writer serialized nodes, NOT on any logical ordering.
+    # AC matrix "B1 supplement" explicitly requires node_name sort.
+    nodes.sort(key=lambda n: n["name"])
     return nodes
 
 
