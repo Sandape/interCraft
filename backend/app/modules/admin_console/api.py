@@ -153,6 +153,17 @@ def _service_error_to_response(exc: ServiceError) -> JSONResponse:
     )
 
 
+def _rate_limited_response(exc: rate_limit.RateLimitedError) -> JSONResponse:
+    """Build the 429 body + Retry-After header (FR-032 / FR-033)."""
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content=RateLimitedError(
+            retry_after_seconds=exc.retry_after_seconds
+        ).model_dump(),
+        headers={"Retry-After": str(exc.retry_after_seconds)},
+    )
+
+
 # ---------------------------------------------------------------------------
 # T022 placeholder — module liveness
 # ---------------------------------------------------------------------------
@@ -270,14 +281,7 @@ async def replay_trace(
     try:
         rate_limit.replay_limiter(str(user_id))
     except rate_limit.RateLimitedError as exc:
-        rate_body = RateLimitedError(
-            retry_after_seconds=exc.retry_after_seconds
-        ).model_dump()
-        return JSONResponse(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            content=rate_body,
-            headers={"Retry-After": str(exc.retry_after_seconds)},
-        )
+        return _rate_limited_response(exc)
     try:
         result = await service.trigger_replay(
             session, orig_trace_id=trace_id, user_id=user_id
@@ -321,13 +325,7 @@ async def diff_traces(
     try:
         rate_limit.diff_limiter(str(user_id))
     except rate_limit.RateLimitedError as exc:
-        return JSONResponse(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            content=RateLimitedError(
-                retry_after_seconds=exc.retry_after_seconds
-            ).model_dump(),
-            headers={"Retry-After": str(exc.retry_after_seconds)},
-        )
+        return _rate_limited_response(exc)
     try:
         result = await service.compute_diff(
             session,
@@ -388,12 +386,7 @@ async def get_node_payload(
             limit=limit,
         )
     except PayloadTooLargeError as exc:
-        return _error_response(
-            code="PAYLOAD_TOO_LARGE",
-            message=exc.message,
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            details={"size": exc.size, "limit": exc.limit},
-        )
+        return _service_error_to_response(exc)
     except TraceNotFoundError as exc:
         return _service_error_to_response(exc)
     # Build Content-Range header per FR-026.

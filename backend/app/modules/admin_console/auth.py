@@ -96,14 +96,7 @@ def require_capability(capability: str):  # type: ignore[no-untyped-def]
         user_id: Annotated[UUID, Depends(get_caller_user_id_dep())],
     ) -> bool:
         if not user_has_capability(user_id, capability):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "MISSING_CAPABILITY",
-                    "message": f"需要 {capability} 权限",
-                    "capability": capability,
-                },
-            )
+            raise _missing_capability_exception(capability)
         return True
 
     return _dep
@@ -132,14 +125,19 @@ def ensure_capabilities(user_id: UUID, capabilities: Iterable[str]) -> None:
     """Raise HTTP 403 on first missing capability. Service-layer helper."""
     for cap in capabilities:
         if not user_has_capability(user_id, cap):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "MISSING_CAPABILITY",
-                    "message": f"需要 {cap} 权限",
-                    "capability": cap,
-                },
-            )
+            raise _missing_capability_exception(cap)
+
+
+def _missing_capability_exception(capability: str) -> HTTPException:
+    """Build the standard 403 body for a missing capability (FR-009 / FR-020)."""
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": "MISSING_CAPABILITY",
+            "message": f"需要 {capability} 权限",
+            "capability": capability,
+        },
+    )
 
 
 __all__ = [
