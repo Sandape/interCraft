@@ -212,9 +212,16 @@ class InterviewGraph(BaseAgent):
         # US2 AC-4.9: interrupt BEFORE the DB write (sink_error), not before
         # the LLM call (score_llm). Keeps HITL on the human-review side
         # without paying the LLM-call latency twice.
+        # REQ-042 US-1 FR-002 — recursion_limit from per-agent config.
+        # Reads ``InterviewStateConfiguration().recursion_limit`` (default 30)
+        # rather than hard-coding to keep the 5 agent compile() call sites
+        # symmetric (per L041-001 mini-batch).
+        from app.agents.utils.loop_termination import InterviewStateConfiguration
+
         return builder.compile(
             checkpointer=checkpointer,
             interrupt_before=["interview.sink_error"],
+            recursion_limit=InterviewStateConfiguration().recursion_limit,
         )
 
     # ------------------------------------------------------------------

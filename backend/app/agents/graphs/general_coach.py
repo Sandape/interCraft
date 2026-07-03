@@ -58,7 +58,13 @@ class GeneralCoachGraph(BaseAgent):
         builder.add_edge("general_coach.respond", END)
 
         checkpointer = await get_checkpointer()
-        return builder.compile(checkpointer=checkpointer)
+        # REQ-042 US-1 FR-002 — recursion_limit from per-agent config.
+        from app.agents.utils.loop_termination import GeneralCoachStateConfiguration
+
+        return builder.compile(
+            checkpointer=checkpointer,
+            recursion_limit=GeneralCoachStateConfiguration().recursion_limit,
+        )
 
     async def start(self, user_id: str, initial_question: str = "") -> str:
         thread_id = str(uuid4())

@@ -44,6 +44,14 @@ class ErrorCoachState(TypedDict, total=False):
     # FRONT-branch (before the ``correct_count >= 3`` loop guard per AC-5.5a).
     _mark_complete: bool
 
+    # REQ-042 US-1 FR-001 — soft iteration cap (per-agent default via
+    # ``Configuration.max_iterations``). Read by ``iteration_guard_node``;
+    # raised to ``state.error.error_category=loop_terminated`` on overflow.
+    max_iterations: int
+    # REQ-042 US-1 FR-001 — monotonic add reducer counter incremented by
+    # ``iteration_guard_node`` on each evaluation cycle.
+    iteration_count: int
+
 
 __all__ = ["ErrorCoachState"]
 

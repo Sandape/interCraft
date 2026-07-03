@@ -82,9 +82,13 @@ class ResumeOptimizeGraph(BaseAgent):
         builder.add_edge("resume_optimize.snapshot", END)
 
         checkpointer = await get_checkpointer()
+        # REQ-042 US-1 FR-002 — recursion_limit from per-agent config.
+        from app.agents.utils.loop_termination import PlannerStateConfiguration
+
         return builder.compile(
             checkpointer=checkpointer,
             interrupt_after=["resume_optimize.apply_or_discard"],
+            recursion_limit=PlannerStateConfiguration().recursion_limit,
         )
 
     def _route_after_decision(self, state: ResumeOptimizeState) -> Literal["snapshot", "__end__"]:
