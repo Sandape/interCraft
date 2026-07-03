@@ -251,7 +251,14 @@ class AbilityDiagnoseGraph(BaseAgent):
         )
 
         checkpointer = await get_checkpointer()
-        return builder.compile(checkpointer=checkpointer)
+        # REQ-042 US-1 FR-002 — recursion_limit from per-agent config.
+        # ability_diagnose uses PlannerStateConfiguration (researcher-like pattern).
+        from app.agents.utils.loop_termination import PlannerStateConfiguration
+
+        return builder.compile(
+            checkpointer=checkpointer,
+            recursion_limit=PlannerStateConfiguration().recursion_limit,
+        )
 
     async def run(self, user_id: str, session_id: str) -> dict[str, Any]:
         """Execute the full ability diagnosis pipeline.

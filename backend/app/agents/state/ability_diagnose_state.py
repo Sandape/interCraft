@@ -46,6 +46,9 @@ class AbilityDiagnoseState(TypedDict, total=False):
     # Serialised to API response as ``error_category`` + ``node_name`` by
     # ``app.agents.utils.node_error.serialize_state_error``.
     error: dict[str, Any] | None
+    # REQ-042 US-1 FR-001 — soft iteration cap + monotonic counter.
+    max_iterations: int
+    iteration_count: int
 
 
 __all__ = ["AbilityDiagnoseState"]

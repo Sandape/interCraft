@@ -53,6 +53,12 @@ NodeErrorCategory = Literal[
     "timeout",
     "oob",
     "checkpointer_unavailable",
+    # REQ-042 US-1 FR-004 — two new categories.
+    # - "graph_recursion": LangGraph ``recursion_limit`` exceeded.
+    # - "loop_terminated": per-agent ``Configuration.max_iterations`` soft
+    #   cap exceeded; raised by ``iteration_guard_node``.
+    "graph_recursion",
+    "loop_terminated",
 ]
 
 
@@ -133,6 +139,11 @@ def classify_exception(exc: BaseException) -> NodeErrorCategory:
         return "parse_fail"
     if name == "schemainvalid":
         return "schema_invalid"
+    # REQ-042 US-1 FR-004 — duck-typed for the new categories.
+    if name == "graphrecursionerror":
+        return "graph_recursion"
+    if name == "maxiterationsreached":
+        return "loop_terminated"
     return "schema_invalid"
 
 

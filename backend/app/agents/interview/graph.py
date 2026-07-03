@@ -47,6 +47,8 @@ from app.agents.interview.nodes.question_gen import question_gen_node
 from app.agents.interview.nodes.report import report_node
 from app.agents.interview.nodes.score_llm import score_llm_node
 from app.agents.interview.nodes.sink_error import sink_error_node
+# REQ-042 US-2 FR-005 — compress_history node (gated on env flag).
+from app.agents.interview.nodes.compress_history import compress_history_node
 from app.agents.interview.planner_graph import get_planner_subgraph
 from app.agents.interview.state import (
     InterviewInputState,
@@ -148,6 +150,11 @@ async def sink_error(state: Any) -> Any:
     return await sink_error_node(state)
 
 
+@traced_node("interview.compress_history")
+async def compress_history(state: Any) -> Any:
+    return await compress_history_node(state)
+
+
 class InterviewGraph(BaseAgent):
     """LangGraph agent for AI-powered mock interviews.
 
@@ -182,6 +189,19 @@ class InterviewGraph(BaseAgent):
         builder.add_node("interview.score_llm", score_llm)
         builder.add_node("interview.sink_error", sink_error)
         builder.add_node("interview.report", report)
+        # REQ-042 US-2 FR-005 — compress_history node.
+        # Gated on env flag (FR-009 dual-track); the node is added but
+        # the routing through it is only wired when the flag is true.
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        if settings.us2_use_v2_compress_history:
+            builder.add_node("interview.compress_history", compress_history)
+            # 4 surface sync (L041-004): wire the router path
+            # question_gen → compress_history → question_gen so the
+            # node is actually reached when the flag is on.
+            builder.add_edge("interview.question_gen", "interview.compress_history")
+            builder.add_edge("interview.compress_history", "interview.score_llm")
 
         # Edges — Supervisor routing (AC-E2E-2: planner output flows directly).
         builder.set_entry_point("interview.intake_locate")
@@ -212,9 +232,16 @@ class InterviewGraph(BaseAgent):
         # US2 AC-4.9: interrupt BEFORE the DB write (sink_error), not before
         # the LLM call (score_llm). Keeps HITL on the human-review side
         # without paying the LLM-call latency twice.
+        # REQ-042 US-1 FR-002 — recursion_limit from per-agent config.
+        # Reads ``InterviewStateConfiguration().recursion_limit`` (default 30)
+        # rather than hard-coding to keep the 5 agent compile() call sites
+        # symmetric (per L041-001 mini-batch).
+        from app.agents.utils.loop_termination import InterviewStateConfiguration
+
         return builder.compile(
             checkpointer=checkpointer,
             interrupt_before=["interview.sink_error"],
+            recursion_limit=InterviewStateConfiguration().recursion_limit,
         )
 
     # ------------------------------------------------------------------

@@ -34,6 +34,9 @@ class GeneralCoachState(TypedDict, total=False):
     confidence: float | None
     suggested_redirect: str | None
     session_active: bool
+    # REQ-042 US-1 FR-001 — soft iteration cap + monotonic counter.
+    max_iterations: int
+    iteration_count: int
 
 
 __all__ = ["GeneralCoachState"]
