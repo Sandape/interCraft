@@ -37,6 +37,12 @@ Output ONLY a JSON object:
 {{"score": <0-10>, "feedback": "<brief feedback in Chinese>"}}"""
 
     client = get_llm_client()
+    # AC-3.2 / AC-3.7 — silent fallbacks REMOVED. Previously this branch
+    # default-assigned ``score = 5`` on parse / LLM failure, faking a
+    # "neutral wrong answer" instead of surfacing the failure. Now the node
+    # re-raises so ``@node_error_handler(retry)`` can apply the truncation /
+    # retry / hard-fail contract — and ``state["error"]`` carries the typed
+    # envelope (``error_category=parse_fail``) instead.
     try:
         result = await client.invoke(
             messages=[
@@ -48,15 +54,26 @@ Output ONLY a JSON object:
             thread_id=state.get("thread_id", "unknown"),
             node_name="error_coach_evaluate",
         )
-        content = result["content"]
-        json_match = re.search(r"\{.*\}", content, re.DOTALL)
-        if json_match:
-            data = json.loads(json_match.group(0))
-            score = int(data.get("score", 5))
-        else:
-            score = 5
-    except Exception:
-        score = 5
+    except Exception as e:
+        # Re-raise so the @node_error_handler decorator chain catches it.
+        # ``classify_exception`` will map JSON/parse errors to "parse_fail"
+        # and other LLM errors to their respective category. The retry +
+        # hard-fail contract takes over from here.
+        raise
+
+    content = result["content"]
+    json_match = re.search(r"\{.*\}", content, re.DOTALL)
+    if json_match:
+        data = json.loads(json_match.group(0))
+        score = int(data["score"])
+    else:
+        # No JSON brace found → malformed LLM output. Surface as parse_fail
+        # via re-raise instead of silently logging score=5.
+        from app.agents.structured_output.errors import ParseFail
+
+        raise ParseFail(
+            f"error_coach_evaluate: LLM returned no JSON object. content={content!r:.200}"
+        )
 
     correct_count = state.get("correct_count", 0)
     attempt_count = state.get("attempt_count", 0) + 1

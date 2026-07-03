@@ -93,6 +93,17 @@ class Settings(BaseSettings):
     avatar_max_bytes: int = 2_097_152  # 2 MB
     avatar_max_dimension: int = 2048
 
+    # ---- REQ-041 US1 FR-007 — ``@node_error_handler`` + ``state.error`` dual-track flag ----
+    # Independently toggles the 041 US1 error-handling refactor (FR-002 + FR-003).
+    # Independent of (and intentionally NAMESpaced away from):
+    #   * 040 US1 ``INTERVIEW_USE_V2_STATE_SCHEMA`` in app.agents.interview.config
+    #   * 040 US2 ``INTERVIEW_USE_V2_NODE_SPLIT``  in app.agents.interview.config
+    #   * 041 US2 ``AGENT_USE_V2_TOOL_BINDING``    (deferred to US-2 MB4)
+    # Default ``false`` ⇒ legacy behaviour (no decorator, no state.error);
+    # flip to ``true`` to opt every LLM node into the new contract.
+    # TODO(release-manager): drop this flag after the 1-week dual-track window.
+    agent_use_v2_error_handler: bool = False
+
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 

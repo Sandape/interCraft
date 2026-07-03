@@ -136,4 +136,53 @@ def classify_exception(exc: BaseException) -> NodeErrorCategory:
     return "schema_invalid"
 
 
-__all__ = ["NodeError", "NodeErrorCategory", "classify_exception"]
+def serialize_state_error(
+    state_error: "Any | None" = None,
+    state_error_legacy: "str | None" = None,
+) -> "dict[str, Any]":
+    """Project ``state["error"]`` + ``state["error_legacy"]`` to API JSON.
+
+    Per AC-3.4 / AC-3.1a / AC-3.7a — the API response MUST expose:
+
+    - ``error_legacy_str`` — the str-typed legacy field (during the 1-week
+      dual-track window). Once the release manager deletes the legacy
+      str field, this key will go away too.
+    - ``error_category`` — the 6-bucket category from ``NodeError``.
+    - ``node_name`` — the node that failed.
+    - ``cause`` — the exception's str() representation (best-effort).
+    - ``retry_after`` and ``timestamp`` — optional fields.
+
+    Untyped / no-error states yield only the keys they have populated.
+    """
+    from typing import Any as _Any  # local import to avoid recursion
+
+    out: dict[str, _Any] = {}
+
+    # AC-3.1a: legacy str is always reflected when present.
+    if state_error_legacy is not None:
+        out["error_legacy_str"] = state_error_legacy
+
+    # AC-3.4 / AC-3.7a: typed envelope reflected via 4 keys.
+    if state_error is not None:
+        if isinstance(state_error, NodeError):
+            payload = state_error.model_dump()
+        elif isinstance(state_error, dict):
+            payload = state_error
+        else:
+            payload = {}
+
+        if "category" in payload:
+            out["error_category"] = payload["category"]
+        if "node_name" in payload:
+            out["node_name"] = payload["node_name"]
+        if "cause" in payload:
+            out["cause"] = payload["cause"]
+        if "retry_after" in payload and payload["retry_after"] is not None:
+            out["retry_after"] = payload["retry_after"]
+        if "timestamp" in payload and payload["timestamp"] is not None:
+            out["timestamp"] = payload["timestamp"]
+
+    return out
+
+
+__all__ = ["NodeError", "NodeErrorCategory", "classify_exception", "serialize_state_error"]

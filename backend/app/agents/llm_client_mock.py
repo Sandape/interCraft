@@ -152,11 +152,20 @@ class MockLLMClient(LLMClient):
 
     def _content_for(self, node_name: str, messages: list[dict[str, str]]) -> str:
         if node_name == "error_coach_evaluate":
-            if self._evaluate_index < len(self.evaluate_scores):
-                score = self.evaluate_scores[self._evaluate_index]
-                self._evaluate_index += 1
-            else:
-                score = 5
+            # AC-3.2 / AC-3.7 — silent fallback REMOVED. The mock previously
+            # returned ``{"score": 5}`` when its fixture sequence was
+            # exhausted, which faked a neutral answer instead of failing
+            # loudly. Now we raise ``ParseFail`` so the test mirrors the
+            # production LLM path (no JSON object ⇒ unable to score).
+            if self._evaluate_index >= len(self.evaluate_scores):
+                from app.agents.structured_output.errors import ParseFail
+
+                raise ParseFail(
+                    "error_coach_evaluate: mock LLM has no more evaluate_scores "
+                    "configured; refusing to silently return score=5 (AC-3.2)."
+                )
+            score = self.evaluate_scores[self._evaluate_index]
+            self._evaluate_index += 1
             return json.dumps({"score": score, "feedback": "mock"}, ensure_ascii=False)
         if node_name == "error_coach_hint":
             level = self._extract_hint_level(messages)

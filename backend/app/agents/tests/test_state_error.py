@@ -287,9 +287,13 @@ class TestExceptionClassificationImports:
         from app.agents.utils import node_error_handler as mod
 
         text = Path(mod.__file__).read_text(encoding="utf-8")
+        # node_error_handler.py uses a multi-line parenthesised import — the
+        # pattern must span newlines (DOTALL) so the whole import block is
+        # captured as one match group.
         pattern = re.compile(
-            r"from\s+app\.agents\.structured_output\.errors\s+import[^#\n]*"
-            r"(SchemaInvalid|ParseFail|Quota|Timeout|OutOfBounds)"
+            r"from\s+app\.agents\.structured_output\.errors\s+import[^#]*"
+            r"(SchemaInvalid|ParseFail|Quota|Timeout|OutOfBounds)",
+            re.DOTALL,
         )
         assert pattern.search(text), (
             "node_error_handler.py must import 038 subclasses "

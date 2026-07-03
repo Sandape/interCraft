@@ -110,9 +110,9 @@ class InterviewInputState(TypedDict, total=False):
 
 
 class InterviewOverallState(TypedDict, total=False):
-    """Overall state for the Interview graph — 20 fields.
+    """Overall state for the Interview graph — 21 fields.
 
-    AC-2.2 enforces a 20-field whitelist (set equality). ``scores`` uses
+    AC-2.2 enforces a 21-field whitelist (set equality). ``scores`` uses
     the custom ``override_reducer`` (FR-001) so nodes can reset the list
     via the ``{"type": "override", "value": X}`` protocol.
 
@@ -133,7 +133,16 @@ class InterviewOverallState(TypedDict, total=False):
     branch_id: str | None
     overall_score: float | None
     interview_report: dict[str, Any] | None
-    error: str | None
+    # REQ-041 US1 FR-003 AC-3.1 — DUAL-TRACK period (1 week observation):
+    # ``error_legacy: str | None`` is the LEGACY field, renamed from
+    # ``error: str | None``. Existing callers that read ``state["error_legacy"]``
+    # as a plain string continue to work. After the observation window +
+    # release-manager cut, this field will be deleted.
+    error_legacy: str | None
+    # REQ-041 US1 FR-003 AC-3.1 — typed failure envelope written by
+    # ``@node_error_handler(fallback_strategy="use_previous")``. Serialised
+    # to the API response as ``error_category`` + ``node_name``.
+    error: dict[str, Any] | None
     user_id: str
     thread_id: str
     job_id: str | None
