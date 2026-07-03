@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     deepseek_model_score: str = "deepseek-v4-pro"
     deepseek_model_report: str = "deepseek-v4-pro"
 
+    # ---- Web search (Phase 5) — Tavily for ``tavily_search`` @tool (FR-004) ----
+    # Empty default by design: ``tavily_search.ainvoke`` raises
+    # ``TavilyAPIKeyMissingError`` (per AC-4.1a) when this is empty.
+    tavily_api_key: str = ""
+
     # ---- Crypto versioning ----
     crypto_key_version: int = 1
 
@@ -103,6 +108,39 @@ class Settings(BaseSettings):
     # flip to ``true`` to opt every LLM node into the new contract.
     # TODO(release-manager): drop this flag after the 1-week dual-track window.
     agent_use_v2_error_handler: bool = False
+
+    # ---- REQ-041 US2 FR-007 — ``bind_tools`` + control-flow tools dual-track flag ----
+    # Independently toggles the 041 US2 @tool / bind_tools roll-out (FR-004 +
+    # FR-005). Each flag is intentionally a separate boolean so call sites can
+    # adopt tool-binding + control-flow tools independently during the 1-week
+    # observation window.
+    #
+    # AGENT_USE_V2_TOOL_BINDING
+    #   when False (default): nodes call the query_* tools / tavily_search
+    #       via direct function calls (legacy behaviour).
+    #   when True: nodes opt in to ``llm.bind_tools([tavily_search, ...])``
+    #       and the LLM owns tool-selection at the node level (per spec US-2 AS1).
+    #
+    # AGENT_USE_V2_CONTROL_TOOLS
+    #   when False (default): agents have no access to ``think_tool`` /
+    #       ``MarkComplete``; the legacy loop guards (correct_count >= 3)
+    #       continue to drive completion.
+    #   when True: ``think_tool`` + ``MarkComplete`` are bound alongside the
+    #       query tools so the LLM can reflect (spec US-2 AS2) and self-terminate
+    #       (spec US-2 AS3) — ``MarkComplete`` priority over ``correct_count``
+    #       is enforced via the ``_mark_complete`` front-branch in
+    #       ``loop_or_finish_node`` (AC-5.5a).
+    #
+    # Independent of:
+    #   * 040 US1 ``INTERVIEW_USE_V2_STATE_SCHEMA`` in app.agents.interview.config
+    #   * 040 US2 ``INTERVIEW_USE_V2_NODE_SPLIT``  in app.agents.interview.config
+    #   * 041 US1 ``AGENT_USE_V2_ERROR_HANDLER`` above
+    #
+    # Default ``false`` ⇒ legacy behaviour preserved; flip to ``true`` to opt
+    # individual agent nodes into the new contract.
+    # TODO(release-manager): drop these flags after the 1-week observation window.
+    agent_use_v2_tool_binding: bool = False
+    agent_use_v2_control_tools: bool = False
 
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]

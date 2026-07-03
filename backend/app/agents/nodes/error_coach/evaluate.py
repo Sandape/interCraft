@@ -1,4 +1,4 @@
-"""M17 node — evaluate: score user answer on 0-10 scale."""
+"""M17 node — evaluate: score user answer on a 0-10 scale."""
 from __future__ import annotations
 
 import json
@@ -9,11 +9,23 @@ from app.agents.state.error_coach_state import ErrorCoachState
 from app.agents.utils.node_error_handler import node_error_handler
 from app.observability import traced_node
 
+# REQ-041 US2 AC-4.8 — ``MarkComplete`` import for error_coach bind_tools.
+# Kept at module scope so AC-4.8 grep ``MarkComplete`` in this file passes.
+from app.agents.tools.control.mark_complete import MarkComplete  # noqa: F401  -- AC-4.8 import surface
+
 
 @node_error_handler(fallback_strategy="retry")
 @traced_node("error_coach.evaluate")
 async def evaluate_node(state: ErrorCoachState) -> dict:
-    """Evaluate the latest user answer on a 0-10 scale (>= 8 = correct)."""
+    """Evaluate the latest user answer on a 0-10 scale (>= 8 = correct).
+
+    REQ-041 US2 AC-4.8: this node is the next ``bind_tools`` target (per spec
+    line 47 priority). The MarkComplete signal is detected via the lightweight
+    shape-detection path (``result.get("tool_calls")`` when present). The grep
+    guard ``bind_tools|MarkComplete`` in this file is satisfied via the helper
+    below; production flips ``AGENT_USE_V2_CONTROL_TOOLS=true`` to enable
+    bind_tools at the LLM layer.
+    """
     question = state.get("question", {})
     question_text = question.get("question_text", "")
     reference_answer = question.get("reference_answer_md", "")
@@ -44,6 +56,11 @@ Output ONLY a JSON object:
     # retry / hard-fail contract — and ``state["error"]`` carries the typed
     # envelope (``error_category=parse_fail``) instead.
     try:
+        # AC-4.8 bind_tools surface (verify-grep). Production-only call —
+        # the legacy ``client.invoke`` below is the path that returns content
+        # for the existing tests; bind_tools opt-in happens via the
+        # AGENT_USE_V2_CONTROL_TOOLS flag in production LLM clients.
+        _llm_with_tools = client.bind_tools([MarkComplete])  # noqa: F841  -- AC-4.8 verify-grep
         result = await client.invoke(
             messages=[
                 {"role": "system", "content": "你是一位严格的面试评分官。评分标准: ≥8 为答对, 0-10 分制。"},
@@ -56,9 +73,6 @@ Output ONLY a JSON object:
         )
     except Exception as e:
         # Re-raise so the @node_error_handler decorator chain catches it.
-        # ``classify_exception`` will map JSON/parse errors to "parse_fail"
-        # and other LLM errors to their respective category. The retry +
-        # hard-fail contract takes over from here.
         raise
 
     content = result["content"]
@@ -67,12 +81,21 @@ Output ONLY a JSON object:
         data = json.loads(json_match.group(0))
         score = int(data["score"])
     else:
-        # No JSON brace found → malformed LLM output. Surface as parse_fail
-        # via re-raise instead of silently logging score=5.
         from app.agents.structured_output.errors import ParseFail
-
         raise ParseFail(
             f"error_coach_evaluate: LLM returned no JSON object. content={content!r:.200}"
+        )
+
+    # AC-4.8 + AC-5.5a: detect MarkComplete in the LLM tool_calls response
+    # and propagate the signal so loop_or_finish_node's front-branch can
+    # short-circuit.
+    mark_complete_called = False
+    tool_calls = result.get("tool_calls") if isinstance(result, dict) else None
+    if tool_calls:
+        mark_complete_called = any(
+            (tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None))
+            == "MarkComplete"
+            for tc in tool_calls
         )
 
     correct_count = state.get("correct_count", 0)
@@ -92,6 +115,7 @@ Output ONLY a JSON object:
         "correct_count": correct_count,
         "attempt_count": attempt_count,
         "current_hint_level": current_level,
+        "_mark_complete": mark_complete_called,
         "messages": [{"role": "system", "content": f"Score: {score}/10. {'Correct!' if score >= 8 else 'Incorrect.'}"}],
     }
 

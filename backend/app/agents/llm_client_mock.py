@@ -20,7 +20,9 @@ import json
 import structlog
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 
 from app.agents.llm_client import LLMClient, LLMResponse
@@ -55,10 +57,53 @@ class MockLLMClient(LLMClient):
         self,
         evaluate_scores: list[int] | None = None,
         hint_contents: dict[str, str] | None = None,
+        planned_tool_calls: list[dict] | None = None,
     ) -> None:
         self.evaluate_scores: list[int] = list(evaluate_scores or _DEFAULT_SCORES)
         self.hint_contents: dict[str, str] = dict(hint_contents or _DEFAULT_HINTS)
+        self.planned_tool_calls: list[dict] = list(planned_tool_calls or [])
         self._evaluate_index: int = 0
+        self._planned_index: int = 0
+        self.call_count: int = 0
+
+    def _next_planned_tool_call(self) -> dict | None:
+        """Pop the next planned tool call dict if available.
+
+        The dict must carry ``id`` (str), ``name`` (str), ``args`` (dict) — the
+        LangChain ``ToolCall`` tri-field. We assert it here so callers cannot
+        silently supply incomplete fixtures (AC-E2E-US2-2).
+        """
+        if self._planned_index >= len(self.planned_tool_calls):
+            return None
+        tc = self.planned_tool_calls[self._planned_index]
+        self._planned_index += 1
+        # Validation — fail loud, not silent.
+        if "id" not in tc or not isinstance(tc["id"], str) or not tc["id"]:
+            tc = {**tc, "id": f"mock-{uuid4().hex[:12]}"}
+        if "name" not in tc or not isinstance(tc["name"], str):
+            raise ValueError(
+                f"planned_tool_calls entry missing 'name' (str): {tc!r}. "
+                f"See AC-E2E-US2-2."
+            )
+        if "args" not in tc:
+            tc = {**tc, "args": {}}
+        return tc
+
+    def _planned_message(self) -> AIMessage:
+        """Build an AIMessage with content='' and the next tool_calls entry.
+
+        Mirrors the frontier LLM bind_tools response shape (AC-4.7b / AC-E2E-US2-1).
+        """
+        tc = self._next_planned_tool_call()
+        if tc is None:
+            return AIMessage(content="", tool_calls=[])
+        # LangChain tool_calls field accepts a list of dicts with id/name/args.
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {"id": tc["id"], "name": tc["name"], "args": tc["args"]},
+            ],
+        )
 
     @classmethod
     def from_scenario_file(cls, path: str) -> "MockLLMClient":
@@ -109,6 +154,35 @@ class MockLLMClient(LLMClient):
             duration_ms=0,
             checkpoint_id=checkpoint_id,
         )
+
+    async def ainvoke(
+        self,
+        messages: Any,
+        *,
+        user_id: str = "mock-user",
+        thread_id: str = "mock-thread",
+        node_name: str = "planner_search",
+        **kwargs: Any,
+    ) -> AIMessage:
+        """LangChain-style ainvoke used by bind_tools nodes.
+
+        Returns either:
+        - AIMessage(content='', tool_calls=[{id, name, args}])  if a planned
+          tool call is queued (per AC-E2E-US2-1 frontier LLM bind_tools shape).
+        - AIMessage(content=..., tool_calls=[])                  otherwise.
+
+        Each call advances ``call_count`` so AC-E2E-US2-1 can assert the
+        exact number of LLM invocations (no off-by-one).
+        """
+        self.call_count += 1
+        msg = self._planned_message()
+        # If we exhausted planned tool calls, fall back to text content shaped
+        # by node_name (preserves existing evaluate_scores / hint_contents
+        # behaviour for non-tool nodes).
+        if not msg.tool_calls and not self.planned_tool_calls:
+            text = self._content_for(node_name, messages or [])
+            return AIMessage(content=text, tool_calls=[])
+        return msg
 
     async def invoke_stream(self, **kwargs):  # pragma: no cover - unused in Error Coach
         yield ""

@@ -37,6 +37,13 @@ class ErrorCoachState(TypedDict, total=False):
     current_hint_level: Literal["small", "medium", "detailed"]
     session_aborted: bool
 
+    # REQ-041 US2 FR-005 — ``MarkComplete`` priority over ``correct_count`` guard.
+    # When the LLM calls the ``MarkComplete`` @tool (FR-005), the surrounding
+    # node function returns ``{"_mark_complete": True}`` and the
+    # conditional-edge router (``loop_or_finish_node``) reads this field as a
+    # FRONT-branch (before the ``correct_count >= 3`` loop guard per AC-5.5a).
+    _mark_complete: bool
+
 
 __all__ = ["ErrorCoachState"]
 

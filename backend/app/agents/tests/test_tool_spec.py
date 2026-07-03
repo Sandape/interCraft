@@ -11,18 +11,18 @@ import pytest
 
 
 def test_tool_spec_pydantic_schema() -> None:
-    """AC-6.1: ToolSpec(name, schema, side_effects, requires_approval=False) Pydantic model."""
+    """AC-6.1: ToolSpec(name, args_schema, side_effects, requires_approval=False) Pydantic model."""
     from app.agents.tools.spec import ToolSpec
 
     # Construct a ToolSpec and verify all 4 fields are present.
     ts = ToolSpec(
         name="x",
-        schema={"queries": "list[str]"},
+        args_schema={"queries": "list[str]"},
         side_effects=["read"],
         requires_approval=False,
     )
     assert ts.name == "x"
-    assert ts.schema == {"queries": "list[str]"}
+    assert ts.args_schema == {"queries": "list[str]"}
     assert ts.side_effects == ["read"]
     assert ts.requires_approval is False
 
@@ -39,11 +39,27 @@ def test_side_effect_rules_explicit() -> None:
     assert len(rules) >= 5, (
         f"SIDE_EFFECT_RULES must have >= 5 entries, got {len(rules)}: {sorted(rules.keys())}"
     )
-    # Verify coverage of the 6 tool categories via prefix matching.
-    expected_prefixes = {"tavily", "query_", "think_tool", "MarkComplete"}
-    assert expected_prefixes.issubset(set(rules.keys())), (
-        f"Missing prefixes in SIDE_EFFECT_RULES: {expected_prefixes - set(rules.keys())}. "
-        f"Present: {sorted(rules.keys())}"
+    # Coverage: each of the 6 tool categories must resolve to a non-empty rule.
+    # Rules are keyed by exact names for clarity / grep-ability.
+    expected_categories = {
+        "tavily_search",
+        "query_error_question",
+        "query_resume_blocks",
+        "query_interview_report",
+        "think_tool",
+        "MarkComplete",
+    }
+    # Either an exact key OR a prefix key (e.g. "query_" / "tavily_") may resolve each tool.
+    def _has_rule(tool_name: str) -> bool:
+        for key in rules:
+            if tool_name == key or tool_name.startswith(key):
+                return True
+        return False
+
+    missing = {name for name in expected_categories if not _has_rule(name)}
+    assert not missing, (
+        f"Tools without a SIDE_EFFECT_RULES match: {missing}. "
+        f"Present keys: {sorted(rules.keys())}"
     )
 
 

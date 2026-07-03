@@ -7,6 +7,7 @@ from __future__ import annotations
 from uuid import UUID
 
 import structlog
+from langchain_core.tools import tool
 
 from app.core.db import get_session_factory
 from app.modules.errors.repository import ErrorQuestionRepository
@@ -14,6 +15,7 @@ from app.modules.errors.repository import ErrorQuestionRepository
 logger = structlog.get_logger("agents.tools.query_error_question")
 
 
+@tool
 async def query_error_question_by_id(
     error_question_id: str,
     *,

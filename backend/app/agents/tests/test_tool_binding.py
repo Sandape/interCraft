@@ -145,15 +145,29 @@ class TestEightFlagCombinations:
     def test_ac_7_1_eight_flag_combinations_independent(
         self, monkeypatch, error_handler, tool_binding, control_tools
     ):
-        """Each AGENT_USE_V2_* flag toggles independently. Build a Settings instance
-        with each combo and assert the three bool fields hold the expected values."""
+        """Each AGENT_USE_V2_* flag toggles independently. Build a fresh Settings
+        instance with each combo and assert the three bool fields hold the
+        expected values.
+
+        We construct ``Settings()`` directly (not via the cached get_settings())
+        so each parametrize case gets an isolated view of the environment.
+        """
         monkeypatch.setenv("AGENT_USE_V2_ERROR_HANDLER", "true" if error_handler else "false")
         monkeypatch.setenv("AGENT_USE_V2_TOOL_BINDING", "true" if tool_binding else "false")
         monkeypatch.setenv("AGENT_USE_V2_CONTROL_TOOLS", "true" if control_tools else "false")
 
-        from app.core.config import get_settings
+        from app.core.config import Settings
 
-        settings = get_settings()
-        assert settings.agent_use_v2_error_handler is error_handler
-        assert settings.agent_use_v2_tool_binding is tool_binding
-        assert settings.agent_use_v2_control_tools is control_tools
+        settings = Settings()
+        assert settings.agent_use_v2_error_handler is error_handler, (
+            f"AGENT_USE_V2_ERROR_HANDLER mismatch for combo ("
+            f"{error_handler}, {tool_binding}, {control_tools})"
+        )
+        assert settings.agent_use_v2_tool_binding is tool_binding, (
+            f"AGENT_USE_V2_TOOL_BINDING mismatch for combo ("
+            f"{error_handler}, {tool_binding}, {control_tools})"
+        )
+        assert settings.agent_use_v2_control_tools is control_tools, (
+            f"AGENT_USE_V2_CONTROL_TOOLS mismatch for combo ("
+            f"{error_handler}, {tool_binding}, {control_tools})"
+        )
