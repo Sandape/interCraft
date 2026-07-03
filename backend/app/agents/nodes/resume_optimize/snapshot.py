@@ -9,6 +9,7 @@ are applied (per-patch accept/reject). None = apply all.
 from __future__ import annotations
 
 from app.agents.state.resume_optimize_state import ResumeOptimizeState
+from app.observability import traced_node
 from app.services.resume_optimize_service import ResumeOptimizeService
 
 
@@ -23,6 +24,7 @@ def _filter_patches(
     return [p for i, p in enumerate(patches) if i in accepted_set]
 
 
+@traced_node("resume_optimize.snapshot")
 async def snapshot_node(state: ResumeOptimizeState) -> dict:
     """Apply patches and create a version snapshot."""
     decision = state.get("decision")

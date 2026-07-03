@@ -19,7 +19,37 @@ from app.agents.nodes.error_coach.fetch_question import fetch_question_node
 from app.agents.nodes.error_coach.hint_ladder import hint_ladder_node
 from app.agents.nodes.error_coach.loop_or_finish import loop_or_finish_node
 from app.agents.state.error_coach_state import ErrorCoachState
+from app.observability import traced_node
 from app.services.error_coach_service import ErrorCoachService
+
+
+# ---------------------------------------------------------------------------
+# US2 AC-3.4 / AC-E2E-5: re-decorated shims with `__name__` matching the
+# {role}_{action} suffix so the add_node registration name and the
+# function `__name__` align. The underlying implementation still lives in
+# the leaf module (and is still importable as ``*_node`` for backward
+# compat with external callers like ``app.eval.runner``).
+# ---------------------------------------------------------------------------
+
+
+@traced_node("error_coach.fetch_question")
+async def fetch_question(state: Any) -> Any:
+    return await fetch_question_node(state)
+
+
+@traced_node("error_coach.hint_ladder")
+async def hint_ladder(state: Any) -> Any:
+    return await hint_ladder_node(state)
+
+
+@traced_node("error_coach.evaluate")
+async def evaluate(state: Any) -> Any:
+    return await evaluate_node(state)
+
+
+@traced_node("error_coach.loop_or_finish")
+async def loop_or_finish(state: Any) -> Any:
+    return await loop_or_finish_node(state)
 
 
 class ErrorCoachGraph(BaseAgent):
@@ -31,20 +61,21 @@ class ErrorCoachGraph(BaseAgent):
     async def build_graph(self) -> StateGraph:
         builder = StateGraph(ErrorCoachState)
 
-        builder.add_node("fetch_question", fetch_question_node)
-        builder.add_node("hint_ladder", hint_ladder_node)
-        builder.add_node("evaluate", evaluate_node)
-        builder.add_node("loop_or_finish", loop_or_finish_node)
+        # US2 FR-003 / AC-3.4: node names follow `{agent}.{role}_{action}`.
+        builder.add_node("error_coach.fetch_question", fetch_question)
+        builder.add_node("error_coach.hint_ladder", hint_ladder)
+        builder.add_node("error_coach.evaluate", evaluate)
+        builder.add_node("error_coach.loop_or_finish", loop_or_finish)
 
-        builder.set_entry_point("fetch_question")
-        builder.add_edge("fetch_question", "hint_ladder")
-        builder.add_edge("hint_ladder", "evaluate")
-        builder.add_edge("evaluate", "loop_or_finish")
+        builder.set_entry_point("error_coach.fetch_question")
+        builder.add_edge("error_coach.fetch_question", "error_coach.hint_ladder")
+        builder.add_edge("error_coach.hint_ladder", "error_coach.evaluate")
+        builder.add_edge("error_coach.evaluate", "error_coach.loop_or_finish")
         builder.add_conditional_edges(
-            "loop_or_finish",
+            "error_coach.loop_or_finish",
             self._route_after_loop,
             {
-                "hint_ladder": "hint_ladder",
+                "hint_ladder": "error_coach.hint_ladder",
                 END: END,
             },
         )
@@ -56,7 +87,7 @@ class ErrorCoachGraph(BaseAgent):
         # conversation with itself and submit_answer is a no-op.
         return builder.compile(
             checkpointer=checkpointer,
-            interrupt_after=["hint_ladder"],
+            interrupt_after=["error_coach.hint_ladder"],
         )
 
     def _route_after_loop(self, state: ErrorCoachState) -> Literal["hint_ladder", "__end__"]:
@@ -116,8 +147,8 @@ class ErrorCoachGraph(BaseAgent):
         # second time during abort. Using as_node="evaluate" advances the
         # cursor past evaluate so ainvoke resumes at loop_or_finish.
         next_nodes = list(state.next or [])
-        if "evaluate" in next_nodes:
-            await retry_graph_op(self.build_graph, config, "aupdate_state", {"session_aborted": True}, as_node="evaluate")
+        if "error_coach.evaluate" in next_nodes:
+            await retry_graph_op(self.build_graph, config, "aupdate_state", {"session_aborted": True}, as_node="error_coach.evaluate")
         else:
             await retry_graph_op(self.build_graph, config, "aupdate_state", {"session_aborted": True})
         result = await retry_graph_op(self.build_graph, config, "ainvoke", None, state_first=True)

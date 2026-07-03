@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.agents.llm_client import get_llm_client
 from app.agents.state.error_coach_state import ErrorCoachState
+from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "error_coach"
 
@@ -17,6 +18,7 @@ def _load_prompt(name: str) -> str:
 _HINT_LEVELS = ["small", "medium", "detailed"]
 
 
+@traced_node("error_coach.hint_ladder")
 async def hint_ladder_node(state: ErrorCoachState) -> dict:
     """Generate a hint based on current hint level."""
     question = state.get("question", {})

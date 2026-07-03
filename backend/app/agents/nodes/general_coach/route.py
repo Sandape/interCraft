@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from app.agents.state.general_coach_state import GeneralCoachState
+from app.observability import traced_node
 
 _REDIRECT_MAP = {
     "resume_optimize": "简历优化",
@@ -13,6 +14,7 @@ _REDIRECT_MAP = {
 _CONFIDENCE_THRESHOLD = 0.7
 
 
+@traced_node("general_coach.route")
 async def route_node(state: GeneralCoachState) -> dict:
     """Route based on intent confidence — redirect or respond."""
     intent = state.get("detected_intent", "chitchat")

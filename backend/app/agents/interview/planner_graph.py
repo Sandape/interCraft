@@ -1,4 +1,4 @@
-"""M032 / REQ-032 v2 MVP — Stub planner_graph.
+"""M032 / REQ-032 v2 MVP — Stub planner_graph (REQ-040 US-1 migrated).
 
 The real ``planner_graph`` lives in feature 025 (Interview Planner, US7-9)
 which is tracked separately and ships at a later release. For the
@@ -15,6 +15,15 @@ does NOT touch the DB, and does NOT block startup.
 
 Once the real planner_graph (025) lands, this file should be replaced
 by re-exporting the real ``get_planner_subgraph``.
+
+US-1 / FR-002 field-name consistency (AC-E2E-2):
+------------------------------------------------
+The planner subgraph's output key MUST be the unified field name (see
+AC-E2E-2 in the AC matrix). ``graph.py`` no longer carries the legacy
+``_planner_complete_node`` bridge to rename fields, so the planner
+must write the unified name directly. The stub returns an empty state
+delta, so it does not write anything; the real planner (025) is
+responsible for writing the unified field name when it ships.
 """
 from __future__ import annotations
 
@@ -38,7 +47,9 @@ async def get_planner_subgraph() -> Any:
     async def _passthrough_node(state: dict[str, Any]) -> dict[str, Any]:
         # No-op: the real planner populates plan_items, questions,
         # and scoring rubrics. For the MVP smoke-test we only need
-        # the graph to compile + run without raising.
+        # the graph to compile + run without raising. The real
+        # implementation will write 'interview_plan' to the parent
+        # state (unified field name per AC-E2E-2).
         return {}
 
     return _passthrough_node

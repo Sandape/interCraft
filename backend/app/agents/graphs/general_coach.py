@@ -18,6 +18,24 @@ from app.agents.nodes.general_coach.intent import intent_node
 from app.agents.nodes.general_coach.respond import respond_node
 from app.agents.nodes.general_coach.route import route_node
 from app.agents.state.general_coach_state import GeneralCoachState
+from app.observability import traced_node
+
+
+# US2 AC-3.4 / AC-E2E-5: re-decorated shims with `__name__` matching the
+# {role}_{action} suffix.
+@traced_node("general_coach.intent")
+async def intent(state: Any) -> Any:
+    return await intent_node(state)
+
+
+@traced_node("general_coach.route")
+async def route(state: Any) -> Any:
+    return await route_node(state)
+
+
+@traced_node("general_coach.respond")
+async def respond(state: Any) -> Any:
+    return await respond_node(state)
 
 
 class GeneralCoachGraph(BaseAgent):
@@ -29,14 +47,15 @@ class GeneralCoachGraph(BaseAgent):
     async def build_graph(self) -> StateGraph:
         builder = StateGraph(GeneralCoachState)
 
-        builder.add_node("intent", intent_node)
-        builder.add_node("route", route_node)
-        builder.add_node("respond", respond_node)
+        # US2 FR-003 / AC-3.4: node names follow `{agent}.{role}_{action}`.
+        builder.add_node("general_coach.intent", intent)
+        builder.add_node("general_coach.route", route)
+        builder.add_node("general_coach.respond", respond)
 
-        builder.set_entry_point("intent")
-        builder.add_edge("intent", "route")
-        builder.add_edge("route", "respond")
-        builder.add_edge("respond", END)
+        builder.set_entry_point("general_coach.intent")
+        builder.add_edge("general_coach.intent", "general_coach.route")
+        builder.add_edge("general_coach.route", "general_coach.respond")
+        builder.add_edge("general_coach.respond", END)
 
         checkpointer = await get_checkpointer()
         return builder.compile(checkpointer=checkpointer)

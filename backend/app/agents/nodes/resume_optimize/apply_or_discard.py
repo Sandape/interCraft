@@ -7,8 +7,10 @@ pauses here and waits for the confirm endpoint to supply the decision.
 from __future__ import annotations
 
 from app.agents.state.resume_optimize_state import ResumeOptimizeState
+from app.observability import traced_node
 
 
+@traced_node("resume_optimize.apply_or_discard")
 async def apply_or_discard_node(state: ResumeOptimizeState) -> dict:
     """Interrupt point — evaluate user decision and route.
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.agents.llm_client import get_llm_client
 from app.agents.state.general_coach_state import GeneralCoachState
+from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "general_coach"
 
@@ -14,6 +15,7 @@ def _load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@traced_node("general_coach.respond")
 async def respond_node(state: GeneralCoachState) -> dict:
     """Generate a response using LLM based on intent and question."""
     messages = state.get("messages", [])

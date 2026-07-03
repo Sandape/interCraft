@@ -10,6 +10,7 @@ from pathlib import Path
 
 from app.agents.llm_client import get_llm_client
 from app.agents.state.resume_optimize_state import ResumeOptimizeState
+from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "resume_optimize"
 
@@ -19,6 +20,7 @@ def _load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@traced_node("resume_optimize.suggest_blocks")
 async def suggest_blocks_node(state: ResumeOptimizeState) -> dict:
     """Generate proposed JSON Patch from the diff analysis."""
     target_jd = state.get("target_jd", "")

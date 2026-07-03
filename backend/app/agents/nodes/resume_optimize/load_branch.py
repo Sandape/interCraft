@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from app.agents.state.resume_optimize_state import ResumeOptimizeState
 from app.agents.tools.query_resume_blocks import query_resume_blocks
+from app.observability import traced_node
 
 
+@traced_node("resume_optimize.load_branch")
 async def load_branch_node(state: ResumeOptimizeState) -> dict:
     """Load the current blocks for the target resume branch."""
     branch_id = state.get("branch_id", "")

@@ -578,32 +578,38 @@ class EvalRunner:
         `get_llm_client().invoke(...)` which we patch to yield
         `case.llm_response`, and returns a state-update dict.
 
-        For score_node: also patches `_sink_to_error_book` to a no-op so the
-        eval suite doesn't need a real DB connection.
+        REQ-040 US2 FR-004: ``score`` was split into ``score_llm`` (LLM)
+        and ``sink_error`` (DB). The eval suite invokes the LLM-only
+        ``score_llm`` directly; ``sink_error`` is not exercised here
+        because it requires a real DB connection.
         """
         state = dict(case.input_state)
         node = case.node
 
         stub = _StubLLMClient(case.llm_response)
 
-        if node == "interview.score":
-            return await self._invoke_score_node(state, stub)
+        if node == "interview.score" or node == "interview.score_llm":
+            return await self._invoke_score_llm_node(state, stub)
         if node == "interview.report":
             return await self._invoke_report_node(state, stub)
         # Future: error_coach.evaluate, resume_optimize.generate, etc.
         raise ValueError(f"unsupported_node:{node}")
 
-    async def _invoke_score_node(
+    async def _invoke_score_llm_node(
         self, state: dict[str, Any], stub: _StubLLMClient
     ) -> dict[str, Any]:
-        """Invoke interview.nodes.score.score_node with patched deps."""
-        from app.agents.interview.nodes.score import score_node
+        """Invoke interview.nodes.score_llm.score_llm_node with patched deps.
 
-        with (
-            patch("app.agents.interview.nodes.score.get_llm_client", return_value=stub),
-            patch("app.agents.interview.nodes.score._sink_to_error_book", new=_noop_sink),
+        REQ-040 US2 FR-004: ``score_llm_node`` is the LLM-only path; the
+        DB write (``sink_error``) is a separate node and is NOT invoked
+        from the eval suite.
+        """
+        from app.agents.interview.nodes.score_llm import score_llm_node
+
+        with patch(
+            "app.agents.interview.nodes.score_llm.get_llm_client", return_value=stub
         ):
-            return await score_node(state)
+            return await score_llm_node(state)
 
     async def _invoke_report_node(
         self, state: dict[str, Any], stub: _StubLLMClient
