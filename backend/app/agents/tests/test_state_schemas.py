@@ -6,13 +6,10 @@ FR-008 (AC-8.x): Feature flag dual-track
 """
 from __future__ import annotations
 
-import os
-
 import pytest
 from pydantic import BaseModel, ValidationError
 
 from app.agents.interview.context import (
-    MemoryItem,
     PlannerContext,
     WebResearchBundle,
 )

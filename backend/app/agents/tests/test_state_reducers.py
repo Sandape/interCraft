@@ -67,19 +67,15 @@ def test_override_reducer_coexists_with_add_messages() -> None:
 # AC-1.3a — score_node 函数层 override 协议契约
 # ---------------------------------------------------------------------------
 def test_score_node_returns_override_protocol() -> None:
-    """AC-1.3a: When score_node is configured to use override protocol, the
-    returned delta matches the dict protocol contract."""
-    from app.agents.interview.nodes.score import score_node
+    """AC-1.3a: Score-node override protocol contract.
 
-    # Read the function signature — score_node accepts state dict, returns state delta
-    # We don't need to call the real LLM; we just verify the protocol contract:
-    # if override is desired, caller passes {"scores": {"type": "override", "value": [...]}}
-    # The reducer (not score_node itself) does the resolution.
-
-    # Direct reducer test (regression: pure function contract)
+    We don't call the real score_node (it requires an LLM); instead we
+    verify the protocol contract: a node that wants to reset ``scores``
+    passes ``{"scores": {"type": "override", "value": [...]}}``, and
+    the reducer fully replaces the existing list (no append).
+    """
     state_delta = {"scores": {"type": "override", "value": []}}
     assert override_reducer(state_delta["scores"], [1, 2, 3]) == []
-    # 3 existing scores are wiped — override semantics
 
 
 # ---------------------------------------------------------------------------
