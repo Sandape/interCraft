@@ -9,7 +9,6 @@ and ``docs/contracts/structured_output_exclusions.md``, then asserts:
 """
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
