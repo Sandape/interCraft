@@ -7,14 +7,29 @@ AC-1.3b: graph 集成测试 — graph.invoke 后 state["scores"] 是 list 不是
 AC-1.4: Annotated[list, override_reducer] 字段在 graph.invoke 后实际收到 list 不是 dict
 AC-1.5: override_reducer docstring 含 dict 协议说明
 """
-from __future__ import annotations
-
 from typing import Annotated, Any
 
 import pytest
+from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from app.agents.interview.reducers import override_reducer
+
+
+# Module-level TypedDict so langgraph's get_type_hints can resolve the
+# state class. (Defining inside a test function would put the class in
+# local scope only, and get_type_hints evaluates the hint against the
+# module globals — NameError on graph.compile().)
+class _OverrideState(TypedDict, total=False):
+    scores: Annotated[list[Any], override_reducer]
+
+
+def _score_node(state: _OverrideState) -> dict:
+    return {"scores": {"type": "override", "value": [10, 20]}}
+
+
+def _n_node(state: _OverrideState) -> dict:
+    return {"scores": {"type": "override", "value": [1, 2]}}
 
 
 # ---------------------------------------------------------------------------
@@ -73,15 +88,7 @@ def test_score_node_returns_override_protocol() -> None:
 def test_score_node_graph_invokes_override() -> None:
     """AC-1.3b: Construct minimal graph with override_reducer field; node returns
     override dict; assert result['scores'] is list."""
-    from langgraph.graph import END, StateGraph
-
-    class _S(TypedDict, total=False):
-        scores: Annotated[list[Any], override_reducer]
-
-    async def _score_node(state: _S) -> dict:
-        return {"scores": {"type": "override", "value": [10, 20]}}
-
-    builder = StateGraph(_S)
+    builder = StateGraph(_OverrideState)
     builder.add_node("score", _score_node)
     builder.set_entry_point("score")
     builder.add_edge("score", END)
@@ -100,21 +107,16 @@ def test_score_node_graph_invokes_override() -> None:
 def test_override_reducer_field_resolves_to_list_not_dict() -> None:
     """AC-1.4: TypedDict field Annotated[list, override_reducer] resolves to
     list after graph.invoke — no dict drift."""
-    from langgraph.graph import END, StateGraph
-
-    class _S(TypedDict, total=False):
-        scores: Annotated[list[Any], override_reducer]
-
-    async def _n(state: _S) -> dict:
-        return {"scores": {"type": "override", "value": [1, 2]}}
-
-    builder = StateGraph(_S)
-    builder.add_node("n", _n)
+    builder = StateGraph(_OverrideState)
+    builder.add_node("n", _n_node)
     builder.set_entry_point("n")
     builder.add_edge("n", END)
     graph = builder.compile()
 
-    result = graph.invoke({})
+    # Seed initial state with the list (typed correctly) so langgraph's
+    # write validation accepts the channel write. The reducer is still
+    # called on the override dict; the final state is the resolved list.
+    result = graph.invoke({"scores": []})
     assert isinstance(result["scores"], list)
     assert result["scores"] == [1, 2]
 

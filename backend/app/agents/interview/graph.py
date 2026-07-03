@@ -1,10 +1,20 @@
-"""InterviewGraph — LangGraph StateGraph for interview flow (T029, T018).
+"""[AC-040-US1] InterviewGraph — LangGraph StateGraph for interview flow (T029, T018).
 
-Supervisor graph structure:
-    intake → interview_planner (planner subgraph) → planner_complete
-    → interviewer → score → (condition: current_question < 5 → interviewer, else → report)
+US-1 / FR-002 migration:
+- The graph is now built with the three-layer schema
+  (``InterviewInputState`` / ``InterviewOverallState`` / ``InterviewOutputState``)
+  via ``StateGraph(OverallState, input=..., output=...)`` (AC-2.4).
+- The ``_planner_complete_node`` bridge has been removed (AC-E2E-1a/b):
+  the planner subgraph and the parent graph now share the unified field
+  name ``interview_plan``, so the parent graph picks it up directly
+  without a mapping node (AC-E2E-2).
+- A feature flag (``INTERVIEW_USE_V2_STATE_SCHEMA``) selects between the
+  new three-layer schema and the legacy ``InterviewGraphState`` for the
+  dual-track period (FR-008 / AC-8.1/8.2/8.3).
 
-Uses PostgreSQL checkpointer for state persistence.
+Supervisor flow (v2 / three-layer):
+    intake → interview_planner (planner subgraph) → interviewer
+    → score → (condition: current_question < 5 → interviewer, else → report)
 """
 from __future__ import annotations
 
@@ -15,43 +25,62 @@ from langgraph.graph import END, StateGraph
 
 from app.agents.base import BaseAgent
 from app.agents.checkpointer import get_checkpointer, get_graph_config, retry_graph_op
+from app.agents.interview.config import build_interview_state_schema
 from app.agents.interview.nodes.intake import intake_node
 from app.agents.interview.nodes.question_gen import question_gen_node
 from app.agents.interview.nodes.report import report_node
 from app.agents.interview.nodes.score import score_node
 from app.agents.interview.planner_graph import get_planner_subgraph
-from app.agents.interview.state import InterviewGraphState
+from app.agents.interview.state import (
+    InterviewInputState,
+    InterviewOutputState,
+)
 
 
 class InterviewGraph(BaseAgent):
     """LangGraph agent for AI-powered mock interviews.
 
-    Supervisor flow: intake → interview_planner → planner_complete
-                     → interviewer <-> score (x5) → report
+    Supervisor flow: intake → interview_planner → interviewer
+                     <-> score (x5) → report
     """
 
     MAX_QUESTIONS = 5
 
     async def build_graph(self) -> StateGraph:
-        """Build the compiled interview StateGraph with PostgreSQL checkpointer."""
-        builder = StateGraph(InterviewGraphState)
+        """Build the compiled interview StateGraph with PostgreSQL checkpointer.
+
+        Uses the three-layer state schema (FR-002). The feature flag
+        ``INTERVIEW_USE_V2_STATE_SCHEMA`` selects between the new and
+        legacy schemas (FR-008).
+        """
+        schema = build_interview_state_schema()
+        use_v2 = schema is not None and schema.__name__ == "InterviewOverallState"
+
+        if use_v2:
+            builder = StateGraph(
+                schema,
+                input=InterviewInputState,
+                output=InterviewOutputState,
+            )
+        else:
+            # Legacy path (AC-8.3): single TypedDict, no input/output filtering
+            builder = StateGraph(schema)
 
         planner_subgraph = get_planner_subgraph()
 
-        # Add nodes
+        # Add nodes (AC-E2E-1a: no `planner_complete` bridge node)
         builder.add_node("intake", intake_node)
         builder.add_node("interview_planner", planner_subgraph)
-        builder.add_node("planner_complete", _planner_complete_node)
         builder.add_node("interviewer", question_gen_node)
         builder.add_node("score", score_node)
         builder.add_node("report", report_node)
 
-        # Edges — Supervisor routing
+        # Edges — Supervisor routing (AC-E2E-2: planner output flows directly)
         builder.set_entry_point("intake")
         builder.add_edge("intake", "interview_planner")
-        builder.add_edge("interview_planner", "planner_complete")
-        # planner_complete forwards plan data to state, then routes to interviewer
-        builder.add_edge("planner_complete", "interviewer")
+        # The planner subgraph writes 'interview_plan' to the parent state
+        # directly (unified field name); no bridge node needed.
+        builder.add_edge("interview_planner", "interviewer")
         builder.add_edge("interviewer", "score")
         builder.add_conditional_edges(
             "score",
@@ -66,9 +95,13 @@ class InterviewGraph(BaseAgent):
         checkpointer = await get_checkpointer()
         return builder.compile(checkpointer=checkpointer, interrupt_before=["score"])
 
-    def _route_after_score(self, state: InterviewGraphState) -> Literal["interviewer", "report"]:
+    def _route_after_score(self, state: Any) -> Literal["interviewer", "report"]:
         """Route to next question or report based on current_question count."""
-        current = state.get("current_question", 0)
+        # state may be a TypedDict (legacy) or a Pydantic output (v2)
+        if isinstance(state, dict):
+            current = state.get("current_question", 0)
+        else:
+            current = getattr(state, "current_question", 0) or 0
         if current < self.MAX_QUESTIONS:
             return "interviewer"
         return "report"
@@ -108,17 +141,28 @@ class InterviewGraph(BaseAgent):
 
         if state.values:
             # Graph has state — add answer and resume from interrupt
-            await retry_graph_op(self.build_graph, config, "aupdate_state", {
-                "messages": [{"role": "user", "content": answer, "sequence_no": sequence_no}],
-            })
-            result = await retry_graph_op(self.build_graph, config, "ainvoke", None, state_first=True)
+            await retry_graph_op(
+                self.build_graph,
+                config,
+                "aupdate_state",
+                {
+                    "messages": [
+                        {"role": "user", "content": answer, "sequence_no": sequence_no}
+                    ],
+                },
+            )
+            result = await retry_graph_op(
+                self.build_graph, config, "ainvoke", None, state_first=True
+            )
         else:
             # First run — start the graph from the beginning. Seed
             # session-level context so downstream nodes (planner_context,
             # planner_generate, question_gen) can read position/company
             # without depending on intake's LLM extraction.
             initial_state: dict[str, Any] = {
-                "messages": [{"role": "user", "content": answer, "sequence_no": sequence_no}],
+                "messages": [
+                    {"role": "user", "content": answer, "sequence_no": sequence_no}
+                ],
                 "user_id": user_id,
                 "thread_id": thread_id,
             }
@@ -161,7 +205,9 @@ class InterviewGraph(BaseAgent):
         return {
             "current_question": current_question,
             "next_node": next_node,
-            "checkpoint_id": state.config.get("configurable", {}).get("checkpoint_id") if state.config else None,
+            "checkpoint_id": state.config.get("configurable", {}).get("checkpoint_id")
+            if state.config
+            else None,
             "values": state.values if state.values else {},
         }
 
@@ -174,23 +220,12 @@ class InterviewGraph(BaseAgent):
         config = await get_graph_config(thread_id, checkpoint_ns)
         state = await retry_graph_op(self.build_graph, config, "aget_state")
         return {
-            "current_question": state.values.get("current_question", 0) if state.values else 0,
+            "current_question": state.values.get("current_question", 0)
+            if state.values
+            else 0,
             "values": state.values if state.values else {},
             "next": state.next if state.next else None,
         }
-
-
-def _planner_complete_node(state: InterviewGraphState) -> dict:
-    """After the planner subgraph finishes, forward plan data to interviewer.
-
-    Explicitly propagates ``interview_plan`` and ``web_research`` from the
-    subgraph output into the shared state so the ``interviewer`` node
-    (question_gen) can read them.
-    """
-    return {
-        "interview_plan": state.get("interview_plan"),
-        "web_research": state.get("web_research"),
-    }
 
 
 # Singleton
