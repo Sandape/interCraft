@@ -238,3 +238,40 @@
 5. **FastAPI TestClient vs httpx.AsyncClient(ASGITransport)**——前者 sync、后者 async。新测试代码统一用 async（与根 conftest 一致）；`@pytest.mark.asyncio` 装饰 + `await client.get(...)`。
 6. **agents/tests/conftest.py 缺失**——根 conftest 的 `client` fixture 不会自动被子目录继承；agents 测试目录需要自己的 conftest 提供 in-process app transport。
 7. **grep `score=5` 命中 comments/docstrings**——本轮 grep 命中 16 条但 0 条是真实赋值；要用 `^\s*score\s*=\s*5\b` + 行首锚定 + 排除注释行才能精确。AC-3.2 测试已用此模式（test_silent_fail_eliminated.py:34）。
+
+## 260703 REQ-041 US-2 P0 wiring gap fix — interview graph router `_mark_complete` 前置分支
+
+**问题**: tester 报 US-2 PASS（4 test files + impl green），但 reviewer 实地审查发现 interview graph `add_conditional_edges` 用的 `_route_after_score_llm` 缺 `if state.get("_mark_complete"): return END` 前置分支 → MarkComplete 跨 agent router 不兼容（仅 error_coach `loop_or_finish` 节点函数有，**interview 主图 router 没有**）。生产影响：用户在 interview agent 中调用 MarkComplete()，LLM 触发 `_mark_complete=True` 信号，但 router 继续走下一个 interview 节点（hint_ladder / question_gen），不终止。
+
+**修复**: commit 49bba08
+- `interview/state.py` `InterviewGraphState` (legacy) + `InterviewOverallState` (v2) 加 `_mark_complete: bool` 字段（双轨期, 与 error_coach_state.py 同模式）
+- `interview/graph.py` `_route_after_score_llm` 加 `_mark_complete` 前置分支（dict + Pydantic 双形态）；`conditional_edges` dict 加 `"__end__": END` mapping；`add_edge("interview.score_llm", END)` 对称
+- 返回类型 `Union[Literal[3-way], Literal["__end__"]]` 而非单 4-way Literal — 保留 3-way Literal 子串以兼容 040 US-1 `test_ac_4_5_route_after_score_llm_function_and_edges` grep 守卫
+
+**测试**: commit a5b3530 (red phase) + 49bba08 (green phase)
+- `test_interview_router_has_mark_complete_front_branch` — grep 验证 graph.py router 含 `_mark_complete` 前置分支
+- `test_interview_state_has_mark_complete_field` — 验证 `InterviewOverallState` + `InterviewGraphState` 声明 `_mark_complete: bool`
+- `test_mark_complete_cross_agent_routing_interview` — **真实 `_route_after_score_llm` 调用**（非 mock 单 router，3 边界 parametrize：低 raw_score + 高 current_question + 回归守护）
+
+**关键决策**:
+- **Test-First 双段 SHA 标注**: commit message 显式 `Test-First: test@a5b3530 impl@be26087 fix@<sha>` 三段（per AC-8.1 锁定模式）
+- **真实 graph router 而非 helper-direct mock**: US-1 MB3 wiring fix 已经踩过此坑（helper-direct 测通过但 API 端点未接）。本次 P0 修复必须用真实 conditional edge router 调用，避免再次掩盖 wiring gap
+- **langgraph.graph.END 实际值 `"__end__"`** — assert 用 `END` 常量而非字面 `"END"` 字符串；tester 红队时容易漏这一点
+- **不破坏 040 US-1 测试** — 返回类型用 `Union[Literal[3-way], Literal[__end__]]` 而非单 4-way Literal；保留 3-way Literal 子串让 040 的 `test_ac_4_5_route_after_score_llm_function_and_edges` grep 守卫继续 PASS
+- **不跨团队** — 仅改 interview graph + state + 新测试；不改 `error_coach/loop_or_finish.py` / 040 tests / 038 / 023 等其他团队的代码
+
+**回归**: 0 新增 FAIL. 完整 agents tests = 220 passed + 1 skipped + 0 failed（217 baseline + 3 new）. 040 AC-4.5 + AC-4.6 = 2 passed. US-1 集成 188 tests 0 FAIL（未破坏 serialize_state_error / @node_error_handler / score=5 守卫）.
+
+**适用场景**: 任何「条件路由 router / node function 跨 agent 共享 signal 字段（如 `_mark_complete` / `_error` / `_interrupt`）」类 bug。共同特征：
+- 控制流工具（MarkComplete / Abort / Skip）跨 agent 暴露后，仅在源 agent 的 router 加前置分支就认为 OK
+- helper-direct test 模式（mock 单 router 调用）通过 → 实际 conditional_edge router 调用缺分支 → wiring gap
+- LangGraph conditional_edge 是节点函数级路由 — `add_conditional_edges` 调用 = 路由函数读取 state 字段；每个 bind 了控制流工具的节点都要加对应 router 分支
+- code review 时 reviewer 必须独立 grep 每个 conditional_edge router 的"前置分支"模式，不能只读单 router 的 docstring
+
+**避免**:
+1. **永远不要写"mock 单 router 函数"类型的 contract test**——assert `_route_after_score_llm(state_low) == "sink_error"` 通过不代表真实 graph 路由正确。helper-direct test 掩盖 wiring gap 是 US-1 MB3 + US-2 P0 fix 两次同模式踩坑。
+2. **跨 agent 控制流工具的 router 修改必须 4 surface 同步**（per memory `feedback_dialoghost_integration_4surface`）：(a) source agent node function 返回 signal 字段；(b) source agent conditional router 加前置分支；(c) state TypedDict 字段声明；(d) 真实 graph 端到端测试。
+3. **`langgraph.graph.END` 是字符串 `"__end__"`** — assert `return_value == "END"` 会失败；必须 `from langgraph.graph import END; assert return_value == END`。
+4. **返回类型 Literal 子串守卫** — 旧测试 grep 4-way Literal 子串失败时，回退到 `Union[Literal[3-way], Literal["__end__]]` 而非 4-way Literal 改 3-way（会破坏 typing 契约）。优先用 Union 保留 3-way 子串。
+5. **不跨团队文件改动** — 仅改当前 worktree 范围的代码 + 测试；其他团队（038 / 023 / 040）仅可 import，不可 commit 跨团队文件。
+6. **Pydantic 形态与 dict 形态双守卫** — conditional router 既要 `state.get("_mark_complete")` (dict/TypedDict) 又要 `getattr(state, "_mark_complete", False)` (Pydantic BaseModel)；`isinstance(state, dict)` 分支必须双写。
