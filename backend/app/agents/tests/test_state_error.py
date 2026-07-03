@@ -323,14 +323,108 @@ class TestExceptionClassificationImports:
 
 
 # ---------------------------------------------------------------------------
-# AC-3.7a — FastAPI TestClient parametrize 13 nodes + API response has
-#             error_category + node_name + cause fields.
+# AC-3.7a — Real FastAPI TestClient end-to-end (MB3 P0 fix)
+#
+# Per the MB3 review (tester P0-1) the previous "flavor 2" helper-direct
+# tests masked a wiring gap: ``serialize_state_error`` was defined in
+# ``app/agents/utils/node_error.py`` but never invoked by any of the 5
+# agent API endpoints — so ``response.json()`` never contained
+# ``error_category`` / ``node_name`` / ``cause``. SC-002 "100% fill rate"
+# was 0% in production.
+#
+# This class replaces the helper-direct tests with REAL FastAPI
+# ``TestClient`` round-trips: we mock each agent graph's ``get_state`` to
+# return a state whose ``error`` field is a NodeError-shaped dict, then
+# hit the actual REST endpoint and assert the projected fields land in
+# ``response.json()``. Per memory ``feedback_test_bugs_can_mask_real_gaps``,
+# asserting on the serializer helper is not sufficient — only the HTTP
+# boundary proves SC-002.
 # ---------------------------------------------------------------------------
 class TestApiResponseErrorCategoryFieldPresent:
-    """AC-3.7a (升 P0): FastAPI TestClient end-to-end — when an LLM node fails,
-    response.json() MUST include ``error_category`` + ``node_name`` + ``cause``.
+    """AC-3.7a (升 P0): Real FastAPI TestClient — when an LLM node fails,
+    ``response.json()`` MUST include ``error_category`` + ``node_name`` +
+    ``cause``. Parametrized over the 3 REST-exposed agent endpoints
+    (error_coach / general_coach / resume_optimize). Interview is exercised
+    via its ``serialize_state_error`` WS path (wired in
+    ``backend/app/api/v1/ws/interview.py:_handle_reconnect`` —
+    ``app.agents.utils.node_error.serialize_state_error`` is invoked when
+    ``state["error"]`` is present on reconnect, projecting it into an
+    ``error`` WS event with ``code=state.<category>``); ability_diagnose
+    has no public API surface (internal ARQ worker) so the SC-002 wiring
+    for that agent is satisfied at the ``state["error"]`` write level,
+    not at the HTTP boundary.
     """
 
+    @pytest.fixture
+    def _mock_graph_state_with_error(self, monkeypatch):
+        """Inject a NodeError-shaped ``error`` field into the
+        singleton graph's ``get_state`` for each REST-exposed agent.
+
+        Returns a closure ``install(graph_module_path, expected_state)``
+        that patches the graph's ``get_state`` coroutine to return the
+        supplied dict (which the real endpoint then projects through
+        ``serialize_state_error``).
+        """
+        # Map from API endpoint prefix → (graph module path, singleton getter name).
+        # The endpoint imports ``from app.agents.graphs.<name> import
+        # get_<name>_graph`` lazily inside the handler, so we patch the
+        # bound method on the singleton instance returned by the getter.
+        _GRAPH_MAP = {
+            "error_coach": (
+                "app.agents.graphs.error_coach",
+                "get_error_coach_graph",
+            ),
+            "general_coach": (
+                "app.agents.graphs.general_coach",
+                "get_general_coach_graph",
+            ),
+            "resume_optimize": (
+                "app.agents.graphs.resume_optimize",
+                "get_resume_optimize_graph",
+            ),
+        }
+
+        def install(graph_module_path: str, fake_state: dict) -> None:
+            module_name = graph_module_path.rsplit(".", 1)[-1]
+            assert module_name in _GRAPH_MAP, (
+                f"unknown graph module: {module_name}; expected one of {list(_GRAPH_MAP)}"
+            )
+            module_path, getter_name = _GRAPH_MAP[module_name]
+            # Import the module directly (skip the empty ``app.agents.graphs``
+            # package __init__).
+            import importlib
+
+            mod = importlib.import_module(module_path)
+            graph_singleton = getattr(mod, getter_name)()
+
+            async def _fake_get_state(thread_id: str) -> dict:
+                # Inject the thread_id from the URL path so the response is
+                # observably tied to the request.
+                return {**fake_state, "thread_id": thread_id}
+
+            monkeypatch.setattr(graph_singleton, "get_state", _fake_get_state)
+
+        return install
+
+    @pytest.fixture
+    def _bypass_auth(self, monkeypatch):
+        """Bypass ``Depends(get_current_user)`` so tests don't need a real JWT.
+
+        The auth dependency decodes a JWT and returns a user dict; for unit
+        tests of the response projection we don't care about auth — we only
+        care that the endpoint reaches ``serialize_state_error`` and returns
+        the projected fields.
+        """
+        from app.api import deps as _deps
+
+        async def _fake_current_user() -> dict:
+            return {"id": "00000000-0000-0000-0000-000000000001"}
+
+        monkeypatch.setattr(_deps, "get_current_user", _fake_current_user)
+
+    # ------------------------------------------------------------------
+    # Real FastAPI TestClient — error_coach GET /state
+    # ------------------------------------------------------------------
     @pytest.mark.parametrize(
         "node_name",
         [
@@ -352,32 +446,158 @@ class TestApiResponseErrorCategoryFieldPresent:
             "suggest_blocks_node",
         ],
     )
-    def test_api_response_has_error_category_for_each_node(self, node_name):
-        """Direct serializer-level test (AC-3.7a flavor 2): build a fake
-        NodeError and run it through the serializer helper. The serializer
-        MUST emit ``error_category`` + ``node_name`` + ``cause``."""
-        from app.agents.utils.node_error import NodeError
-
-        # Build NodeError as if the node had failed
-        err = NodeError.from_exception(
-            Exception("synthetic failure"),
-            node_name=node_name,
+    @pytest.mark.asyncio
+    async def test_error_coach_state_response_has_error_category_for_each_node(
+        self,
+        node_name: str,
+        _mock_graph_state_with_error,
+        _bypass_auth,
+        client,
+    ):
+        """Real TestClient — error_coach GET /state: response.json() must
+        contain ``error_category`` + ``node_name`` + ``cause``."""
+        fake_state = {
+            "status": "running",
+            "correct_count": 0,
+            "attempt_count": 0,
+            "current_hint_level": "small",
+            "error": {
+                "category": "schema_invalid",
+                "node_name": node_name,
+                "cause": f"synthetic failure from {node_name}",
+                "retry_after": None,
+                "timestamp": "2026-07-03T12:00:00+00:00",
+            },
+        }
+        _mock_graph_state_with_error(
+            "app.agents.graphs.error_coach",
+            fake_state,
         )
 
-        # Find the serializer. It should be importable from a stable path.
-        # New helper added in MB3 — `serialize_state_error`.
-        from app.agents.utils.node_error import serialize_state_error
-
-        payload = serialize_state_error(
-            state_error=err.model_dump(),
-            state_error_legacy=None,
+        # Real HTTP request via the in-process FastAPI app
+        response = await client.get(
+            "/api/v1/agents/error-coach/test-thread-id/state",
         )
 
-        # API contract (AC-3.4 / AC-3.7a):
-        assert "error_category" in payload, (
-            f"{node_name}: serialized payload missing `error_category`"
+        assert response.status_code == 200, response.text
+        body = response.json()
+        # AC-3.7a: projected fields MUST appear in the HTTP response body.
+        assert "error_category" in body, (
+            f"{node_name}: response.json() missing `error_category` — "
+            "SC-002 wiring gap (serialize_state_error not invoked)"
         )
-        assert "node_name" in payload, (
-            f"{node_name}: serialized payload missing `node_name`"
+        assert body["error_category"] == "schema_invalid"
+        assert "node_name" in body
+        assert body["node_name"] == node_name
+        assert "cause" in body
+        # Business fields still present (didn't clobber the payload).
+        assert body["correct_count"] == 0
+
+    # ------------------------------------------------------------------
+    # Real FastAPI TestClient — general_coach GET /state
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_general_coach_state_response_has_error_category(
+        self,
+        _mock_graph_state_with_error,
+        _bypass_auth,
+        client,
+    ):
+        """Real TestClient — general_coach GET /state: response.json() must
+        contain ``error_category`` + ``node_name`` + ``cause``."""
+        _mock_graph_state_with_error(
+            "app.agents.graphs.general_coach",
+            {
+                "detected_intent": None,
+                "message_count": 0,
+                "session_active": True,
+                "error": {
+                    "category": "parse_fail",
+                    "node_name": "intent_node",
+                    "cause": "could not parse intent",
+                    "retry_after": None,
+                },
+            },
         )
-        assert payload["node_name"] == node_name
+
+        response = await client.get(
+            "/api/v1/agents/general-coach/test-thread-id/state",
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body.get("error_category") == "parse_fail"
+        assert body.get("node_name") == "intent_node"
+        assert body.get("cause") == "could not parse intent"
+
+    # ------------------------------------------------------------------
+    # Real FastAPI TestClient — resume_optimize GET /state
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_resume_optimize_state_response_has_error_category(
+        self,
+        _mock_graph_state_with_error,
+        _bypass_auth,
+        client,
+    ):
+        """Real TestClient — resume_optimize GET /state: response.json()
+        must contain ``error_category`` + ``node_name`` + ``cause``."""
+        _mock_graph_state_with_error(
+            "app.agents.graphs.resume_optimize",
+            {
+                "status": "running",
+                "current_node": "diff_jd",
+                "summary": None,
+                "proposed_patches": None,
+                "error": {
+                    "category": "quota",
+                    "node_name": "diff_jd_node",
+                    "cause": "rate limit hit",
+                    "retry_after": 60,
+                },
+            },
+        )
+
+        response = await client.get(
+            "/api/v1/agents/resume-optimize/test-thread-id/state",
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body.get("error_category") == "quota"
+        assert body.get("node_name") == "diff_jd_node"
+        assert body.get("retry_after") == 60
+
+    # ------------------------------------------------------------------
+    # Negative — when state has NO error, response must NOT contain
+    # ``error_category`` (avoids false-positive projection of empty data).
+    # ------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_error_coach_state_no_error_does_not_emit_error_category(
+        self,
+        _mock_graph_state_with_error,
+        _bypass_auth,
+        client,
+    ):
+        """Sanity guard — when ``state["error"]`` is None, the API must NOT
+        project an ``error_category`` field. Otherwise we would emit
+        ``"error_category": null`` and confuse the front-end error mapper.
+        """
+        _mock_graph_state_with_error(
+            "app.agents.graphs.error_coach",
+            {
+                "status": "running",
+                "correct_count": 0,
+                "attempt_count": 0,
+                "current_hint_level": "small",
+                "error": None,
+            },
+        )
+
+        response = await client.get(
+            "/api/v1/agents/error-coach/test-thread-id/state",
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert "error_category" not in body
+        assert "node_name" not in body or body.get("node_name") is None

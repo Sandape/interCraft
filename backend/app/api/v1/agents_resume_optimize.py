@@ -145,6 +145,7 @@ async def resume_optimize_state(
 ):
     """Get current state of the resume optimization agent."""
     from app.agents.graphs.resume_optimize import get_resume_optimize_graph
+    from app.agents.utils.node_error import serialize_state_error
 
     graph = get_resume_optimize_graph()
     try:
@@ -152,4 +153,10 @@ async def resume_optimize_state(
     except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-    return state
+    # REQ-041 AC-3.4 / AC-3.7a: project ``state["error"]`` into the API
+    # ``error_category`` + ``node_name`` + ``cause`` fields via
+    # ``serialize_state_error``. Closes the SC-002 wiring gap where the
+    # helper was defined but never invoked by any agent API endpoint.
+    err = state.pop("error", None)
+    serialized = serialize_state_error(state_error=err, state_error_legacy=None)
+    return {**state, **serialized}

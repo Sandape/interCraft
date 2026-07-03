@@ -285,18 +285,26 @@ class InterviewGraph(BaseAgent):
 
         current_question = 0
         next_node = None
-        if state.values:
-            current_question = state.values.get("current_question", 0)
+        values = state.values if state.values else {}
+        if values:
+            current_question = values.get("current_question", 0)
         if state.next:
             next_node = state.next
 
+        # REQ-041 AC-3.7a: surface the typed ``error`` envelope so the WS
+        # reconnect path can project it via ``serialize_state_error`` and
+        # the front-end receives ``error_category`` / ``node_name``.
+        error_payload = values.get("error")
+        error_legacy = values.get("error_legacy")
         return {
             "current_question": current_question,
             "next_node": next_node,
             "checkpoint_id": state.config.get("configurable", {}).get("checkpoint_id")
             if state.config
             else None,
-            "values": state.values if state.values else {},
+            "values": values,
+            "error": error_payload,
+            "error_legacy": error_legacy,
         }
 
     async def get_current_state(
@@ -307,12 +315,18 @@ class InterviewGraph(BaseAgent):
         """Get the current graph state without advancing."""
         config = await get_graph_config(thread_id, checkpoint_ns)
         state = await retry_graph_op(self.build_graph, config, "aget_state")
+        values = state.values if state.values else {}
+        # REQ-041 AC-3.7a: surface the typed ``error`` envelope so the API
+        # layer can project it via ``serialize_state_error`` into the
+        # ``error_category`` / ``node_name`` / ``cause`` HTTP fields.
+        error_payload = values.get("error")
+        error_legacy = values.get("error_legacy")
         return {
-            "current_question": state.values.get("current_question", 0)
-            if state.values
-            else 0,
-            "values": state.values if state.values else {},
+            "current_question": values.get("current_question", 0),
+            "values": values,
             "next": state.next if state.next else None,
+            "error": error_payload,
+            "error_legacy": error_legacy,
         }
 
 

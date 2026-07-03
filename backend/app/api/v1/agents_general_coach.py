@@ -134,6 +134,7 @@ async def general_coach_state(
 ):
     """Get current state of general coach conversation."""
     from app.agents.graphs.general_coach import get_general_coach_graph
+    from app.agents.utils.node_error import serialize_state_error
 
     graph = get_general_coach_graph()
     try:
@@ -141,4 +142,10 @@ async def general_coach_state(
     except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-    return state
+    # REQ-041 AC-3.4 / AC-3.7a: project ``state["error"]`` into the API
+    # ``error_category`` + ``node_name`` + ``cause`` fields via
+    # ``serialize_state_error``. Closes the SC-002 wiring gap where the
+    # helper was defined but never invoked by any agent API endpoint.
+    err = state.pop("error", None)
+    serialized = serialize_state_error(state_error=err, state_error_legacy=None)
+    return {**state, **serialized}
