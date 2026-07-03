@@ -83,6 +83,11 @@ def create_app() -> FastAPI:
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(InternalIPMiddleware)
+    # 043 US-1 FR-004: trace_id propagation alongside request_id (dual-track).
+    # Composes with RequestIDMiddleware — both headers are emitted.
+    from app.middleware.trace_id import TraceIDMiddleware
+
+    app.add_middleware(TraceIDMiddleware)
 
     install_exception_handlers(app)
 
