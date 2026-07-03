@@ -112,6 +112,44 @@ structured_invocation_total = Counter(
 )
 
 
+# ---- Feature 043: Observability (US-1) + Checkpoint pool (US-2) ----
+# Per spec FR-008 (Constitution V Observability compliance) + L041-001
+# mini-batch naming convention: each metric is independent and additive
+# — we don't replace the existing checkpointer_reconnect_total; the
+# new pool_size gauge complements the legacy reconnect counter.
+llm_call_total = Counter(
+    "llm_call_total",
+    "Total LLM calls by agent + model",
+    ["agent", "model"],
+)
+llm_call_latency_seconds = Histogram(
+    "llm_call_latency_seconds",
+    "LLM call latency in seconds by agent",
+    ["agent"],
+    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+node_execution_total = Counter(
+    "node_execution_total",
+    "Total LangGraph node executions",
+    ["agent", "node", "outcome"],  # outcome: ok | error
+)
+checkpointer_pool_size = Gauge(
+    "checkpointer_pool_size",
+    "Active connections in checkpointer pool",
+    ["pool_id"],
+)
+checkpointer_reconnect_attempts_total = Counter(
+    "checkpointer_reconnect_attempts_total",
+    "Total checkpointer reconnect attempts by level + outcome",
+    ["level", "outcome"],  # level: L1|L2|L3  outcome: retry|rebuild|fail
+)
+langsmith_export_total = Counter(
+    "langsmith_export_total",
+    "Total LangSmith export attempts by outcome",
+    ["outcome"],  # ok | skip | error
+)
+
+
 __all__ = [
     "arq_jobs_failed_total",
     "arq_jobs_queued",
@@ -119,14 +157,20 @@ __all__ = [
     "auth_active_sessions",
     "auth_login_attempts_total",
     "auth_register_attempts_total",
+    "checkpointer_pool_size",
+    "checkpointer_reconnect_attempts_total",
     "checkpointer_reconnect_total",
     "http_request_duration_seconds",
     "http_requests_total",
+    "langsmith_export_total",
+    "llm_call_latency_seconds",
+    "llm_call_total",
     "llm_quota_available",
     "llm_quota_exhausted_total",
     "lock_acquire_attempts_total",
     "lock_audit_write_failures_total",
     "lock_heartbeat_latency_seconds",
+    "node_execution_total",
     "outbox_conflict_total",
     "outbox_replay_total",
     "resume_branches_total",

@@ -29,32 +29,38 @@ class TestMetricsEndpoint:
     """Constitution V Observability compliance for REQ-043."""
 
     def test_llm_call_total_counter_registered(self):
-        """``llm_call_total`` Counter must exist (per FR-008)."""
+        """``llm_call_total`` Counter must exist (per FR-008).
+
+        Note: prometheus_client strips the ``_total`` suffix from the
+        internal ``_name`` attribute (the ``_total`` is implicit for
+        Counters per Prometheus convention) — the full name is
+        reconstructed at scrape time.
+        """
         from app.core.metrics import llm_call_total
 
-        # Counter has the prometheus_client ._name attribute
-        assert hasattr(llm_call_total, "_name")
-        assert llm_call_total._name == "llm_call_total"
+        assert type(llm_call_total).__name__ == "Counter"
+        # Internal _name strips _total suffix
+        assert llm_call_total._name == "llm_call"
 
     def test_llm_call_latency_histogram_registered(self):
         """``llm_call_latency_seconds`` Histogram must exist."""
         from app.core.metrics import llm_call_latency_seconds
 
-        assert hasattr(llm_call_latency_seconds, "_name")
+        assert type(llm_call_latency_seconds).__name__ == "Histogram"
         assert llm_call_latency_seconds._name == "llm_call_latency_seconds"
 
     def test_node_execution_total_counter_registered(self):
         """``node_execution_total`` Counter must exist."""
         from app.core.metrics import node_execution_total
 
-        assert hasattr(node_execution_total, "_name")
-        assert node_execution_total._name == "node_execution_total"
+        assert type(node_execution_total).__name__ == "Counter"
+        assert node_execution_total._name == "node_execution"
 
     def test_checkpointer_pool_size_gauge_registered(self):
         """``checkpointer_pool_size`` Gauge must exist."""
         from app.core.metrics import checkpointer_pool_size
 
-        assert hasattr(checkpointer_pool_size, "_name")
+        assert type(checkpointer_pool_size).__name__ == "Gauge"
         assert checkpointer_pool_size._name == "checkpointer_pool_size"
 
     def test_metrics_endpoint_returns_prometheus_text(self):
