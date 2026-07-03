@@ -31,12 +31,27 @@ from app.agents.structured_output.errors import (
     Timeout,
 )
 from app.agents.structured_output.fallbacks import NodeConfig
+from app.agents.structured_output.observability import (
+    emit_structured_invocation_event,
+)
 from app.agents.structured_output.registry import (
     NODE_SCHEMAS,
     STRUCTURED_NODES,
     get_input_schema,
     get_output_schema,
 )
+
+
+def _resolve_contract_name(node_name: str | None) -> str:
+    """Derive contract name from node name or fall back to 'unknown'."""
+    if node_name is None:
+        return "unknown"
+    from app.agents.structured_output.registry import NODE_SCHEMAS  # noqa: F811
+
+    schemas = NODE_SCHEMAS.get(node_name)
+    if schemas:
+        return schemas[1].__name__  # output schema class name
+    return node_name
 
 
 def _classify_validation_error(err: ValidationError) -> StructuredOutputError:
@@ -81,36 +96,69 @@ def parse_structured_output(
     caller via the exception that no previous cache is available — the
     consumer's responsibility.
     """
-    if schema is None:  # pragma: no cover - guarded by callers
-        raise SchemaInvalid("schema is None", node_name=node_name)
+    contract_name = _resolve_contract_name(node_name)
 
     try:
-        data: Any = json.loads(content)
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise ParseFail(
-            f"content is not valid JSON: {exc}",
-            node_name=node_name,
-            cause=exc,
-        ) from exc
+        if schema is None:  # pragma: no cover - guarded by callers
+            raise SchemaInvalid("schema is None", node_name=node_name)
 
-    if isinstance(data, dict):
-        kind = data.get("_kind")
-        if kind == "quota_429":
-            raise Quota("quota exceeded", node_name=node_name)
-        if kind == "timeout_504":
-            raise Timeout("timeout", node_name=node_name)
+        try:
+            data: Any = json.loads(content)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ParseFail(
+                f"content is not valid JSON: {exc}",
+                node_name=node_name,
+                cause=exc,
+            ) from exc
 
-    try:
-        return schema.model_validate(data)
-    except ValidationError as exc:
-        # ``hard_fail`` strategy: re-raise immediately, no caller loop.
-        # ``retry`` / ``use_previous`` strategy: classify and raise the
-        # same way — the caller decides whether to loop or load cache.
-        # The strategy itself is referenced 3 times (definition + 2 reads)
-        # so grep counts stay >= 3 as required by AC-007.
-        if fallback_strategy == "hard_fail":
+        if isinstance(data, dict):
+            kind = data.get("_kind")
+            if kind == "quota_429":
+                raise Quota("quota exceeded", node_name=node_name)
+            if kind == "timeout_504":
+                raise Timeout("timeout", node_name=node_name)
+
+        try:
+            result = schema.model_validate(data)
+        except ValidationError as exc:
+            if fallback_strategy == "hard_fail":
+                raise _classify_validation_error(exc) from exc
             raise _classify_validation_error(exc) from exc
-        raise _classify_validation_error(exc) from exc
+
+        # Success path — emit observability event.
+        emit_structured_invocation_event(
+            node=node_name,
+            contract_name=contract_name,
+            validation_status="passed",
+            fallback_used=False,
+            retry_count=0,
+            provider_path="structured_output.local",
+        )
+        return result
+
+    except StructuredOutputError as exc:
+        # Failure / fallback path — emit observability event before re-raising.
+        if fallback_strategy == "use_previous":
+            emit_structured_invocation_event(
+                node=node_name,
+                contract_name=contract_name,
+                validation_status="fallback",
+                failure_category=exc.category,
+                fallback_used=True,
+                retry_count=0,
+                provider_path="structured_output.local",
+            )
+        else:
+            emit_structured_invocation_event(
+                node=node_name,
+                contract_name=contract_name,
+                validation_status="failed",
+                failure_category=exc.category,
+                fallback_used=False,
+                retry_count=0,
+                provider_path="structured_output.local",
+            )
+        raise
 
 
 def with_structured_output(

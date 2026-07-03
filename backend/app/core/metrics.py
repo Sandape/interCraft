@@ -104,10 +104,18 @@ arq_jobs_failed_total = Counter(
     ["queue"],
 )
 
+# ---- Feature 038: Structured output observability ----
+structured_invocation_total = Counter(
+    "structured_invocation_total",
+    "Total structured LLM invocations",
+    ["node", "contract", "status", "failure_category", "fallback_used"],
+)
+
 
 __all__ = [
     "arq_jobs_failed_total",
     "arq_jobs_queued",
+    "structured_invocation_total",
     "auth_active_sessions",
     "auth_login_attempts_total",
     "auth_register_attempts_total",
