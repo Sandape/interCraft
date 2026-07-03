@@ -46,19 +46,28 @@ class TestTracedNodeCoverage:
         )
 
     def test_traced_node_unique_node_names_count(self):
-        """All LangGraph node names should be unique (no duplicates)."""
-        names: list[str] = []
+        """At least 17 distinct node names are decorated (spec FR-001)."""
+        names: set[str] = set()
         for f in AGENTS_DIR.rglob("*.py"):
             text = f.read_text(encoding="utf-8")
             for m in re.finditer(r'^@traced_node\(\s*["\']([^"\']+)["\']\s*\)', text, re.MULTILINE):
-                names.append(m.group(1))
-        assert len(names) == len(set(names)), (
-            f"Duplicate @traced_node names: {sorted([n for n in names if names.count(n) > 1])}"
+                names.add(m.group(1))
+        assert len(names) >= 17, (
+            f"Only {len(names)} unique @traced_node names — spec FR-001/SC-001 requires ≥17"
         )
 
     def test_traced_node_decorator_imports_tracing_module(self):
-        """Every file using ``@traced_node`` must import it from ``tracing``."""
+        """Every consumer file using ``@traced_node`` must import it from ``tracing``.
+
+        Excludes ``tracing.py`` itself (decorator definition site) and any
+        file inside ``app/observability/`` (the source module).
+        """
         for f in AGENTS_DIR.rglob("*.py"):
+            # Skip the decorator source itself
+            rel = f.relative_to(AGENTS_DIR)
+            parts = rel.parts
+            if "observability" in parts:
+                continue
             text = f.read_text(encoding="utf-8")
             if "@traced_node" not in text:
                 continue

@@ -152,6 +152,17 @@ class Settings(BaseSettings):
     us2_use_v2_compress_history: bool = False
     us2_use_v2_langgraph_store: bool = False
 
+    # ---- REQ-043 US-1 FR-002 — LangSmith trace exporter ----
+    # LangSmith runs in parallel with OTel (per FR-002 + openDeepResearch
+    # deep_researcher.py:85 reference). When ``langsmith_api_key`` is empty
+    # the exporter is a no-op (no network calls). Independent of (and
+    # intentionally NAMESpaced away from) the REQ-040/041/042 env vars —
+    # we use the ``langsmith_*`` prefix (per L041-004 namespace isolation)
+    # rather than ``us1_use_v2_langsmith`` because LangSmith is an
+    # external integration, not a dual-track switch.
+    langsmith_api_key: str = ""
+    langsmith_project: str = "intercraft-prod"
+
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
