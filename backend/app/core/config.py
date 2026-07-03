@@ -142,6 +142,16 @@ class Settings(BaseSettings):
     agent_use_v2_tool_binding: bool = False
     agent_use_v2_control_tools: bool = False
 
+    # ---- REQ-042 US-1 FR-009 / US-2 FR-009 — 3 dual-track flags ----
+    # Each flag is intentionally a separate boolean (per L041-001 mini-batch
+    # + FR-009 dual-track requirement) so call sites can adopt loop
+    # termination, memory compression, and cross-session store independently
+    # during the 1-week observation window.
+    # TODO(release-manager): drop these flags after the 1-week observation window.
+    us1_use_v2_loop_termination: bool = False
+    us2_use_v2_compress_history: bool = False
+    us2_use_v2_langgraph_store: bool = False
+
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
