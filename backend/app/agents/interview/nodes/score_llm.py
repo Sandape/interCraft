@@ -27,6 +27,7 @@ from pathlib import Path
 from app.agents.interview.config import ERROR_THRESHOLD
 from app.agents.interview.state import InterviewGraphState
 from app.agents.llm_client import get_llm_client
+from app.agents.utils.node_error_handler import node_error_handler
 from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
@@ -37,6 +38,7 @@ def _load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@node_error_handler(fallback_strategy="retry")
 @traced_node("interview.score_llm")
 async def score_llm_node(state: InterviewGraphState) -> dict:
     """Score the latest user answer against the current question (LLM only).

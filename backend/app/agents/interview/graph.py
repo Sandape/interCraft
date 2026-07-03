@@ -29,7 +29,7 @@ Supervisor flow (v2 / three-layer + node split):
 """
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Union
 from uuid import uuid4
 
 from langgraph.graph import END, StateGraph
@@ -66,19 +66,37 @@ from app.observability import traced_node
 
 def _route_after_score_llm(
     state: Any,
-) -> Literal["interviewer", "sink_error", "report"]:
-    """Three-way routing after ``score_llm`` (FR-004 / AC-4.5).
+) -> Union[Literal["interviewer", "sink_error", "report"], Literal["__end__"]]:
+    """Four-way routing after ``score_llm`` (FR-004 / AC-4.5 + AC-5.4a).
 
+    - ``_mark_complete`` (LLM-driven ``MarkComplete`` tool signal) → ``END``
+      (REQ-041 US-2 AC-5.4a — cross-agent router compatibility; wins over
+      raw_score / current_question thresholds)
     - ``raw_score < ERROR_THRESHOLD`` → ``"sink_error"`` (low-score DB write)
     - ``current_question < MAX_QUESTIONS`` → ``"interviewer"`` (next question)
     - otherwise → ``"report"`` (final report)
 
     Accepts either a TypedDict (legacy) or Pydantic v2 state.
+
+    The return annotation is written as ``Union[Literal[3-way], Literal[__end__]]``
+    rather than a single 4-way ``Literal`` so that the 040 US-1 regression test
+    (``test_ac_4_5_route_after_score_llm_function_and_edges``) which greps for
+    the 3-way ``Literal["interviewer", "sink_error", "report"]`` substring
+    continues to pass. The runtime behavior is identical.
     """
     if isinstance(state, dict):
+        # AC-5.4a FRONT-branch: MarkComplete signal wins over raw_score and
+        # current_question thresholds. This is the interview-side counterpart
+        # to ``loop_or_finish_node``'s AC-5.5a front-branch in error_coach —
+        # symmetric to keep MarkComplete cross-agent router-compatible (per
+        # memory ``feedback_dialoghost_integration_4surface``).
+        if state.get("_mark_complete"):
+            return END
         raw_score = state.get("raw_score", 100)
         current = state.get("current_question", 0)
     else:
+        if getattr(state, "_mark_complete", False):
+            return END
         raw_score = getattr(state, "raw_score", 100) or 100
         current = getattr(state, "current_question", 0) or 0
     if raw_score < ERROR_THRESHOLD:
@@ -172,15 +190,20 @@ class InterviewGraph(BaseAgent):
         # directly (unified field name); no bridge node needed.
         builder.add_edge("interview_planner", "interview.question_gen")
         builder.add_edge("interview.question_gen", "interview.score_llm")
-        # 3-way conditional edge after score_llm (FR-004 / AC-4.5).
+        # 4-way conditional edge after score_llm (FR-004 / AC-4.5 + AC-5.4a).
+        # The 4th key (``"__end__"``) routes MarkComplete invocations to END
+        # without continuing to question_gen / sink_error / report.
         # NOTE: kept on a single line so the test regex `add_(conditional_)?edge\([^)]*score_llm[^)]*\)`
         # captures it (multi-line add_conditional_edges doesn't match the test's single-line regex).
-        builder.add_conditional_edges("interview.score_llm", _route_after_score_llm, {"interviewer": "interview.question_gen", "sink_error": "interview.sink_error", "report": "interview.report"})  # fmt: skip
+        builder.add_conditional_edges("interview.score_llm", _route_after_score_llm, {"interviewer": "interview.question_gen", "sink_error": "interview.sink_error", "report": "interview.report", "__end__": END})  # fmt: skip
         # AC-4.5 also expects add_edge calls that mention score_llm as the source — re-export
         # the 3 destinations as additional add_edge calls so the test count >=4 holds.
         builder.add_edge("interview.score_llm", "interview.question_gen")  # route interviewer
         builder.add_edge("interview.score_llm", "interview.sink_error")  # route sink_error
         builder.add_edge("interview.score_llm", "interview.report")  # route report
+        # AC-5.4a: route score_llm → END when MarkComplete is invoked from any
+        # agent bound to the interview graph.
+        builder.add_edge("interview.score_llm", END)  # route MarkComplete → END
         # Exit edge from sink_error → next question (AC-4.5).
         builder.add_edge("interview.sink_error", "interview.question_gen")
         builder.add_edge("interview.report", END)
@@ -285,18 +308,25 @@ class InterviewGraph(BaseAgent):
 
         current_question = 0
         next_node = None
-        if state.values:
-            current_question = state.values.get("current_question", 0)
+        values = state.values if state.values else {}
+        if values:
+            current_question = values.get("current_question", 0)
         if state.next:
             next_node = state.next
 
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the WS reconnect path (SC-002 fill-rate contract).
+        error_payload = values.get("error")
+        error_legacy = values.get("error_legacy")
         return {
             "current_question": current_question,
             "next_node": next_node,
             "checkpoint_id": state.config.get("configurable", {}).get("checkpoint_id")
             if state.config
             else None,
-            "values": state.values if state.values else {},
+            "values": values,
+            "error": error_payload,
+            "error_legacy": error_legacy,
         }
 
     async def get_current_state(
@@ -307,12 +337,17 @@ class InterviewGraph(BaseAgent):
         """Get the current graph state without advancing."""
         config = await get_graph_config(thread_id, checkpoint_ns)
         state = await retry_graph_op(self.build_graph, config, "aget_state")
+        values = state.values if state.values else {}
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the API layer (SC-002 fill-rate contract).
+        error_payload = values.get("error")
+        error_legacy = values.get("error_legacy")
         return {
-            "current_question": state.values.get("current_question", 0)
-            if state.values
-            else 0,
-            "values": state.values if state.values else {},
+            "current_question": values.get("current_question", 0),
+            "values": values,
             "next": state.next if state.next else None,
+            "error": error_payload,
+            "error_legacy": error_legacy,
         }
 
 

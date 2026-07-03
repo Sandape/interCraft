@@ -99,11 +99,15 @@ class GeneralCoachGraph(BaseAgent):
         config = await get_graph_config(thread_id)
         state = await retry_graph_op(self.build_graph, config, "aget_state")
         values = state.values or {}
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the API layer (SC-002 fill-rate contract).
+        error_payload = values.get("error")
         return {
             "thread_id": thread_id,
             "detected_intent": values.get("detected_intent"),
             "message_count": len(values.get("messages", [])),
             "session_active": values.get("session_active", False),
+            "error": error_payload,
         }
 
 

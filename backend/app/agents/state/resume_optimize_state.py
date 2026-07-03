@@ -24,6 +24,11 @@ class ResumeOptimizeState(TypedDict, total=False):
     thread_aborted: set to True on timeout or user abort.
     """
 
+    # REQ-041 US1 FR-003 (AC-3.1) - failure envelope written by
+    # @node_error_handler(fallback_strategy="use_previous") on node failure.
+    # TypedDict-compatible (total=False) so absent == None.
+    # Serialised to API response as error_category + node_name.
+    error: dict[str, Any] | None
     messages: Annotated[list[dict[str, Any]], add_messages]
     user_id: str
     branch_id: str
@@ -38,3 +43,4 @@ class ResumeOptimizeState(TypedDict, total=False):
 
 
 __all__ = ["ResumeOptimizeState"]
+

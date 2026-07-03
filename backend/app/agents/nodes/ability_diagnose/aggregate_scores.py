@@ -10,9 +10,11 @@ from app.agents.tools.query_interview_score import (
     query_interview_questions,
     query_interview_report,
 )
+from app.agents.utils.node_error_handler import node_error_handler
 from app.observability import traced_node
 
 
+@node_error_handler(fallback_strategy="retry")
 @traced_node("ability_diagnose.aggregate_scores")
 async def aggregate_scores_node(state: AbilityDiagnoseState) -> dict:
     """Aggregate interview scores from the report and questions."""

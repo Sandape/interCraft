@@ -40,6 +40,12 @@ class AbilityDiagnoseState(TypedDict, total=False):
     diagnoses: list[dict[str, Any]]
     insights: list[dict[str, Any]]
     db_warnings: list[str]
+    # REQ-041 US1 FR-003 (AC-3.1) — failure envelope written by
+    # ``@node_error_handler(fallback_strategy="use_previous")`` on node failure.
+    # TypedDict-compatible (total=False) so absent == None.
+    # Serialised to API response as ``error_category`` + ``node_name`` by
+    # ``app.agents.utils.node_error.serialize_state_error``.
+    error: dict[str, Any] | None
 
 
 __all__ = ["AbilityDiagnoseState"]

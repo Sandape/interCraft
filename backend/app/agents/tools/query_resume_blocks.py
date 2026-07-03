@@ -7,6 +7,7 @@ from __future__ import annotations
 from uuid import UUID
 
 import structlog
+from langchain_core.tools import tool
 
 from app.core.db import get_session_factory
 from app.modules.resumes.block_repository import ResumeBlockRepository
@@ -14,6 +15,7 @@ from app.modules.resumes.block_repository import ResumeBlockRepository
 logger = structlog.get_logger("agents.tools.query_resume_blocks")
 
 
+@tool
 async def query_resume_blocks(
     branch_id: str,
     *,

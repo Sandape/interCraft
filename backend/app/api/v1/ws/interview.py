@@ -315,10 +315,36 @@ async def _handle_reconnect(websocket: WebSocket, user_id: str, msg: dict) -> No
     next_node = state.get("next_node")
     current_q = state.get("current_question", 0)
 
+    # REQ-041 AC-3.4 / AC-3.7a: project the typed ``error`` envelope into
+    # the WS reconnect path. The interview graph is exposed via WebSocket
+    # (not REST), so the wiring point is ``_handle_reconnect`` rather than
+    # a REST GET /state endpoint. Closes the SC-002 wiring gap for the
+    # 5th agent API surface.
+    from app.agents.utils.node_error import serialize_state_error
+
+    err = state.get("error")
+    err_legacy = state.get("error_legacy")
+    serialized = serialize_state_error(state_error=err, state_error_legacy=err_legacy)
+
     if next_node:
         await websocket.send_text(
             serialize_event(
                 make_node_started(session_id, next_node, current_question=current_q)
+            )
+        )
+    if serialized:
+        # Surface error envelope so front-end can render ``error_category``
+        # + ``node_name`` + ``error_legacy_str`` on reconnect failures.
+        await websocket.send_text(
+            serialize_event(
+                make_error_event(
+                    session_id=session_id,
+                    node_name=serialized.get("node_name", "system"),
+                    code=f"state.{serialized.get('error_category', 'unknown')}",
+                    message=serialized.get("cause", ""),
+                    retryable=serialized.get("error_category") == "timeout"
+                    or serialized.get("error_category") == "checkpointer_unavailable",
+                )
             )
         )
 

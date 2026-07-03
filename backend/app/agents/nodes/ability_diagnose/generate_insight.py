@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.agents.llm_client import get_llm_client
 from app.agents.state.ability_diagnose_state import AbilityDiagnoseState
+from app.agents.utils.node_error_handler import node_error_handler
 from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "ability_diagnose"
@@ -17,6 +18,7 @@ def _load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@node_error_handler(fallback_strategy="retry")
 @traced_node("ability_diagnose.generate_insight")
 async def generate_insight_node(state: AbilityDiagnoseState) -> dict:
     """Generate improvement insights for each dimension using LLM."""

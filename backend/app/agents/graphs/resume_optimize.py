@@ -151,12 +151,16 @@ class ResumeOptimizeGraph(BaseAgent):
         state = await retry_graph_op(self.build_graph, config, "aget_state")
 
         values = state.values if state.values else {}
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the API layer (SC-002 fill-rate contract).
+        error_payload = values.get("error")
         return {
             "thread_id": thread_id,
             "status": "completed" if not state.next else "waiting_interrupt" if "resume_optimize.apply_or_discard" in (state.next or []) else "running",
             "current_node": state.next[0] if state.next else None,
             "summary": values.get("summary"),
             "proposed_patches": values.get("proposed_patches"),
+            "error": error_payload,
         }
 
 

@@ -142,6 +142,7 @@ async def error_coach_state(
 ):
     """Get current state of error coach session."""
     from app.agents.graphs.error_coach import get_error_coach_graph
+    from app.agents.utils.node_error import serialize_state_error
 
     graph = get_error_coach_graph()
     try:
@@ -149,4 +150,12 @@ async def error_coach_state(
     except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-    return state
+    # REQ-041 AC-3.4 / AC-3.7a: project ``state["error"]`` (and the
+    # dual-track ``error_legacy`` for interview, N/A here) into API
+    # ``error_category`` + ``node_name`` + ``cause`` + ``retry_after``
+    # fields. Without this wiring, SC-002 "100% fill rate" is 0% — the
+    # helper exists in ``app.agents.utils.node_error`` but no API path
+    # was invoking it.
+    err = state.pop("error", None)
+    serialized = serialize_state_error(state_error=err, state_error_legacy=None)
+    return {**state, **serialized}

@@ -22,6 +22,11 @@ class GeneralCoachState(TypedDict, total=False):
     session_active: whether the conversation is active.
     """
 
+    # REQ-041 US1 FR-003 (AC-3.1) - failure envelope written by
+    # @node_error_handler(fallback_strategy="use_previous") on node failure.
+    # TypedDict-compatible (total=False) so absent == None.
+    # Serialised to API response as error_category + node_name.
+    error: dict[str, Any] | None
     messages: Annotated[list[dict[str, Any]], add_messages]
     user_id: str
     conversation_id: str
@@ -32,3 +37,4 @@ class GeneralCoachState(TypedDict, total=False):
 
 
 __all__ = ["GeneralCoachState"]
+

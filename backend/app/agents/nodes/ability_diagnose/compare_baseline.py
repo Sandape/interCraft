@@ -6,9 +6,11 @@ with current aggregated scores.
 from __future__ import annotations
 
 from app.agents.state.ability_diagnose_state import AbilityDiagnoseState
+from app.agents.utils.node_error_handler import node_error_handler
 from app.observability import traced_node
 
 
+@node_error_handler(fallback_strategy="retry")
 @traced_node("ability_diagnose.compare_baseline")
 async def compare_baseline_node(state: AbilityDiagnoseState) -> dict:
     """Compare current scores with historical baseline."""

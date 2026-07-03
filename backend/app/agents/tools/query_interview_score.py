@@ -7,6 +7,7 @@ from __future__ import annotations
 from uuid import UUID
 
 import structlog
+from langchain_core.tools import tool
 from sqlalchemy import text
 
 from app.core.db import get_session_factory
@@ -14,6 +15,7 @@ from app.core.db import get_session_factory
 logger = structlog.get_logger("agents.tools.query_interview_score")
 
 
+@tool
 async def query_interview_report(session_id: str) -> dict | None:
     """Fetch the interview report for a given session."""
     factory = get_session_factory()
@@ -111,4 +113,9 @@ __all__ = [
     "query_ai_messages_for_session",
     "query_interview_questions",
     "query_interview_report",
+    "query_interview_score",
 ]
+
+# Per AC-4.4 — alias `query_interview_score` (openDeepResearch pattern)
+# discoverability alongside `query_interview_report` tool.
+query_interview_score = query_interview_report

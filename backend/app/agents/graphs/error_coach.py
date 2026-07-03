@@ -171,12 +171,16 @@ class ErrorCoachGraph(BaseAgent):
         state = await retry_graph_op(self.build_graph, config, "aget_state")
 
         values = state.values or {}
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the API layer (SC-002 fill-rate contract).
+        error_payload = values.get("error")
         return {
             "thread_id": thread_id,
             "status": "completed" if not state.next else "running",
             "correct_count": values.get("correct_count", 0),
             "attempt_count": values.get("attempt_count", 0),
             "current_hint_level": values.get("current_hint_level", "small"),
+            "error": error_payload,
         }
 
 

@@ -87,6 +87,14 @@ class InterviewGraphState(TypedDict, total=False):
     requirements_provided: bool
     requirements_truncated: bool
     requirements_original_chars: int
+    # REQ-041 US-2 AC-5.4a — MarkComplete cross-agent router compatibility.
+    # When the LLM calls the ``MarkComplete`` @tool from ANY agent bound to
+    # the interview graph (e.g. planner_search_node, score_llm), the wrapping
+    # node function returns ``{"_mark_complete": True}`` in its state delta
+    # and the conditional-edge router
+    # (``_route_after_score_llm``) checks this field as a FRONT-branch
+    # before raw_score / current_question thresholds.
+    _mark_complete: bool
 
 
 # ===========================================================================
@@ -110,9 +118,9 @@ class InterviewInputState(TypedDict, total=False):
 
 
 class InterviewOverallState(TypedDict, total=False):
-    """Overall state for the Interview graph — 20 fields.
+    """Overall state for the Interview graph — 21 fields.
 
-    AC-2.2 enforces a 20-field whitelist (set equality). ``scores`` uses
+    AC-2.2 enforces a 21-field whitelist (set equality). ``scores`` uses
     the custom ``override_reducer`` (FR-001) so nodes can reset the list
     via the ``{"type": "override", "value": X}`` protocol.
 
@@ -133,7 +141,16 @@ class InterviewOverallState(TypedDict, total=False):
     branch_id: str | None
     overall_score: float | None
     interview_report: dict[str, Any] | None
-    error: str | None
+    # REQ-041 US1 FR-003 AC-3.1 — DUAL-TRACK period (1 week observation):
+    # ``error_legacy: str | None`` is the LEGACY field, renamed from
+    # ``error: str | None``. Existing callers that read ``state["error_legacy"]``
+    # as a plain string continue to work. After the observation window +
+    # release-manager cut, this field will be deleted.
+    error_legacy: str | None
+    # REQ-041 US1 FR-003 AC-3.1 — typed failure envelope written by
+    # ``@node_error_handler(fallback_strategy="use_previous")``. Serialised
+    # to the API response as ``error_category`` + ``node_name``.
+    error: dict[str, Any] | None
     user_id: str
     thread_id: str
     job_id: str | None
@@ -148,6 +165,14 @@ class InterviewOverallState(TypedDict, total=False):
     # declared state field; the legacy 20-field set has no slot for the
     # unified name). This 21st field is the minimal addition needed.
     interview_plan: dict[str, Any] | None
+    # REQ-041 US-2 AC-5.4a — MarkComplete cross-agent router compatibility.
+    # When the LLM calls the ``MarkComplete`` @tool from ANY agent bound to
+    # the interview graph (e.g. planner_search_node, score_llm), the wrapping
+    # node function returns ``{"_mark_complete": True}`` in its state delta
+    # and the conditional-edge router
+    # (``_route_after_score_llm`` in graph.py) checks this field as a
+    # FRONT-branch before raw_score / current_question thresholds.
+    _mark_complete: bool
 
 
 class InterviewOutputState(BaseModel):
