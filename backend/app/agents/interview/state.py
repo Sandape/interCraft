@@ -95,6 +95,9 @@ class InterviewGraphState(TypedDict, total=False):
     # (``_route_after_score_llm``) checks this field as a FRONT-branch
     # before raw_score / current_question thresholds.
     _mark_complete: bool
+    # REQ-042 US-1 FR-001 — soft iteration cap + monotonic counter.
+    max_iterations: int
+    iteration_count: int
 
 
 # ===========================================================================
@@ -173,6 +176,13 @@ class InterviewOverallState(TypedDict, total=False):
     # (``_route_after_score_llm`` in graph.py) checks this field as a
     # FRONT-branch before raw_score / current_question thresholds.
     _mark_complete: bool
+    # REQ-042 US-1 FR-001 — soft iteration cap (per-agent default via
+    # ``Configuration.max_iterations``). Read by ``iteration_guard_node``;
+    # raised to ``state.error.error_category=loop_terminated`` on overflow.
+    max_iterations: int
+    # REQ-042 US-1 FR-001 — monotonic add reducer counter incremented by
+    # ``iteration_guard_node`` on each evaluation cycle.
+    iteration_count: int
 
 
 class InterviewOutputState(BaseModel):

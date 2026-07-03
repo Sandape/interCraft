@@ -85,9 +85,13 @@ class ErrorCoachGraph(BaseAgent):
         # next answer instead of looping evaluate→hint_ladder until the
         # recursion limit. Without this, start() runs the whole 3-round
         # conversation with itself and submit_answer is a no-op.
+        # REQ-042 US-1 FR-002 — recursion_limit from per-agent config.
+        from app.agents.utils.loop_termination import ErrorCoachStateConfiguration
+
         return builder.compile(
             checkpointer=checkpointer,
             interrupt_after=["error_coach.hint_ladder"],
+            recursion_limit=ErrorCoachStateConfiguration().recursion_limit,
         )
 
     def _route_after_loop(self, state: ErrorCoachState) -> Literal["hint_ladder", "__end__"]:

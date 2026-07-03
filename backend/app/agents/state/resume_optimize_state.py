@@ -40,6 +40,9 @@ class ResumeOptimizeState(TypedDict, total=False):
     thread_aborted: bool
     # US5: per-patch accept/reject. None = apply all; otherwise apply only these indices.
     accepted_patch_indices: list[int] | None
+    # REQ-042 US-1 FR-001 — soft iteration cap + monotonic counter.
+    max_iterations: int
+    iteration_count: int
 
 
 __all__ = ["ResumeOptimizeState"]
