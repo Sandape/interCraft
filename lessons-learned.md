@@ -194,3 +194,13 @@
 - (d) **capability placeholder**: LogCenter.tsx 用 `user?.email === 'demo@intercraft.io' ? ['REPLAY_TRIGGER', 'TASK_TAG'] : ['TASK_TAG']` 作为 cap 集合 placeholder，直到后端 `/api/v1/me/capabilities` 端点上线。production 部署非 demo 用户只会拿到 `TASK_TAG`——这是 design 的临时妥协，不是 bug。
 **适用场景**: 任何「admin console」类前端模块（带 capability check + localStorage cache + demo user 集成）的实施 review。
 
+
+### MB3 silent-fail elimination + dual-track legacy str rename (REQ-041 US1 FR-003)
+**问题**: AC-3.2 要求清零 `score = 5` 静默 fallback（错误码路径假装返回 neutral score 掩盖 LLM 故障）+ AC-3.1 要求 interview state `error: str` → dict 双轨期兼容。实施时遇到 3 个真实陷阱：
+1. **score=5 误杀注释**: 第一次 grep `score\s*=\s*5\b` 命中错误代码 + 注释（含 docstring 提及 "refusing to silently return score=5"）。修正后正则 `^\s*score\s*=\s*5\b` + 显式 skip `line.lstrip().startswith("#")`。注释可以提及 score=5，但不能作为 assignment 出现。
+2. **MockLLMClient fixtures bypass**: 测试 `evaluate_scores=[]` 实际生效值是 `_DEFAULT_SCORES = [5]`（Python `or` 运算符对空 list 视为 falsy，回退到默认）。修正：test 改用 `evaluate_scores=[8]` 后手动置 `_evaluate_index=1` 直接触发 exhausted 路径。
+3. **multi-line import regex**: `node_error_handler.py` 用 `from app.agents.structured_output.errors import (\n  OutOfBounds,\n  ParseFail,\n  ...\n)` parenthesised 形式，原 regex `[^#\n]*` 只匹配单行 — 加 `re.DOTALL` 跨行。
+4. **interview state 双轨期命名**: 既有 `error: str | None` 字段（line 82 DEPRECATED + line 136 新 schema 双定义）+ AC-3.1 要求"不删旧字段，新增 dict 字段"。实施时 rename 既有 `error: str | None` → `error_legacy: str | None` + 新增 `error: dict[...]`。改名比"加 _legacy 后缀"对老 e2e 代码破坏更大（grep `state["error_legacy"]` 必须所有 caller 更新），但符合 AC 的"1 周后 release manager 删 error_legacy"路径。
+**修复**: 见 commit `46f5fbf` (MB3 impl)。测试结果：95 (MB1+MB2+MB3 + 22 AC) + 27 (040 AC-4.6 regression) = 122 passed + 1 skip + 0 FAIL。
+**适用场景**: 任何 "禁静默失败 + state 字段双轨期兼容" 类需求。grep 测试要排除注释；mock fixtures bypass 默认值要手动置 index；多行 import regex 必须 DOTALL；state 双轨期命名要明确 legacy 后缀。
+**避免**: (1) `grep "score = 5"` 时不要 naive match — 必须 `^\s*` 锚定行首 + `\.match`（不是 `\.search`）。(2) 测试空 list mock fixtures 时不要依赖"空 ⇒ falsy ⇒ 默认值"逻辑；先读 `__init__` 的 `or` 表达式确认默认值。(3) regex `[^#]*` 不允许 `#` 不允许换行；要 multiline 必须 `re.DOTALL`。(4) `error: str → error: dict` 不是 type-level "Optional widening" — 必须 rename 旧字段为 `_legacy` 后缀（保留 1 周观察期）+ 加新字段；不能原地扩展类型（type checker 会 FAIL）。
