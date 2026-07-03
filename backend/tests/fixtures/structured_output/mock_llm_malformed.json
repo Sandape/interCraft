@@ -1,0 +1,19 @@
+{
+  "_scenario": "malformed",
+  "_schema_hint": "OutputSchema",
+  "_description": "Truncated JSON / illegal brace — expected to raise StructuredOutputError(category='parse_fail')",
+  "_raw": "{ next_question: ... ",
+  "_expected_category": "parse_fail",
+  "_raw_examples": [
+    "{ next_question: ... ",
+    "{\"next_question\":",
+    "{ next_question: \"foo\",",
+    "{\"next_question\": \"foo\"",
+    "{ \"next_question\": \"foo\"",
+    "  next_question : foo }",
+    "{ next_question: foo }",
+    "{\"next_question\": \"unterminated",
+    "{ \"next_question\": \"foo\", \"topic\":",
+    "{ next_question foo }"
+  ]
+}

@@ -27,6 +27,14 @@ from openai import (
 from typing import Any
 from typing_extensions import TypedDict
 
+from pydantic import BaseModel
+
+from app.agents.structured_output.client import parse_structured_output
+from app.agents.structured_output.errors import (
+    ParseFail,
+    SchemaInvalid,
+    StructuredOutputError,
+)
 from app.agents.token_estimator import TokenEstimator
 from app.core.config import get_settings
 from app.eval.prompt_fingerprint import compute_prompt_fingerprint
@@ -576,6 +584,36 @@ class LLMClient:
         if LLM_TOKEN_CONSUMED_TOTAL:
             LLM_TOKEN_CONSUMED_TOTAL.labels(model=model, type="input").inc(prompt_tokens)
             LLM_TOKEN_CONSUMED_TOTAL.labels(model=model, type="output").inc(completion_tokens)
+
+    # ------------------------------------------------------------------
+    # REQ-038 US1 P1 — Structured-output parsing (single authoritative
+    # entry point; ac-matrix AC-005). MockLLMClient subclasses this so
+    # mock and prod share the Pydantic validation path (AC-009).
+    # ------------------------------------------------------------------
+    def parse_structured_output(
+        self,
+        content: str,
+        schema: type[BaseModel],
+        *,
+        fallback_strategy: str = "retry",
+        node_name: str | None = None,
+    ) -> BaseModel:
+        """Parse raw LLM content through the structured-output pipeline.
+
+        Returns a Pydantic-validated instance on success; raises one of
+        the StructuredOutputError subclasses (SchemaInvalid, ParseFail,
+        OutOfBounds, Quota, Timeout) on failure.
+        """
+        try:
+            return parse_structured_output(
+                content,
+                schema,
+                fallback_strategy=fallback_strategy,  # type: ignore[arg-type]
+                node_name=node_name,
+            )
+        except StructuredOutputError:
+            # Re-raise so callers can branch on .category
+            raise
 
 
 __all__ = [

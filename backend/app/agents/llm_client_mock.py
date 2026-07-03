@@ -21,7 +21,9 @@ import structlog
 from pathlib import Path
 from typing import Any
 
-from app.agents.llm_client import LLMResponse
+from pydantic import BaseModel
+
+from app.agents.llm_client import LLMClient, LLMResponse
 
 logger = structlog.get_logger("agents.llm_client_mock")
 
@@ -29,8 +31,25 @@ _DEFAULT_SCORES: list[int] = [5]
 _DEFAULT_HINTS: dict[str, str] = {"small": "", "medium": "", "detailed": ""}
 
 
-class MockLLMClient:
-    """Deterministic mock LLM client for E2E tests."""
+# Schema-aware fixture strings used by by_scenario().
+# Adding a new scenario: drop it here AND in tests/fixtures/structured_output/.
+_SCENARIO_FIXTURES: dict[str, str] = {
+    "malformed": "{ next_question: ... }",            # truncated brace
+    "missing": "{}",                                   # empty object
+    "enum_violation": '{"severity": "extreme"}',       # not in {low,medium,high}
+    "oob": '{"score": 200, "feedback": "too high"}',  # > Field(le=100)
+    "quota": '{"_kind": "quota_429"}',                 # HTTP 429 trigger
+    "timeout": '{"_kind": "timeout_504"}',             # HTTP 504 trigger
+}
+
+
+class MockLLMClient(LLMClient):
+    """Deterministic mock LLM client for E2E tests.
+
+    Subclasses LLMClient so the production `parse_structured_output`
+    (Pydantic validator) is reachable from the mock path (ac-matrix
+    AC-009: mock and prod share the validator).
+    """
 
     def __init__(
         self,
@@ -93,6 +112,43 @@ class MockLLMClient:
 
     async def invoke_stream(self, **kwargs):  # pragma: no cover - unused in Error Coach
         yield ""
+
+    # ------------------------------------------------------------------
+    # REQ-038 US1 P1 — structured-output parity (ac-matrix AC-009).
+    # Mock subclasses LLMClient and routes parse_structured_output
+    # through the production Pydantic path so mock and prod share the
+    # same validator. Mock cannot silently bypass validation.
+    # ------------------------------------------------------------------
+    def parse_structured_output(
+        self,
+        content: str,
+        schema: type[BaseModel],
+        *,
+        fallback_strategy: str = "retry",
+        node_name: str | None = None,
+    ) -> BaseModel:
+        """Reuse the production parse path (ac-matrix AC-009)."""
+        return LLMClient.parse_structured_output(
+            self,
+            content,
+            schema,
+            fallback_strategy=fallback_strategy,
+            node_name=node_name,
+        )
+
+    def by_scenario(self, name: str, schema: type[BaseModel] | None = None) -> str:
+        """Return a fixture content string for a named scenario.
+
+        Raises ``KeyError`` with the full list of available scenarios so
+        callers can never silently fall back to an unrelated fixture
+        (ac-matrix Note R11 / AC-009 side-constraint).
+        """
+        if name not in _SCENARIO_FIXTURES:
+            raise KeyError(
+                f"Unknown scenario '{name}'. "
+                f"Available scenarios: {', '.join(_SCENARIO_FIXTURES)}"
+            )
+        return _SCENARIO_FIXTURES[name]
 
     def _content_for(self, node_name: str, messages: list[dict[str, str]]) -> str:
         if node_name == "error_coach_evaluate":

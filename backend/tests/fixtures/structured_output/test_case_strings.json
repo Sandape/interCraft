@@ -1,0 +1,11 @@
+{
+  "_description": "Category taxonomy locked at ac-matrix AC-008. Used to verify grep 0 hits for the listed alias strings.",
+  "valid_categories": [
+    "schema_invalid",
+    "parse_fail",
+    "quota",
+    "timeout",
+    "oob"
+  ],
+  "alias_strings": []
+}

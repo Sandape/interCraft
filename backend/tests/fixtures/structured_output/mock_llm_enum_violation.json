@@ -1,0 +1,19 @@
+{
+  "_scenario": "enum_violation",
+  "_schema_hint": "OutputSchema",
+  "_description": "Valid JSON with field type correct but enum value not in Literal set — expected category='schema_invalid'",
+  "_raw": "{\"severity\": \"extreme\"}",
+  "_expected_category": "schema_invalid",
+  "_raw_examples": [
+    "{\"severity\": \"extreme\"}",
+    "{\"severity\": \"LOW\"}",
+    "{\"severity\": 42}",
+    "{\"severity\": \"\"}",
+    "{\"severity\": null}",
+    "{\"difficulty\": \"impossible\"}",
+    "{\"difficulty\": \"extreme-hard\"}",
+    "{\"difficulty\": 1}",
+    "{\"difficulty\": null}",
+    "{\"severity\": \"Medium\"}"
+  ]
+}

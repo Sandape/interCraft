@@ -1,0 +1,19 @@
+{
+  "_scenario": "quota",
+  "_schema_hint": "OutputSchema",
+  "_description": "HTTP 429 / rate limit trigger — expected category='quota' (NOT 'schema_invalid')",
+  "_raw": "{\"_kind\": \"quota_429\"}",
+  "_expected_category": "quota",
+  "_raw_examples": [
+    "{\"_kind\": \"quota_429\"}",
+    "{\"_kind\": \"quota\", \"http_status\": 429}",
+    "{\"_kind\": \"rate_limit\", \"retry_after\": 60}",
+    "{\"_kind\": \"quota_429\", \"monthly_used\": 500000, \"monthly_quota\": 500000}",
+    "{\"_kind\": \"quota_429\", \"model\": \"deepseek-v4-pro\"}",
+    "{\"_kind\": \"quota_429\", \"request_id\": \"abc-123\"}",
+    "{\"_kind\": \"quota_exceeded\", \"code\": \"insufficient_quota\"}",
+    "{\"_kind\": \"quota_429\", \"reset_at\": \"2026-07-03T23:51:39+08:00\"}",
+    "{\"_kind\": \"quota_429\", \"endpoint\": \"chat/completions\"}",
+    "{\"_kind\": \"quota_429\", \"headers\": {\"retry-after\": \"60\"}}"
+  ]
+}

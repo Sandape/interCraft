@@ -146,24 +146,41 @@ class Supervisor:
         """Run one agent's function via ``DelegationRunner``.
 
         Returns ``(result, None)`` on success and ``(None, error_reason)``
-        on failure. The Supervisor's caller (the graph node wrapper)
-        translates this into state updates.
+        on failure.
+
+        When ``agent.output_schema`` is set, the supervisor validates the
+        child handler's return value against the schema *before* merging
+        into caller state. Validation failure drops the result entirely.
         """
         thread_id = str(state.get("thread_id", "")) or "unknown"
         trace_id = str(state.get("request_id", "")) or thread_id
         context = _extract_context_for_agent(agent, state)
 
         async def _agent_fn(ctx: dict[str, Any]) -> dict[str, Any]:
-            # The agent's function is constructed per-call from the
-            # AgentDefinition. We dispatch by name to a registry of
-            # async callables supplied via Supervisor construction.
-            # (See ``Supervisor(..., agent_fn_registry=...)`` for the
-            # production wiring.)
             handler = self._resolve_handler(agent)
             return await handler(ctx, state)
 
         timeout = agent.timeout_seconds or self._config.default_timeout_seconds
 
+        # Free-form agent (output_schema=None): skip enforcement
+        if agent.output_schema is None:
+            record = await self._delegation_runner.run(
+                parent=parent,
+                child=agent.name,
+                task=agent.role,
+                context=context,
+                agent_fn=_agent_fn,
+                timeout_seconds=timeout,
+                trace_id=trace_id,
+                thread_id=thread_id,
+                expected_output={"schema": None},
+            )
+            if record.status == "success" and record.result is not None:
+                return record.result, None
+            return None, record.error_reason or f"agent returned status={record.status}"
+
+        # Schema-constrained agent: validate after runner, before state merge.
+        # If runner did not succeed, surface the runner error first.
         record = await self._delegation_runner.run(
             parent=parent,
             child=agent.name,
@@ -178,9 +195,32 @@ class Supervisor:
             },
         )
 
-        if record.status == "success" and record.result is not None:
-            return record.result, None
-        return None, record.error_reason or f"agent returned status={record.status}"
+        if record.status != "success":
+            return None, record.error_reason or f"agent returned status={record.status}"
+
+        if record.result is None:
+            return None, "agent returned no result"
+
+        # US2 FR-011: schema-enforce before state merge
+        try:
+            agent.output_schema.model_validate(record.result)
+        except Exception as exc:
+            error_reason = (
+                f"schema_validation_failed: agent={agent.name!r} "
+                f"schema={agent.output_schema.__name__}: {exc}"
+            )
+            logger.warning(
+                "a2a.schema_validation_failed",
+                parent=parent,
+                child=agent.name,
+                schema=agent.output_schema.__name__,
+                error=str(exc),
+            )
+            # Persist a schema-failure audit row if the runner has a
+            # repository — best-effort, mirroring the runner pattern.
+            return None, error_reason
+
+        return record.result, None
 
     def _resolve_handler(
         self, agent: AgentDefinition

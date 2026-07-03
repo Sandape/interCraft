@@ -1,0 +1,19 @@
+{
+  "_scenario": "missing",
+  "_schema_hint": "OutputSchema",
+  "_description": "Valid JSON but missing required fields — expected to raise StructuredOutputError(category='schema_invalid')",
+  "_raw": "{}",
+  "_expected_category": "schema_invalid",
+  "_raw_examples": [
+    "{}",
+    "{\"topic\": \"python\"}",
+    "{\"next_question\": \"Tell me about yourself\"}",
+    "{\"next_question\": null}",
+    "{\"next_question\": \"\"}",
+    "{\"topic\": \"\", \"next_question\": \"\"}",
+    "{\"severity\": \"low\"}",
+    "{\"diagnosis\": \"missing field\"}",
+    "{\"score\": 50.0}",
+    "{\"feedback\": \"ok\"}"
+  ]
+}
