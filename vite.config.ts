@@ -13,6 +13,18 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      // REQ-039 B2: admin console ships as a second entry alongside the
+      // main app. Each HTML page (index.html, index.admin.html) builds
+      // its own chunk set so the admin bundle never bloats the user
+      // app and vice versa.
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        admin: path.resolve(__dirname, 'index.admin.html'),
+      },
+    },
+  },
   server: {
     port: 5173,
     // Proxy /api and /openapi.json to the FastAPI backend on 127.0.0.1.
