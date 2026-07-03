@@ -86,8 +86,17 @@ class QuotaExceededError(Exception):
         )
 
 
-class LLMInvokeError(Exception):
-    """Raised when LLM invocation fails after exhausting retries."""
+class LLMInvokeError(RuntimeError):
+    """Raised when LLM invocation fails after exhausting retries.
+
+    Inherits ``RuntimeError`` so legacy 040 US-2 tests using
+    ``pytest.raises(RuntimeError)`` (e.g.
+    ``test_ac_4_6_score_llm_failure_does_not_trigger_sink_error``)
+    still pass — ``LLMInvokeError`` IS-A ``RuntimeError``. The 041
+    decorator's ``raise LLMInvokeError(...) from last_exc`` path
+    therefore satisfies BOTH the new ``LLMInvokeError`` contract
+    (AC-2.2a) AND the legacy ``RuntimeError`` contract (040 AC-4.6).
+    """
 
     def __init__(self, message: str, *, node_name: str = "", retry_count: int = 0) -> None:
         self.node_name = node_name

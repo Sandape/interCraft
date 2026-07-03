@@ -538,3 +538,50 @@ class TestExceptionClassificationImports:
         assert pattern.search(src), (
             "node_error_handler.py must import CheckpointerUnavailableError"
         )
+
+
+# ---------------------------------------------------------------------------
+# AC-8.1 / cross-team regression — LLMInvokeError must be catchable as
+# RuntimeError so 040 US-2 test_ac_4_6_score_llm_failure_does_not_trigger_sink_error
+# (pytest.raises(RuntimeError)) remains green after the @node_error_handler
+# decorator wraps the underlying exception in LLMInvokeError.
+# See memory: feedback_cross_team_contract_l031 (do NOT modify 040 tests).
+# ---------------------------------------------------------------------------
+class TestLLMInvokeErrorInheritanceContract:
+    def test_llm_invoke_error_inherits_runtime_error(self):
+        """LLMInvokeError must subclass RuntimeError for 040 AC-4.6 back-compat."""
+        from app.agents.llm_client import LLMInvokeError
+
+        assert issubclass(LLMInvokeError, RuntimeError), (
+            "LLMInvokeError must inherit RuntimeError so 040 US-2 "
+            "test_ac_4_6_score_llm_failure_does_not_trigger_sink_error "
+            "(pytest.raises(RuntimeError)) remains green"
+        )
+
+    def test_llm_invoke_error_can_be_caught_as_runtime_error(self):
+        """040 AC-4.6 — wrapping in LLMInvokeError must still match except RuntimeError."""
+        from app.agents.llm_client import LLMInvokeError
+
+        try:
+            raise LLMInvokeError("test")
+        except RuntimeError:
+            pass  # OK — LLMInvokeError caught as RuntimeError
+        else:
+            pytest.fail("LLMInvokeError should be catchable as RuntimeError")
+
+    def test_node_error_handler_raise_llm_invoke_error_matches_runtime_error(self):
+        """End-to-end: decorated node raising LLMInvokeError satisfies pytest.raises(RuntimeError)."""
+        from app.agents.llm_client import LLMInvokeError
+        from app.agents.utils.node_error_handler import node_error_handler
+
+        @node_error_handler(fallback_strategy="retry", max_retries=2)
+        async def failing_node(state: dict) -> dict:
+            raise LLMInvokeError("simulated LLM failure", node_name="failing_node")
+
+        import asyncio
+
+        async def _run() -> None:
+            with pytest.raises(RuntimeError):
+                await failing_node({"messages": [], "_llm_model_name": "deepseek-v4-pro"})
+
+        asyncio.run(_run())
