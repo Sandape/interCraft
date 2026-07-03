@@ -325,35 +325,60 @@ class TestLLMNodesHaveDecorator:
 # AC-2.7 + AC-2.8 — intake / report explicit hard_fail
 # ---------------------------------------------------------------------------
 class TestIntakeAndReportHardFail:
-    def test_intake_node_uses_hard_fail(self):
-        """AC-2.7: intake.py decorator explicitly pins hard_fail."""
-        from app.agents.interview.nodes.intake import intake_node
+    def _scan_decorators_above_function(
+        self, func_name: str, module_name: str, file_name: str
+    ) -> list[str]:
+        """Read the source file and return all ``@node_error_handler`` lines
+        that immediately precede the ``async def <func_name>`` declaration.
+        """
+        import app.agents.interview.nodes as _  # noqa: F401 — load module
+        from app.agents.interview.nodes import intake as intake_mod
+        from app.agents.interview.nodes import report as report_mod
 
-        path = Path(intake_node.__code__.co_filename)
-        text = path.read_text(encoding="utf-8")
+        mod_obj = intake_mod if file_name == "intake.py" else report_mod
+        src_path = Path(mod_obj.__file__)
+        assert src_path.name == file_name, f"expected {file_name}, got {src_path}"
+
+        text = src_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        target_idx = None
+        for i, line in enumerate(lines):
+            if line.startswith(f"async def {func_name}("):
+                target_idx = i
+                break
+        assert target_idx is not None, f"could not find async def {func_name} in {src_path}"
+
         decorator_lines = []
-        func_lineno = intake_node.__code__.co_firstlineno - 1
-        for line in text.splitlines()[:func_lineno]:
+        # walk upward; collect every @node_error_handler decorator line
+        for j in range(target_idx - 1, -1, -1):
+            line = lines[j]
             if line.startswith("@node_error_handler"):
                 decorator_lines.append(line)
+            elif line.startswith("@"):
+                continue
+            elif line.strip() == "":
+                continue
+            else:
+                break
+        return decorator_lines
+
+    def test_intake_node_uses_hard_fail(self):
+        """AC-2.7: intake.py decorator explicitly pins hard_fail."""
+        decorators = self._scan_decorators_above_function(
+            "intake_node", "intake", "intake.py"
+        )
         assert any(
-            re.search(r"hard_fail", line) for line in decorator_lines
-        ), f"intake.py missing hard_fail on @node_error_handler; got {decorator_lines}"
+            re.search(r"hard_fail", line) for line in decorators
+        ), f"intake.py missing hard_fail on @node_error_handler; got {decorators}"
 
     def test_report_node_uses_hard_fail(self):
         """AC-2.8: report.py decorator explicitly pins hard_fail."""
-        from app.agents.interview.nodes.report import report_node
-
-        path = Path(report_node.__code__.co_filename)
-        text = path.read_text(encoding="utf-8")
-        decorator_lines = []
-        func_lineno = report_node.__code__.co_firstlineno - 1
-        for line in text.splitlines()[:func_lineno]:
-            if line.startswith("@node_error_handler"):
-                decorator_lines.append(line)
+        decorators = self._scan_decorators_above_function(
+            "report_node", "report", "report.py"
+        )
         assert any(
-            re.search(r"hard_fail", line) for line in decorator_lines
-        ), f"report.py missing hard_fail on @node_error_handler; got {decorator_lines}"
+            re.search(r"hard_fail", line) for line in decorators
+        ), f"report.py missing hard_fail on @node_error_handler; got {decorators}"
 
 
 # ---------------------------------------------------------------------------
@@ -445,17 +470,29 @@ class TestDoubleDecoratorErrorPropagation:
 class TestNodeErrorModel:
     def test_node_error_has_six_category_literal_values(self):
         """AC-3.5: NodeError.category literal matches 038 subclass __name__.lower()."""
-        from typing import get_args
+        from typing import get_args, get_origin
 
         from app.agents.utils.node_error import NodeError
 
         ann = NodeError.model_fields["category"].annotation
-        # unwrap Literal / Optional
-        args = get_args(ann)
+        # Literal[...] passes directly; Optional[Literal[...]] wraps as Union.
+        # Unwrap one level of Union and accept the resulting Literal.
+        origin = get_origin(ann)
+        if origin is not None:
+            # Union, Literal, etc. — get_args returns the constituents
+            values = tuple(get_args(ann))
+        else:
+            # Bare annotation (rare) — fall back to literal resolution
+            values = (str(ann),)
+        # If the annotation is a direct Literal, values will be strings:
+        # ('schema_invalid', 'parse_fail', ...). Otherwise they may be types.
         flat = []
-        for a in args:
-            flat.extend(get_args(a))
-        values = tuple(sorted(flat))
+        for v in values:
+            if isinstance(v, str):
+                flat.append(v)
+            else:
+                flat.extend(get_args(v))
+        present = tuple(sorted(flat))
         expected = (
             "checkpointer_unavailable",
             "oob",
@@ -465,7 +502,7 @@ class TestNodeErrorModel:
             "timeout",
         )
         for v in expected:
-            assert v in values, f"missing category {v}; got {values}"
+            assert v in present, f"missing category {v}; got {present}"
 
 
 # ---------------------------------------------------------------------------
@@ -478,18 +515,26 @@ class TestExceptionClassificationImports:
         import app.agents.utils.node_error_handler as mod
 
         src = Path(mod.__file__).read_text(encoding="utf-8")
-        assert re.search(
-            r"from\s+app\.agents\.structured_output\.errors\s+import\s+[^#\n]*"
+        # allow multi-line parenthesised import — match any of the 5 subclass
+        # names after the import keyword (DOTALL so we cross newlines)
+        pattern = re.compile(
+            r"from\s+app\.agents\.structured_output\.errors\s+import[^#]*"
             r"(SchemaInvalid|ParseFail|Quota|Timeout|OutOfBounds)",
-            src,
-        ), "node_error_handler.py must import 038 subclasses"
+            re.DOTALL,
+        )
+        assert pattern.search(src), (
+            "node_error_handler.py must import 038 subclasses "
+            "(SchemaInvalid/ParseFail/Quota/Timeout/OutOfBounds)"
+        )
 
     def test_node_error_handler_imports_checkpointer_unavailable_error(self):
         """AC-3.6a: imports CheckpointerUnavailableError from checkpointer.py."""
         import app.agents.utils.node_error_handler as mod
 
         src = Path(mod.__file__).read_text(encoding="utf-8")
-        assert re.search(
-            r"from\s+app\.agents\.checkpointer\s+import\s+\(?[^#\n]*CheckpointerUnavailableError",
-            src,
-        ), "node_error_handler.py must import CheckpointerUnavailableError"
+        pattern = re.compile(
+            r"from\s+app\.agents\.checkpointer\s+import[^#\n]*CheckpointerUnavailableError",
+        )
+        assert pattern.search(src), (
+            "node_error_handler.py must import CheckpointerUnavailableError"
+        )

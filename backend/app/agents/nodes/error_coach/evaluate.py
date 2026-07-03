@@ -6,9 +6,11 @@ import re
 
 from app.agents.llm_client import get_llm_client
 from app.agents.state.error_coach_state import ErrorCoachState
+from app.agents.utils.node_error_handler import node_error_handler
 from app.observability import traced_node
 
 
+@node_error_handler(fallback_strategy="retry")
 @traced_node("error_coach.evaluate")
 async def evaluate_node(state: ErrorCoachState) -> dict:
     """Evaluate the latest user answer on a 0-10 scale (>= 8 = correct)."""

@@ -8,6 +8,7 @@ from pathlib import Path
 from app.agents.interview.state import InterviewGraphState
 from app.agents.llm_client import get_llm_client
 from app.agents.interview.requirements_block import build_requirements_block
+from app.agents.utils.node_error_handler import node_error_handler
 from app.observability import traced_node
 import structlog
 
@@ -30,6 +31,7 @@ def _load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@node_error_handler(fallback_strategy="retry")
 @traced_node("interview.question_gen")
 async def question_gen_node(state: InterviewGraphState) -> dict:
     """Generate the next interview question based on state context.

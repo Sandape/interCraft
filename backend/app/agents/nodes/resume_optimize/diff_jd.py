@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.agents.llm_client import get_llm_client
 from app.agents.state.resume_optimize_state import ResumeOptimizeState
+from app.agents.utils.node_error_handler import node_error_handler
 from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "resume_optimize"
@@ -18,6 +19,7 @@ def _load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@node_error_handler(fallback_strategy="retry")
 @traced_node("resume_optimize.diff_jd")
 async def diff_jd_node(state: ResumeOptimizeState) -> dict:
     """Analyze the gap between current resume blocks and target JD."""
