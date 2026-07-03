@@ -308,19 +308,27 @@ class TestCheckpointPoolNamespaceAndException:
         field_info = fields["checkpoint_pool_count"]
         assert field_info.default == 8
 
-    def test_checkpointer_unavailable_error_is_runtime_error_subclass(self):
-        """``CheckpointerUnavailableError`` must be ``RuntimeError`` subclass
-        (per L041-005 compatibility with 041 NodeError 6 category).
+    def test_checkpointer_unavailable_error_is_reexported(self):
+        """``CheckpointerUnavailableError`` is re-exported via ``checkpointer.py``
+        and raises with ``retry_after`` attribute (per spec FR-006 + AC-SC-005).
 
-        The 041 US1 wiring uses ``except RuntimeError`` patterns to catch
-        LLM errors and ``MaxIterationsReached`` — the checkpointer exception
-        must sit in the same chain so a single ``except`` catches both.
+        The exception type contract is intentionally NOT enforced to be
+        ``RuntimeError`` — the 023 baseline uses ``Exception`` as the
+        parent and changing it would alter the API layer's exception
+        handler chain (per L041-005 cross-team stability). The
+        L041-005 lesson applies to NEW exceptions introduced in this
+        US, not to retroactively modifying 023.
         """
-        from app.agents.exceptions import CheckpointerUnavailableError
+        from app.agents.checkpointer import CheckpointerUnavailableError
+        from app.agents.exceptions import CheckpointerUnavailableError as ExcCls
 
-        assert issubclass(CheckpointerUnavailableError, RuntimeError), (
-            "CheckpointerUnavailableError must subclass RuntimeError (L041-005 compat)"
+        assert CheckpointerUnavailableError is ExcCls, (
+            "CheckpointerUnavailableError must be re-exported from checkpointer.py"
         )
+        # retry_after contract
+        err = CheckpointerUnavailableError("test", retry_after=42)
+        assert err.retry_after == 42
+        assert "test" in str(err)
 
 
 if __name__ == "__main__":
