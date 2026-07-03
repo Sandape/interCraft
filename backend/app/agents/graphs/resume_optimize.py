@@ -20,6 +20,34 @@ from app.agents.nodes.resume_optimize.load_branch import load_branch_node
 from app.agents.nodes.resume_optimize.snapshot import snapshot_node
 from app.agents.nodes.resume_optimize.suggest_blocks import suggest_blocks_node
 from app.agents.state.resume_optimize_state import ResumeOptimizeState
+from app.observability import traced_node
+
+
+# US2 AC-3.4 / AC-E2E-5: re-decorated shims with `__name__` matching the
+# {role}_{action} suffix.
+@traced_node("resume_optimize.load_branch")
+async def load_branch(state: Any) -> Any:
+    return await load_branch_node(state)
+
+
+@traced_node("resume_optimize.diff_jd")
+async def diff_jd(state: Any) -> Any:
+    return await diff_jd_node(state)
+
+
+@traced_node("resume_optimize.suggest_blocks")
+async def suggest_blocks(state: Any) -> Any:
+    return await suggest_blocks_node(state)
+
+
+@traced_node("resume_optimize.apply_or_discard")
+async def apply_or_discard(state: Any) -> Any:
+    return await apply_or_discard_node(state)
+
+
+@traced_node("resume_optimize.snapshot")
+async def snapshot(state: Any) -> Any:
+    return await snapshot_node(state)
 
 
 class ResumeOptimizeGraph(BaseAgent):
@@ -32,28 +60,32 @@ class ResumeOptimizeGraph(BaseAgent):
         """Build the compiled Resume Optimize StateGraph with PostgreSQL checkpointer."""
         builder = StateGraph(ResumeOptimizeState)
 
-        builder.add_node("load_branch", load_branch_node)
-        builder.add_node("diff_jd", diff_jd_node)
-        builder.add_node("suggest_blocks", suggest_blocks_node)
-        builder.add_node("apply_or_discard", apply_or_discard_node)
-        builder.add_node("snapshot", snapshot_node)
+        # US2 FR-003 / AC-3.4: node names follow `{agent}.{role}_{action}`.
+        builder.add_node("resume_optimize.load_branch", load_branch)
+        builder.add_node("resume_optimize.diff_jd", diff_jd)
+        builder.add_node("resume_optimize.suggest_blocks", suggest_blocks)
+        builder.add_node("resume_optimize.apply_or_discard", apply_or_discard)
+        builder.add_node("resume_optimize.snapshot", snapshot)
 
-        builder.set_entry_point("load_branch")
-        builder.add_edge("load_branch", "diff_jd")
-        builder.add_edge("diff_jd", "suggest_blocks")
-        builder.add_edge("suggest_blocks", "apply_or_discard")
+        builder.set_entry_point("resume_optimize.load_branch")
+        builder.add_edge("resume_optimize.load_branch", "resume_optimize.diff_jd")
+        builder.add_edge("resume_optimize.diff_jd", "resume_optimize.suggest_blocks")
+        builder.add_edge("resume_optimize.suggest_blocks", "resume_optimize.apply_or_discard")
         builder.add_conditional_edges(
-            "apply_or_discard",
+            "resume_optimize.apply_or_discard",
             self._route_after_decision,
             {
-                "snapshot": "snapshot",
+                "snapshot": "resume_optimize.snapshot",
                 END: END,
             },
         )
-        builder.add_edge("snapshot", END)
+        builder.add_edge("resume_optimize.snapshot", END)
 
         checkpointer = await get_checkpointer()
-        return builder.compile(checkpointer=checkpointer, interrupt_after=["apply_or_discard"])
+        return builder.compile(
+            checkpointer=checkpointer,
+            interrupt_after=["resume_optimize.apply_or_discard"],
+        )
 
     def _route_after_decision(self, state: ResumeOptimizeState) -> Literal["snapshot", "__end__"]:
         """Route to snapshot if apply, otherwise end."""
@@ -121,7 +153,7 @@ class ResumeOptimizeGraph(BaseAgent):
         values = state.values if state.values else {}
         return {
             "thread_id": thread_id,
-            "status": "completed" if not state.next else "waiting_interrupt" if "apply_or_discard" in (state.next or []) else "running",
+            "status": "completed" if not state.next else "waiting_interrupt" if "resume_optimize.apply_or_discard" in (state.next or []) else "running",
             "current_node": state.next[0] if state.next else None,
             "summary": values.get("summary"),
             "proposed_patches": values.get("proposed_patches"),

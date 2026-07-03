@@ -5,8 +5,10 @@ End the session when correct_count >= 3 or session_aborted.
 from __future__ import annotations
 
 from app.agents.state.error_coach_state import ErrorCoachState
+from app.observability import traced_node
 
 
+@traced_node("error_coach.loop_or_finish")
 async def loop_or_finish_node(state: ErrorCoachState) -> dict:
     """Check if the error coach session should continue or end."""
     correct_count = state.get("correct_count", 0)

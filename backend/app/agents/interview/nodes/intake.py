@@ -8,6 +8,7 @@ from pathlib import Path
 from app.agents.interview.state import InterviewGraphState
 from app.agents.llm_client import get_llm_client
 from app.agents.interview.requirements_block import build_requirements_block
+from app.observability import traced_node
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -60,6 +61,7 @@ async def _load_job_context(job_id: str | None) -> dict:
         return {}
 
 
+@traced_node("interview.intake_locate")
 async def intake_node(state: InterviewGraphState) -> dict:
     """Process user input to extract interview parameters.
 

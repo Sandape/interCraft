@@ -7,11 +7,13 @@ from __future__ import annotations
 from app.agents.state.ability_diagnose_state import AbilityDiagnoseState
 from app.agents.tools.query_interview_score import (
     query_ai_messages_for_session,
-    query_interview_report,
     query_interview_questions,
+    query_interview_report,
 )
+from app.observability import traced_node
 
 
+@traced_node("ability_diagnose.aggregate_scores")
 async def aggregate_scores_node(state: AbilityDiagnoseState) -> dict:
     """Aggregate interview scores from the report and questions."""
     session_id = state.get("session_id", "")

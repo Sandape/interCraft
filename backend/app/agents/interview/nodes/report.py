@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.agents.interview.state import InterviewGraphState
 from app.agents.llm_client import get_llm_client
+from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -16,6 +17,7 @@ def _load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@traced_node("interview.report")
 async def report_node(state: InterviewGraphState) -> dict:
     """Aggregate all 5 scores and generate a comprehensive report.
 

@@ -21,6 +21,14 @@ class AbilityDiagnoseState(TypedDict, total=False):
     current_dims: query_dimensions current ability values.
     diagnoses: per-dimension delta + trend markers.
     insights: LLM-generated improvement suggestions.
+    db_warnings: list of human-readable DB warning strings accumulated by
+        the split update_dim_* nodes (US2 AC-5.7 / AC-5.7a). Each
+        update_dim_* node appends a one-line summary when its underlying
+        DB operation fails (e.g. ``"update_dim_db: connection is closed"``).
+        Downstream ``update_dim_error_log`` reads this list to log a
+        structured warning via the OTel span. TypedDict-compatible: no
+        ``Field(default_factory=list)`` — defaults are handled at the node
+        level (``state.get("db_warnings", [])``).
     """
 
     messages: Annotated[list[dict[str, Any]], add_messages]
@@ -31,6 +39,7 @@ class AbilityDiagnoseState(TypedDict, total=False):
     current_dims: list[dict[str, Any]]
     diagnoses: list[dict[str, Any]]
     insights: list[dict[str, Any]]
+    db_warnings: list[str]
 
 
 __all__ = ["AbilityDiagnoseState"]
