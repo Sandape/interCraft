@@ -171,12 +171,8 @@ class ErrorCoachGraph(BaseAgent):
         state = await retry_graph_op(self.build_graph, config, "aget_state")
 
         values = state.values or {}
-        # REQ-041 AC-3.7a: surface the typed ``error`` envelope so the API
-        # layer (which calls ``serialize_state_error``) can project it to
-        # ``error_category`` / ``node_name`` / ``cause`` fields. Without
-        # this, the SC-002 "100% fill rate" contract is never satisfied
-        # at the HTTP boundary — the error was written to state but never
-        # reaches the response body.
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the API layer (SC-002 fill-rate contract).
         error_payload = values.get("error")
         return {
             "thread_id": thread_id,

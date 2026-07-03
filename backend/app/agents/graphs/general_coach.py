@@ -99,9 +99,8 @@ class GeneralCoachGraph(BaseAgent):
         config = await get_graph_config(thread_id)
         state = await retry_graph_op(self.build_graph, config, "aget_state")
         values = state.values or {}
-        # REQ-041 AC-3.7a: surface the typed ``error`` envelope to the API
-        # layer so ``serialize_state_error`` can project it into the
-        # ``error_category`` / ``node_name`` / ``cause`` HTTP fields.
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the API layer (SC-002 fill-rate contract).
         error_payload = values.get("error")
         return {
             "thread_id": thread_id,

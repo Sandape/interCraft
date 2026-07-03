@@ -291,9 +291,8 @@ class InterviewGraph(BaseAgent):
         if state.next:
             next_node = state.next
 
-        # REQ-041 AC-3.7a: surface the typed ``error`` envelope so the WS
-        # reconnect path can project it via ``serialize_state_error`` and
-        # the front-end receives ``error_category`` / ``node_name``.
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the WS reconnect path (SC-002 fill-rate contract).
         error_payload = values.get("error")
         error_legacy = values.get("error_legacy")
         return {
@@ -316,9 +315,8 @@ class InterviewGraph(BaseAgent):
         config = await get_graph_config(thread_id, checkpoint_ns)
         state = await retry_graph_op(self.build_graph, config, "aget_state")
         values = state.values if state.values else {}
-        # REQ-041 AC-3.7a: surface the typed ``error`` envelope so the API
-        # layer can project it via ``serialize_state_error`` into the
-        # ``error_category`` / ``node_name`` / ``cause`` HTTP fields.
+        # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
+        # in the API layer (SC-002 fill-rate contract).
         error_payload = values.get("error")
         error_legacy = values.get("error_legacy")
         return {
