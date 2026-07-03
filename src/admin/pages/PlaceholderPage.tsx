@@ -20,7 +20,7 @@ export function PlaceholderPage({ title }: { title: string }) {
           {title} · 敬请期待
         </div>
         <div style={{ fontSize: 12 }}>
-          该模块正在迭代中。本批次仅交付「日志中心」(LogCenter)。
+          该模块正在迭代中。本批次仅交付 IA shell (Logs & Traces 业务由 LogCenter 承载)。
         </div>
       </div>
     </div>

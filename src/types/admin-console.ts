@@ -1,8 +1,56 @@
 /**
- * Admin Console / Log Center types — REQ-039 B2.
+ * Admin Console / Log Center types — REQ-039 B2 + REQ-044 IA shell.
  *
  * Mirrors backend/app/modules/admin_console/schemas.py.
+ *
+ * REQ-044 WorkspaceId + ConsoleRole are **trust-but-verify** front-end
+ * unions. The actual RBAC enforcement lives in the backend; see the
+ * CROSS-TEAM-DEBT tag in the REQ-044 IA AC matrix (Phase 2 US6 will
+ * sync backend Pydantic Literal definitions with these string
+ * literals).
  */
+
+// --- REQ-044 IA: 8 stable top-level workspaces ---------------------------
+
+export type WorkspaceId =
+  | 'command-center'
+  | 'product-analytics'
+  | 'ai-operations'
+  | 'incidents-badcases'
+  | 'logs-and-traces'
+  | 'users-accounts'
+  | 'reports'
+  | 'governance'
+  // reserved — internal "show all" sentinel, never a real route
+  | 'all'
+
+// 5 角色 + reserved unknown — see FR-002 / AC-2.2
+export type ConsoleRole =
+  | 'pm'
+  | 'operations'
+  | 'maintainer'
+  | 'reviewer'
+  | 'owner'
+  // reserved — unknown role → fallback to pm
+  | 'unknown'
+
+// --- REQ-044 FR-006 saved views ------------------------------------------
+
+export type SavedViewTrustStatus = 'trusted' | 'provisional' | 'unverified'
+
+export interface SavedView {
+  id?: string
+  name: string
+  filters: Record<string, string>
+  owner: string
+  description: string
+  trustStatus: SavedViewTrustStatus
+}
+
+export interface SavedViewListResponse {
+  views: SavedView[]
+  total: number
+}
 
 export type NormalizedStatus = 'success' | 'failed' | 'pending' | 'running'
 export type NormalizedTaskType =

@@ -1,10 +1,10 @@
 /**
- * LogCenter detail panel — REQ-039 B2 US1/US6.
+ * Logs/Traces detail panel — REQ-039 B2 US1/US6.
  *
  * Master-detail 40% column on the right. Renders:
  *   - Selected trace header (id, type, status, replay_of badge if any)
  *   - Hierarchical node tree (flat list rendered as tree by parent pointer)
- *   - Node click opens the INPUT/OUTPUT drawer (LogCenterNodeDrawer)
+ *   - Node click opens the INPUT/OUTPUT drawer (NodeIODrawer)
  *   - Pagination via "Load more (N KB remaining)" (US6)
  */
 import { useState, type ReactNode } from 'react'

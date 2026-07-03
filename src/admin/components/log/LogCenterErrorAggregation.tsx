@@ -1,5 +1,5 @@
 /**
- * LogCenter error aggregation — REQ-039 B2 US5.
+ * Logs/Traces error aggregation — REQ-039 B2 US5.
  *
  * Groups failed traces by `computeErrorHash(message)` using SHA256
  * prefix (Web Crypto). Tooltip text matches FR-024 verbatim. Buckets

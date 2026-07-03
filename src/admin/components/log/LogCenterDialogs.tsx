@@ -1,5 +1,5 @@
 /**
- * LogCenter dialogs — REQ-039 B2.
+ * Logs/Traces dialogs — REQ-039 B2.
  *
  * Three dialogs:
  *  - TagSelector (5 presets + custom + Enter save)
