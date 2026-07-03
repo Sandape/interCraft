@@ -204,3 +204,37 @@
 **修复**: 见 commit `46f5fbf` (MB3 impl)。测试结果：95 (MB1+MB2+MB3 + 22 AC) + 27 (040 AC-4.6 regression) = 122 passed + 1 skip + 0 FAIL。
 **适用场景**: 任何 "禁静默失败 + state 字段双轨期兼容" 类需求。grep 测试要排除注释；mock fixtures bypass 默认值要手动置 index；多行 import regex 必须 DOTALL；state 双轨期命名要明确 legacy 后缀。
 **避免**: (1) `grep "score = 5"` 时不要 naive match — 必须 `^\s*` 锚定行首 + `\.match`（不是 `\.search`）。(2) 测试空 list mock fixtures 时不要依赖"空 ⇒ falsy ⇒ 默认值"逻辑；先读 `__init__` 的 `or` 表达式确认默认值。(3) regex `[^#]*` 不允许 `#` 不允许换行；要 multiline 必须 `re.DOTALL`。(4) `error: str → error: dict` 不是 type-level "Optional widening" — 必须 rename 旧字段为 `_legacy` 后缀（保留 1 周观察期）+ 加新字段；不能原地扩展类型（type checker 会 FAIL）。
+
+### MB3 P0 fix: serialize_state_error wiring gap — helper defined but never invoked (REQ-041 US1)
+**问题**: tester P0-1 抓出 MB3 FAIL：SC-002 "API 响应 error_category 100% 填充率" 实际达成率 = 0%。原因：`serialize_state_error()` helper 在 `backend/app/agents/utils/node_error.py:139` 定义完整（5 个 projected fields: `error_legacy_str` + `error_category` + `node_name` + `cause` + `retry_after`），但 5 agent API 端点全部**未调用** helper。`test_state_error.py::TestApiResponseErrorCategoryFieldPresent` 16 nodes parametrize 用 helper-direct 测试（"flavor 2" docstring）通过——asserted `serialize_state_error(err).payload` 直接含字段，但**从未验证 HTTP 边界**。helper 存在 ≠ wiring 完成。
+**修复**（commit `d71a6b1`）:
+1. 5 graph `get_state` 方法返回值新增 `error` 字段透传（之前只返回业务字段）:
+   - `error_coach.py:get_state` + `general_coach.py:get_state` + `resume_optimize.py:get_state` → 多一个 `"error": values.get("error")` key
+   - `interview/graph.py:resume_from_checkpoint` + `get_current_state` → 多 `error` + `error_legacy`（双轨期兼容）
+2. 4 REST/WS API 端点接入 `serialize_state_error`:
+   - `agents_error_coach.py:GET /state` + `agents_general_coach.py:GET /state` + `agents_resume_optimize.py:GET /state` → `err = state.pop("error", None); serialized = serialize_state_error(state_error=err, state_error_legacy=None); return {**state, **serialized}`
+   - `ws/interview.py:_handle_reconnect` → `serialize_state_error(state_error=err, state_error_legacy=err_legacy)` 投影到 error WS 事件 `code="state.<category>"`
+3. ability_diagnose: 无 public API（内部 ARQ worker），SC-002 wiring 在 `state["error"]` 写入层已满足；端点 wiring N/A
+4. test_state_error.py 改**真实 FastAPI TestClient** 端到端:
+   - 移除 "flavor 2" helper-direct 测试模式（这是掩盖 wiring gap 的根源）
+   - 新增 `app/agents/tests/conftest.py` 提供 `httpx.AsyncClient + ASGITransport` fixture
+   - 16 nodes parametrize 真实 GET `/api/v1/agents/error-coach/{tid}/state` + `assert "error_category" in response.json()`
+   - 3 REST agent 各覆盖 1 case + 1 negative（`error=None` 时不发射 `error_category`）
+5. 防御: `state.pop("error", None)` 而非 `state["error"]`——保留 key 给 endpoint 读，避免 graph 层和 endpoint 层双重赋值；`serialize_state_error` 自动 skip 空值（不发射 `error_category: null` 污染响应）。
+
+**回归**: 0 新增 FAIL. 完整 backend agents test = 185 passed + 1 skipped + 0 failed. MB1+MB2+MB3 = 98 passed + 1 skipped. 040 AC-4.6 = 1 passed.
+
+**适用场景**: 任何「helper 在 utils 模块定义完整但 API 层未调用 wiring」类 bug。共同特征：
+- pytest unit test 在 helper 层断言 PASS（green）但 production HTTP 响应缺字段
+- "flavor 2" / "direct call" / "module-level" 测试模式（绕过 wiring 点）是反模式
+- grep "helper 定义位置" 命中 ≠ "helper 调用点" 命中（需要分别 grep）
+- code review 时 reviewer 必须独立 grep helper 的实际 import sites，不能只读 docstring
+
+**避免**:
+1. **永远不要写"helper 直接调用"类型的 contract test**——assert `serialize_state_error(err)["error_category"] == "..."` 通过不代表 API 响应有 `error_category`。这是 helper-direct test 的根本反模式。
+2. **state["error"] 透传到 API 端点必须走 graph.get_state**——不要在 endpoint 内重新 `await graph.aget_state(config)`（重复查询）；让 graph 层负责返回完整 state（含 error），endpoint 只负责 serialize。
+3. **`state.pop("error", None)` 而非 `state["error"]`**——graph 层返回多个 key 给 endpoint pop 是设计契约；如果 endpoint 用 `state["error"]` 会 KeyError；用 `state.get("error")` 会留下 None key；`state.pop` 既安全又不污染最终 response。
+4. **`serialize_state_error` 自动 skip 空值**——helper 内 `if "category" in payload: out["error_category"] = ...`，**不要在 endpoint 加 `if err:` 双重守卫**——endpoint 始终调 helper，helper 决定输出什么；这避免 endpoint / helper 两处逻辑漂移。
+5. **FastAPI TestClient vs httpx.AsyncClient(ASGITransport)**——前者 sync、后者 async。新测试代码统一用 async（与根 conftest 一致）；`@pytest.mark.asyncio` 装饰 + `await client.get(...)`。
+6. **agents/tests/conftest.py 缺失**——根 conftest 的 `client` fixture 不会自动被子目录继承；agents 测试目录需要自己的 conftest 提供 in-process app transport。
+7. **grep `score=5` 命中 comments/docstrings**——本轮 grep 命中 16 条但 0 条是真实赋值；要用 `^\s*score\s*=\s*5\b` + 行首锚定 + 排除注释行才能精确。AC-3.2 测试已用此模式（test_silent_fail_eliminated.py:34）。
