@@ -87,6 +87,14 @@ class InterviewGraphState(TypedDict, total=False):
     requirements_provided: bool
     requirements_truncated: bool
     requirements_original_chars: int
+    # REQ-041 US-2 AC-5.4a — MarkComplete cross-agent router compatibility.
+    # When the LLM calls the ``MarkComplete`` @tool from ANY agent bound to
+    # the interview graph (e.g. planner_search_node, score_llm), the wrapping
+    # node function returns ``{"_mark_complete": True}`` in its state delta
+    # and the conditional-edge router
+    # (``_route_after_score_llm``) checks this field as a FRONT-branch
+    # before raw_score / current_question thresholds.
+    _mark_complete: bool
 
 
 # ===========================================================================
@@ -157,6 +165,14 @@ class InterviewOverallState(TypedDict, total=False):
     # declared state field; the legacy 20-field set has no slot for the
     # unified name). This 21st field is the minimal addition needed.
     interview_plan: dict[str, Any] | None
+    # REQ-041 US-2 AC-5.4a — MarkComplete cross-agent router compatibility.
+    # When the LLM calls the ``MarkComplete`` @tool from ANY agent bound to
+    # the interview graph (e.g. planner_search_node, score_llm), the wrapping
+    # node function returns ``{"_mark_complete": True}`` in its state delta
+    # and the conditional-edge router
+    # (``_route_after_score_llm`` in graph.py) checks this field as a
+    # FRONT-branch before raw_score / current_question thresholds.
+    _mark_complete: bool
 
 
 class InterviewOutputState(BaseModel):

@@ -177,7 +177,9 @@ def test_interview_router_has_mark_complete_front_branch() -> None:
     ``question_gen`` node.
     """
     graph_file = (
-        Path(__file__).resolve().parents[2]
+        Path(__file__).resolve().parents[3]
+        / "app"
+        / "agents"
         / "interview"
         / "graph.py"
     )
@@ -238,17 +240,24 @@ async def test_mark_complete_cross_agent_routing_interview() -> None:
     through to the next interview node. This test guards that
     regression class by hitting the real interview router.
     """
+    from langgraph.graph import END
+
     from app.agents.interview.graph import _route_after_score_llm
+
+    # ``END`` from langgraph is the string sentinel ``"__end__"``. The
+    # router returns it as the front-branch result, so we compare against
+    # the constant itself (not the literal "END").
+    assert END == "__end__", "langgraph.graph.END must be '__end__'"
 
     # Case 1: ``_mark_complete=True`` + low raw_score + low current_question.
     # The legacy router would have returned ``"sink_error"`` (raw_score
-    # wins) — but with the front-branch it MUST return ``"END"``.
+    # wins) — but with the front-branch it MUST return ``END``.
     state_low = {
         "raw_score": 10,           # would trigger sink_error
         "current_question": 1,     # would trigger interviewer (loop)
         "_mark_complete": True,
     }
-    assert _route_after_score_llm(state_low) == "END", (
+    assert _route_after_score_llm(state_low) == END, (
         "interview router must short-circuit to END when _mark_complete is True, "
         "even if raw_score would otherwise route to sink_error. "
         "Got: " + str(_route_after_score_llm(state_low))
@@ -256,13 +265,13 @@ async def test_mark_complete_cross_agent_routing_interview() -> None:
 
     # Case 2: ``_mark_complete=True`` + high current_question.
     # The legacy router would have returned ``"report"`` — but the
-    # front-branch must win with ``"END"``.
+    # front-branch must win with ``END``.
     state_report = {
         "raw_score": 100,
         "current_question": 5,     # would trigger report
         "_mark_complete": True,
     }
-    assert _route_after_score_llm(state_report) == "END", (
+    assert _route_after_score_llm(state_report) == END, (
         "interview router must short-circuit to END when _mark_complete is True, "
         "even if current_question >= MAX_QUESTIONS would route to report. "
         "Got: " + str(_route_after_score_llm(state_report))
