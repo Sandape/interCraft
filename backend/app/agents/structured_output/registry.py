@@ -75,4 +75,30 @@ def get_output_schema(node_id: str) -> type:
     return NODE_SCHEMAS[node_id][1]
 
 
-__all__ = ["STRUCTURED_NODES", "NODE_SCHEMAS", "get_input_schema", "get_output_schema"]
+# ---------------------------------------------------------------------------
+# US4: Free-form and deferred node registries
+# ---------------------------------------------------------------------------
+
+FREE_FORM_NODES: tuple[str, ...] = (
+    "error_coach.hint_ladder",
+    "general_coach.respond",
+)
+
+DEFERRED_STRUCTURED_NODES: tuple[str, ...] = (
+    "interview.question_gen",
+    "interview.report",
+    "general_coach.intent",
+    "resume_optimize.diff_jd",
+    "resume_optimize.suggest_blocks",
+    "ability_diagnose.generate_insight",
+)
+
+
+__all__ = [
+    "STRUCTURED_NODES",
+    "NODE_SCHEMAS",
+    "FREE_FORM_NODES",
+    "DEFERRED_STRUCTURED_NODES",
+    "get_input_schema",
+    "get_output_schema",
+]

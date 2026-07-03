@@ -22,6 +22,8 @@ from app.agents.structured_output.errors import (
     Timeout,
 )
 from app.agents.structured_output.registry import (
+    DEFERRED_STRUCTURED_NODES,
+    FREE_FORM_NODES,
     NODE_SCHEMAS,
     STRUCTURED_NODES,
 )
@@ -38,5 +40,7 @@ __all__ = [
     "OutOfBounds",
     "STRUCTURED_NODES",
     "NODE_SCHEMAS",
+    "FREE_FORM_NODES",
+    "DEFERRED_STRUCTURED_NODES",
     "Schema",
 ]
