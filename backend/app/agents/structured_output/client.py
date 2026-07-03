@@ -37,7 +37,6 @@ from app.agents.structured_output.observability import (
 from app.agents.structured_output.registry import (
     NODE_SCHEMAS,
     STRUCTURED_NODES,
-    get_input_schema,
     get_output_schema,
 )
 
@@ -46,8 +45,6 @@ def _resolve_contract_name(node_name: str | None) -> str:
     """Derive contract name from node name or fall back to 'unknown'."""
     if node_name is None:
         return "unknown"
-    from app.agents.structured_output.registry import NODE_SCHEMAS  # noqa: F811
-
     schemas = NODE_SCHEMAS.get(node_name)
     if schemas:
         return schemas[1].__name__  # output schema class name
@@ -200,31 +197,7 @@ def with_structured_output(
         raise
 
 
-# Re-export for tests / mocks
-def by_scenario(name: str, schema: type[BaseModel] | None = None) -> str:
-    """Return a fixture string for a scenario name.
-
-    Convenience proxy used by MockLLMClient and tests; kept here so the
-    registry has a single owner of the scenario vocabulary.
-    """
-    fixtures: dict[str, str] = {
-        "malformed": "{ next_question: ... }",
-        "missing": "{}",
-        "enum_violation": '{"severity": "extreme"}',
-        "oob": '{"score": 200, "feedback": "too high"}',
-        "quota": '{"_kind": "quota_429"}',
-        "timeout": '{"_kind": "timeout_504"}',
-    }
-    if name not in fixtures:
-        raise KeyError(
-            f"Unknown scenario '{name}'. Available scenarios: {', '.join(fixtures)}"
-        )
-    return fixtures[name]
-
-
 __all__ = [
     "with_structured_output",
     "parse_structured_output",
-    "by_scenario",
-    "NodeConfig",
 ]
