@@ -45,7 +45,7 @@ class TestAiMessagesTTL:
         mock_session.commit = AsyncMock()
 
         with patch(
-            "app.modules.jobs.ai_messages_ttl.get_session",
+            "app.core.db._session_cm",
             return_value=_async_cm(mock_session),
         ):
             # Default days=30 must not raise
@@ -65,7 +65,7 @@ class TestAiMessagesTTL:
         mock_session.commit = AsyncMock()
 
         with patch(
-            "app.modules.jobs.ai_messages_ttl.get_session",
+            "app.core.db._session_cm",
             return_value=_async_cm(mock_session),
         ):
             deleted = await cleanup_old_ai_messages(days=7)
@@ -87,7 +87,7 @@ class TestAiMessagesTTL:
         mock_session.commit = AsyncMock()
 
         with patch(
-            "app.modules.jobs.ai_messages_ttl.get_session",
+            "app.core.db._session_cm",
             return_value=_async_cm(mock_session),
         ):
             # Must not raise — graceful skip
@@ -106,10 +106,10 @@ class TestTraceIDMiddlewareWiring:
         from app.main import app
         from app.middleware.trace_id import TraceIDMiddleware
 
-        # middleware_stack contains BaseHTTPMiddleware instances; check
-        # by class name (the actual instance is wrapped by Starlette).
-        middleware_classes = [type(m).__name__ for m in app.user_middleware]
-        assert "TraceIDMiddleware" in middleware_classes, (
+        # Starlette wraps middleware instances in ``Middleware(cls=...)``
+        # — check the wrapped class via ``.cls``.
+        middleware_classes = [getattr(m, "cls", None) for m in app.user_middleware]
+        assert TraceIDMiddleware in middleware_classes, (
             f"TraceIDMiddleware not wired into app; got {middleware_classes}"
         )
 
