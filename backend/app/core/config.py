@@ -152,6 +152,31 @@ class Settings(BaseSettings):
     us2_use_v2_compress_history: bool = False
     us2_use_v2_langgraph_store: bool = False
 
+    # ---- REQ-043 US-1 FR-002 — LangSmith trace exporter ----
+    # LangSmith runs in parallel with OTel (per FR-002 + openDeepResearch
+    # deep_researcher.py:85 reference). When ``langsmith_api_key`` is empty
+    # the exporter is a no-op (no network calls). Independent of (and
+    # intentionally NAMESpaced away from) the REQ-040/041/042 env vars —
+    # we use the ``langsmith_*`` prefix (per L041-004 namespace isolation)
+    # rather than ``us1_use_v2_langsmith`` because LangSmith is an
+    # external integration, not a dual-track switch.
+    langsmith_api_key: str = ""
+    langsmith_project: str = "intercraft-prod"
+
+    # ---- REQ-043 US-2 FR-005 + FR-006 — Checkpointer 8-pool + 3-tier reconnect ----
+    # ``us3_use_v2_checkpoint_pool`` toggles the new 8-pool sharding path
+    # on/off (per FR-005 + FR-007 dual-track). Default ``false`` ⇒ use the
+    # existing 023 single-pool ``get_checkpointer()`` path; flip to
+    # ``true`` to opt into ``get_checkpointer_pool(user_id)`` routing.
+    # ``checkpoint_pool_count`` defaults to 8 per Clarifications
+    # 2026-07-03 (ship with 8 pools to avoid a future 4→8 migration).
+    # Independent of (and intentionally NAMESpaced away from) the
+    # 040/041/042 dual-track flags — per L041-004 cross-US namespace
+    # isolation, US-2 uses ``us3_*`` prefix.
+    # TODO(release-manager): drop this flag after the 1-week observation window.
+    us3_use_v2_checkpoint_pool: bool = False
+    checkpoint_pool_count: int = 8
+
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
