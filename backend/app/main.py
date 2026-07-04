@@ -173,6 +173,26 @@ def create_app() -> FastAPI:
         tags=["admin-console"],
     )
 
+    # 044 US2: product analytics workspace (FR-011~FR-015).
+    # Mounted at /api/v1/admin-console/product-analytics — question
+    # templates, funnel, cohorts, feature-adoption, and module liveness.
+    # Plus /api/v1/admin-console/users for privacy-safe user lookup.
+    from app.modules.admin_console.product_analytics import (
+        product_analytics_router,
+        users_router,
+    )
+
+    app.include_router(
+        product_analytics_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/product-analytics",
+        tags=["admin-console"],
+    )
+    app.include_router(
+        users_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/users",
+        tags=["admin-console"],
+    )
+
     return app
 
 

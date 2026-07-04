@@ -304,3 +304,47 @@
 3. **不要跨子目录 mount router** (在 `admin_console/api.py` 里追加新 endpoint) —— 破坏 035/039 既有 contract test；正确是新建子目录 + 新 router + 在 `admin_console/__init__.py` 暴露新 prefix
 4. **不要把 frontend type 与 backend Pydantic Literal 解耦** —— 加新 tier 时不同步必爆；正确是 grep 双锚定 + AC 矩阵 [CROSS-TEAM-DEBT] 显式标注
 5. **不要让 8 条 seed 全部 high-severity** —— FR-010 quiet steady-state 必须能被验证；正确是 seed 中至少 1 条 non-high 信号 + QuietState component 真正被测试覆盖
+
+## 第11轮修正（REQ-044 US2） — 2026-07-04
+
+### Pydantic Literal `__args__` 比对 vs `annotation_repr` 字面比对 — 二者都能 grep 但 `__args__` 更稳
+**问题**: US2 起草 AC-15.1 时第一版想"测试 frontend type union 等于 backend Pydantic Literal union"。前端用 TypeScript 字面 union `type X = 'a' | 'b' | 'c'`，后端 Pydantic v2 用 `Literal['a', 'b', 'c']` 存在 `model_fields['x'].annotation.__args__`。两套机制 — 但**测试**怎么验？US1 已用 `str(annotation)` 字面包含 6 个字符串，本想沿用。但字面比对会把 `'a_b'` 当作 `'a'` 的子串误判（如果 'a' 是 'a_b' 的前缀）。
+**修复**: backend contract test 用 `UserPrivacySafeField.model_fields['name'].annotation.__args__` 直接拿 Literal 元组 → set 比对；前端 type 同步用 union 字符串解析。两者都用 set 操作（精确包含），避免字面前缀污染。
+**适用场景**: 任何"frontend union 字面量 ↔ backend Pydantic Literal"cross-team contract 锁定。US2 在 `UserPrivacySafeField.name` union（7 字段）vs Pydantic Literal（7 字段）上严格 set 比对；US1 已用 `__args__` 模式 lock 6 categories + 4 confidence tiers。
+**避免**: (1) 不要用 `str(Literal['a', 'b'])` 字面包含 `'a'` 验证 union — 'a' 是 'a_b' 的前缀会误判；改用 `__args__` 拿 tuple 转 set 比对。(2) 不要在前端用 enum（const enum）替代 union — babel 转译后 enum 可能被擦除；union `'a' | 'b'` 转 JS 后仍是 string literal，type erasure 安全。
+
+### AC grep gate "0 hits" 必须用 `grep -cF` + exit 1 处理
+**问题**: AC-15.4 grep 守卫要求 `grep -F "raw_resume|raw_prompt|raw_model_output" src/admin/pages/UsersAccounts.tsx` 返回 0 命中。但 grep 0 hits → exit code 1 → bash `set -e` 直接 fail，CI 报错"测试失败"但实际是守卫生效。`grep -c` 输出 `0`（数字 0）→ exit 1 是正常行为。
+**修复**: 测试断言分两层：(1) `expect(html).not.toMatch(/raw_resume/)` 在 Playwright spec 里 (无 exit code 问题)；(2) contract test 用 `assert grep_count == 0` 而非 `assert grep_count >= 0`（0 是有效 PASS，非 1）；(3) CI 脚本 wrap `grep -cF "..." file || true` 让 0 hits 不被当成 grep 失败。
+**适用场景**: 任何"必须 0 命中"类隐私/审计守卫。grep exit 1 ≠ 测试失败，单纯表示"未找到匹配"，CI 工具链需要单独处理。
+**避免**: (1) 不要在 `set -e` 脚本里直接 `grep -F "forbidden" file && exit 1` — `&& exit 1` 让"找到匹配则失败"是对的，但"未找到匹配"也会让 grep exit 1 → `set -e` 误判；(2) Playwright 用 `page.content()` + `not.toMatch()` 比 `execSync grep` 干净，避免 exit code 副作用。
+
+### Bash heredoc + 中文注释 = quote 终结陷阱 — 用 Write 工具替代
+**问题**: 想 append 一段带中文注释的 CSS 到 `admin.css`。用 `cat >> file <<'EOF' ... EOF`，但 heredoc 内容里的 `'` 单引号（中文文本里的"产品分析 workspace"被自动转换无影响）实际是 CSS `'`-quoted CSS class 名（`var(--ac-ink)`），bash 看到 EOF 终结但解析时遇到 `'` 提前终结，**报 "unexpected EOF while looking for matching `''`"**。换 `cat >> ... <<EOF`（无引号）也不行，因为 CSS 有 `'` 也提前终结。
+**修复**: 把 CSS 内容先 `Write` 到 `CSS_PATCH.txt` 临时文件 → `cat CSS_PATCH.txt >> admin.css && rm CSS_PATCH.txt`。两步分开，每步的 quote 模式独立可控。
+**适用场景**: 任何想 append 大段代码（含单引号 / 反引号 / 中文）到现有文件的场景 — bash heredoc 与代码 quoting 是永恒痛点。
+**避免**: (1) 不要在 heredoc 内用任何 quote 字符（`'` `"` `` ` `` `$`），即使 wrap 在 `<<'EOF'` 也可能撞 quote；(2) Write tool + 临时文件 + cat append 是更稳的两步法；(3) 长 append 改用 Python `with open(file, 'a')` 一步到位，quote 问题最少。
+
+### Vitest testid 拼写与 component 实际 testid 必须 strict 一致 — kebab vs snake 不兼容
+**问题**: MetricTooltip test 写 `for field of [..., 'quality_flag']` + 模板字符串 `metric-tooltip-field-${field}` → 期望 `metric-tooltip-field-quality_flag`。但 component 实际 testid 是 `metric-tooltip-field-quality-flag`（kebab case），所以 expect 找不到 element → FAIL。
+**修复**: 把 test 数组里 `'quality_flag'` 改成 `'quality-flag'` 匹配 component 实际 testid。Lesson：testid 命名约定要在 component / test / AC 矩阵三处 grep 同步。
+**适用场景**: 任何 component-rendered testid 与 test assertion 一致性。grep `\bdata-testid="X"` 在 component + grep `\bgetByTestId` 在 test 必须 align。
+**避免**: (1) 不要 component 用 kebab (`quality-flag`) 但 test 用 snake (`quality_flag`) — 风格漂移会导致 silent fail；(2) grep `data-testid=` 在 component 文件确认实际字符串，再 grep `getByTestId(` 在 test 文件确认期望字符串，最后 set 比对两者覆盖集。
+
+### `admin_console.auth` capability role map 必须随新 US 同步扩 — 否则新路由 403
+**问题**: US2 新增 `PRODUCT_ANALYTICS_VIEW` + `USER_LOOKUP` capability token，但 `_ROLE_GRANTS` dict 只覆盖 US1 的 3 capability。如果只在 `auth.py` 加 token 不改 `_ROLE_GRANTS`，demo PM 角色拿不到新 capability → 所有新 endpoint 返回 403 missing_capability。
+**修复**: `_ROLE_GRANTS["pm"]` / `_ROLE_GRANTS["operations"]` 必须包含 `PRODUCT_ANALYTICS_VIEW` + `USER_LOOKUP`（PM workspace 必需）。加新 US 时同步扩 role map 并加 `test_*_capability_in_role_map` contract test 断言。
+**适用场景**: 任何在 admin_console 下新增 capability 的 US。role map 是 dict，token 是 string，两者都在同一个文件，但 role map 漏更新比 token 漏声明更隐蔽（因为前端 API 调用 200 解析后才发现 403）。
+**避免**: (1) 不要以为加了 token = role 自动有 — role map 必须显式 grant；(2) viewer role 故意给空 frozenset（FR-031 least-privilege），新 capability 不应自动 grant viewer；(3) contract test 必须断言 `viewer not in grants` 防止过度授权。
+
+### Backend route mount 在 `main.py` 增加新 prefix 必须同时 import + include_router — 缺一就 404
+**问题**: 在 `admin_console/product_analytics/api.py` 定义 `product_analytics_router = APIRouter()` + 5 endpoints，但在 `main.py` 加了 `app.include_router(product_analytics_router, prefix=...)` 却忘了 import `users_router`。结果 `/api/v1/admin-console/users/{user_id}` 静默 404（FastAPI 不会因为 router include 顺序报错，只在 OpenAPI 注册时缺）。
+**修复**: import 块 + include_router 块必须严格成对：本 US 加了 2 个 router (product_analytics + users) → import 2 个 + include 2 个。grep `include_router` 计数 vs `import router as` 计数对齐。
+**适用场景**: 任何新增 FastAPI router + mount 的 US。OpenAPI 列表 (`app.openapi()["paths"]`) 是验证 surface — contract test 断言所有期望 path 出现在 OpenAPI。
+**避免**: (1) 不要假设 FastAPI 会报"router 没 include" — 它不会，missing route = 404 only；(2) 写 `test_*_routes_in_openapi` 类型的 contract test 必须在 `app.routes` 或 `app.openapi()["paths"]` 里断言所有期望 path 存在；(3) DB-dependent 测试用 `pytest.skip("DATABASE_URL not configured")` 是合理 baseline（033/039 沿用模式），但**所有非 DB 路径的 schema/seed 断言必须 pass** — 不要因为整体 skip 而掩盖 schema regression。
+
+### `tests/unit/export-api.test.ts` blob.text() 失败是 jsdom 限制 — pre-existing 不是我破坏的
+**问题**: US2 跑 `npm run test -- --run` 全套发现 5 个 fail，其中 `tests/unit/export-api.test.ts` 报 `result.blob.text is not a function`。第一反应：是不是我改 client.ts 影响了？但 git stash 后重跑 → 同样 5 个 fail（pre-existing）。根因：jsdom + vitest 的 Blob 实现不完整，`Response.blob()` 返回的 blob 没 `.text()` 方法，033 era 写测试时 jsdom 17 还支持，后来 vitest 升级 jsdom 22 删了。
+**修复**: 不修 — 不是我 US2 范围，且与本 PR 0 关系。Lesson：跑测试看到 fail，先 `git stash` 一次对比 baseline，不要立刻进入"我刚改坏了"模式。
+**适用场景**: 任何接手 dirty worktree 或多人协作项目，测试出现 fail 的根因判断。50% 概率是 pre-existing，30% 是环境（jsdom/node 版本），20% 才是你改的。
+**避免**: (1) 不要见到测试 fail 就开始改代码 — 先 git stash 验证 baseline；(2) `git stash` + 重跑 + `git stash pop` 是 5 秒成本，节省数小时误诊断；(3) 不要在 lessons 里写 "pre-existing bug" 但不附 git hash — reviewer 重跑发现 hash 没了就无法复现；本次写"5 fail 同 stash 前后"作为最小可复现证据。

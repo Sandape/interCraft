@@ -1,0 +1,54 @@
+
+> intercraft@0.1.0 build
+> tsc -b && vite build
+
+src/modules/resume/v2/api/index.ts(133,3): error TS2322: Type 'T | { resume: T; }' is not assignable to type 'T'.
+  'T' could be instantiated with an arbitrary type which could be unrelated to 'T | { resume: T; }'.
+src/modules/resume/v2/editor/BuilderShell.tsx(20,31): error TS2307: Cannot find module './right/SettingsPanel' or its corresponding type declarations.
+src/modules/resume/v2/editor/BuilderShell.tsx(21,22): error TS2307: Cannot find module './center/Dock' or its corresponding type declarations.
+src/modules/resume/v2/editor/center/PreviewPane.tsx(20,30): error TS2307: Cannot find module '../../templates/shared/TemplateRoot' or its corresponding type declarations.
+src/modules/resume/v2/editor/center/PreviewPane.tsx(330,10): error TS2352: Conversion of type 'Sections' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'Sections'.
+src/modules/resume/v2/editor/center/PreviewPane.tsx(331,15): error TS2352: Conversion of type 'ProfilesSection | ExperienceSection | EducationSection | ProjectsSection | SkillsSection | ... 6 more ... | ReferencesSection' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'ReferencesSection' is not comparable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'ReferencesSection'.
+src/modules/resume/v2/editor/center/PreviewPane.tsx(332,15): error TS2352: Conversion of type 'ProfilesSection | ExperienceSection | EducationSection | ProjectsSection | SkillsSection | ... 6 more ... | ReferencesSection' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'ReferencesSection' is not comparable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'ReferencesSection'.
+src/modules/resume/v2/editor/dialogs/TemplateGallery.tsx(109,7): error TS2322: Type '"xl"' is not assignable to type '"sm" | "md" | "lg" | undefined'.
+src/modules/resume/v2/editor/left/__tests__/SectionsPanel.test.tsx(266,24): error TS2367: This comparison appears to be unintentional because the types '"projects"' and '"education"' have no overlap.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(260,37): error TS2339: Property 'overallScore' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(274,19): error TS2339: Property 'dimensions' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(274,35): error TS2339: Property 'dimensions' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(275,23): error TS2339: Property 'dimensions' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(280,22): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(280,25): error TS7006: Parameter 'i' implicitly has an 'any' type.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(297,21): error TS2339: Property 'strengths' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(297,36): error TS2339: Property 'strengths' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(298,38): error TS2339: Property 'strengths' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(324,26): error TS2339: Property 'text' does not exist on type 'AnalysisItem | { impact: "low"; text: string; why: string; exampleRewrite: string; }'.
+  Property 'text' does not exist on type 'AnalysisItem'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(326,24): error TS2339: Property 'why' does not exist on type 'AnalysisItem | { impact: "low"; text: string; why: string; exampleRewrite: string; }'.
+  Property 'why' does not exist on type 'AnalysisItem'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(327,66): error TS2339: Property 'why' does not exist on type 'AnalysisItem | { impact: "low"; text: string; why: string; exampleRewrite: string; }'.
+  Property 'why' does not exist on type 'AnalysisItem'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(342,21): error TS2339: Property 'suggestions' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(342,38): error TS2339: Property 'suggestions' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(343,38): error TS2339: Property 'suggestions' does not exist on type '{ score: number; items: AnalysisItem[]; }'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(369,26): error TS2339: Property 'text' does not exist on type 'AnalysisItem | { impact: "low"; text: string; why: string; exampleRewrite: string; }'.
+  Property 'text' does not exist on type 'AnalysisItem'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(371,24): error TS2339: Property 'why' does not exist on type 'AnalysisItem | { impact: "low"; text: string; why: string; exampleRewrite: string; }'.
+  Property 'why' does not exist on type 'AnalysisItem'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(372,66): error TS2339: Property 'why' does not exist on type 'AnalysisItem | { impact: "low"; text: string; why: string; exampleRewrite: string; }'.
+  Property 'why' does not exist on type 'AnalysisItem'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(374,24): error TS2339: Property 'exampleRewrite' does not exist on type 'AnalysisItem | { impact: "low"; text: string; why: string; exampleRewrite: string; }'.
+  Property 'exampleRewrite' does not exist on type 'AnalysisItem'.
+src/modules/resume/v2/editor/right/AnalysisPanel.tsx(377,28): error TS2339: Property 'exampleRewrite' does not exist on type 'AnalysisItem | { impact: "low"; text: string; why: string; exampleRewrite: string; }'.
+  Property 'exampleRewrite' does not exist on type 'AnalysisItem'.
+src/modules/resume/v2/store/index.ts(26,29): error TS2305: Module '"../api"' has no exported member 'ResumeV2Conflict'.
+src/modules/resume/v2/store/index.ts(196,44): error TS2559: Type 'number' has no properties in common with type 'ResumeV2Update'.
+src/pages/ResumeList.tsx(72,49): error TS2339: Property 'data' does not exist on type 'NoInfer<ResumeV2ListItem[]>'.
+src/pages/ResumeListV2.tsx(232,21): error TS2339: Property 'data' does not exist on type 'ResumeV2ListItem[]'.
+src/pages/ResumeListV2.tsx(254,21): error TS2339: Property 'data' does not exist on type 'ResumeV2ListItem[]'.
+src/pages/ResumeListV2.tsx(259,17): error TS2339: Property 'data' does not exist on type 'ResumeV2ListItem[]'.
+src/pages/ResumeListV2.tsx(259,27): error TS7006: Parameter 'r' implicitly has an 'any' type.

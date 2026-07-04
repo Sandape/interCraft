@@ -1,4 +1,4 @@
-"""REQ-039 B1 + REQ-044 US1 — admin_console module public surface.
+"""REQ-039 B1 + REQ-044 US1 + US2 — admin_console module public surface.
 
 The full admin console surface spans:
 
@@ -19,6 +19,12 @@ The full admin console surface spans:
   sub-module that exposes the command-center decision queue
   (``DecisionSignal`` schemas, service, router mounted at
   ``/api/v1/admin-console/command-center``).
+- :mod:`app.modules.admin_console.product_analytics` — REQ-044 US2
+  sub-module that exposes the Product Analytics workspace
+  (``QuestionTemplate`` / ``Funnel`` / ``Cohort`` / ``FeatureAdoption``
+  schemas, service, router mounted at
+  ``/api/v1/admin-console/product-analytics`` plus
+  ``/api/v1/admin-console/users`` for privacy-safe lookup).
 - :mod:`app.modules.admin_console.auth` — capability check helpers
   (``require_capability``).
 - :mod:`app.modules.admin_console.rate_limit` — sliding-window
@@ -27,8 +33,10 @@ The full admin console surface spans:
   writer.
 
 The observability router is exported as ``router``; the
-command-center router is exported as ``decision_signals_router``.
-Both are included by :func:`app.main.create_app`.
+command-center router is exported as ``decision_signals_router``; the
+product-analytics routers are exported as
+``product_analytics_router`` + ``users_router``. All four are included
+by :func:`app.main.create_app`.
 """
 from __future__ import annotations
 
@@ -38,6 +46,7 @@ from app.modules.admin_console import (
     auth,
     decision_signals,
     models,
+    product_analytics,
     rate_limit,
     repository,
     schemas,
@@ -45,6 +54,10 @@ from app.modules.admin_console import (
 )
 from app.modules.admin_console.api import router
 from app.modules.admin_console.decision_signals import router as decision_signals_router
+from app.modules.admin_console.product_analytics import (
+    product_analytics_router,
+    users_router,
+)
 
 __all__ = [
     "api",
@@ -53,9 +66,12 @@ __all__ = [
     "decision_signals",
     "decision_signals_router",
     "models",
+    "product_analytics",
+    "product_analytics_router",
     "rate_limit",
     "repository",
     "router",
     "schemas",
     "service",
+    "users_router",
 ]
