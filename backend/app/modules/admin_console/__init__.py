@@ -1,6 +1,4 @@
-"""REQ-039 B1 — admin_console module public surface.
-
-Module re-exports for the Log Center backend foundation (Batch 1).
+"""REQ-039 B1 + REQ-044 US1 — admin_console module public surface.
 
 The full admin console surface spans:
 
@@ -17,6 +15,10 @@ The full admin console surface spans:
   hash normalization).
 - :mod:`app.modules.admin_console.api` — FastAPI router mounted at
   ``/api/v1/admin-console/observability``.
+- :mod:`app.modules.admin_console.decision_signals` — REQ-044 US1
+  sub-module that exposes the command-center decision queue
+  (``DecisionSignal`` schemas, service, router mounted at
+  ``/api/v1/admin-console/command-center``).
 - :mod:`app.modules.admin_console.auth` — capability check helpers
   (``require_capability``).
 - :mod:`app.modules.admin_console.rate_limit` — sliding-window
@@ -24,8 +26,9 @@ The full admin console surface spans:
 - :mod:`app.modules.admin_console.audit` — append-only audit log
   writer.
 
-The router is exported so :func:`app.main.create_app` can include it
-with the canonical ``/admin-console/observability`` prefix.
+The observability router is exported as ``router``; the
+command-center router is exported as ``decision_signals_router``.
+Both are included by :func:`app.main.create_app`.
 """
 from __future__ import annotations
 
@@ -33,6 +36,7 @@ from app.modules.admin_console import (
     api,
     audit,
     auth,
+    decision_signals,
     models,
     rate_limit,
     repository,
@@ -40,11 +44,14 @@ from app.modules.admin_console import (
     service,
 )
 from app.modules.admin_console.api import router
+from app.modules.admin_console.decision_signals import router as decision_signals_router
 
 __all__ = [
     "api",
     "audit",
     "auth",
+    "decision_signals",
+    "decision_signals_router",
     "models",
     "rate_limit",
     "repository",

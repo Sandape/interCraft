@@ -160,6 +160,19 @@ def create_app() -> FastAPI:
         tags=["admin-console"],
     )
 
+    # 044 US1: admin console command center (decision queue + KPI tiles).
+    # Mounted at /api/v1/admin-console/command-center — 3 endpoints covering
+    # decision signals list, overview KPI tiles, and module liveness.
+    from app.modules.admin_console.decision_signals import (
+        router as decision_signals_router,
+    )
+
+    app.include_router(
+        decision_signals_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/command-center",
+        tags=["admin-console"],
+    )
+
     return app
 
 

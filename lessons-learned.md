@@ -275,3 +275,32 @@
 4. **返回类型 Literal 子串守卫** — 旧测试 grep 4-way Literal 子串失败时，回退到 `Union[Literal[3-way], Literal["__end__]]` 而非 4-way Literal 改 3-way（会破坏 typing 契约）。优先用 Union 保留 3-way 子串。
 5. **不跨团队文件改动** — 仅改当前 worktree 范围的代码 + 测试；其他团队（038 / 023 / 040）仅可 import，不可 commit 跨团队文件。
 6. **Pydantic 形态与 dict 形态双守卫** — conditional router 既要 `state.get("_mark_complete")` (dict/TypedDict) 又要 `getattr(state, "_mark_complete", False)` (Pydantic BaseModel)；`isinstance(state, dict)` 分支必须双写。
+
+## 260704 REQ-044-US1 decision_signals seed-only Phase 1 pattern
+
+**问题**: REQ-044 US1 需要"决策队列 (FR-007~FR-010) + 4 档 confidence + quiet steady-state"，但真实 metric_panel → signal aggregate 管线不在本 PR 范围。如果 hardcode 真实 DB query 会拖慢 4 周开发周期；如果 return `[]` 静默 fallback 则违反铁律 A (any stub must throw NotImplementedError)。
+
+**修复**: 采用 **seed_demo_signals()** 静态 seed 模式（8 条样例覆盖全部 6 categories × 全部 4 confidence tiers + 至少 1 stale + 1 partial_baseline + 1 candidate），service.list_decision_signals() 直接返回 seed list：
+- `seed_demo_signals()` 是纯函数（无 I/O），可被 contract test 直接调用验证 FR-008/SC-002
+- 后端 API endpoint GET /signals mount 在 `/api/v1/admin-console/command-center`
+- 每个 Pydantic schema field 都有 contract test lock（grep + Pydantic model_fields 双重断言）
+- 真实 metric_panel 接入标 `[CROSS-TEAM-DEBT] Phase 2 batch 2` 在 service docstring + AC 矩阵 ## 起草说明 ## 未覆盖的边界 ## 三处明确标注
+
+**关键决策**:
+- **seed 必须覆盖所有 4 confidence tiers** —— 否则 FR-009 视觉区分无法在静态验证阶段证明；test_seed_covers_all_four_confidence_tiers + test_seed_covers_all_six_categories 双锁
+- **Pydantic `extra="forbid"` 与 seed 一致性** —— 写 SignalQualityFlags 时漏掉 `delayed_ingestion` 字段，导致 seed 第一次跑挂 8/13 test；修复：seed 字段必须先于 schema 字段全集声明
+- **decision_signals 子目录不破坏 admin_console 既有模块** —— 新建 `backend/app/modules/admin_console/decision_signals/{__init__,schemas,service,api}.py`，既有的 `admin_console/api.py` (observability) 不动；只通过 `admin_console/__init__.py` 暴露 `decision_signals_router`
+- **fronend type 字段名 snake_case → camelCase** —— 后端 Pydantic 用 snake_case (`what_changed`)，前端 interface 用 camelCase (`whatChanged`)，从后端 JSON 响应自动转换；类型层通过 grep `what_changed|whatChanged` 双锚定确保不漏
+- **COMMAND_CENTER_VIEW capability 加入 role map** —— FR-031 least-privilege：pm/owner/admin/reviewer/operations/maintainer 全部 grant，但 viewer 显式不 grant。`_ROLE_GRANTS["viewer"] = frozenset()` 保留
+
+**适用场景**: 任何"PM 决策面 / AI Ops dashboard / Console overview" 类的 Phase 1 实施，需要：
+- **真实 metric 接入不在本 PR 范围**（其他 team / 后续 batch）
+- **PM-facing UI 必须可端到端验证**（不能空白页）
+- **FR-007~FR-010 视觉/字段契约必须静态锁**
+
+**避免**:
+1. **不要写 silent empty list fallback** (`return []` when metric unavailable) —— 违反铁律 A；正确是 throw NotImplementedError 或 seed + [CROSS-TEAM-DEBT] tag
+2. **不要把 schema field 默认值偷偷放宽** (`extra="ignore"` 兜底) —— 字段名漂移；正确是 schema 字段全集一次性声明 + seed 同步
+3. **不要跨子目录 mount router** (在 `admin_console/api.py` 里追加新 endpoint) —— 破坏 035/039 既有 contract test；正确是新建子目录 + 新 router + 在 `admin_console/__init__.py` 暴露新 prefix
+4. **不要把 frontend type 与 backend Pydantic Literal 解耦** —— 加新 tier 时不同步必爆；正确是 grep 双锚定 + AC 矩阵 [CROSS-TEAM-DEBT] 显式标注
+5. **不要让 8 条 seed 全部 high-severity** —— FR-010 quiet steady-state 必须能被验证；正确是 seed 中至少 1 条 non-high 信号 + QuietState component 真正被测试覆盖

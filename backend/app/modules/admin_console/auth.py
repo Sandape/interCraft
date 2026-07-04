@@ -27,14 +27,23 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 
-# Capability tokens (FR-009 / FR-020).
+# Capability tokens (FR-009 / FR-020 / FR-031 / REQ-044 US1).
 REPLAY_TRIGGER = "REPLAY_TRIGGER"
 TASK_TAG = "TASK_TAG"
+COMMAND_CENTER_VIEW = "COMMAND_CENTER_VIEW"
 
 # Default role -> capability grants.
+# FR-031 least-privilege: command-center view is granted to
+# pm / owner / admin; reviewer + viewer / operations get a separate
+# grant when their workspaces are wired (Phase 2 batch 2).
 _ROLE_GRANTS: dict[str, frozenset[str]] = {
-    "admin": frozenset({REPLAY_TRIGGER, TASK_TAG}),
+    "admin": frozenset({REPLAY_TRIGGER, TASK_TAG, COMMAND_CENTER_VIEW}),
+    "owner": frozenset({REPLAY_TRIGGER, TASK_TAG, COMMAND_CENTER_VIEW}),
+    "pm": frozenset({COMMAND_CENTER_VIEW}),
+    "reviewer": frozenset({COMMAND_CENTER_VIEW}),
     "viewer": frozenset(),
+    "operations": frozenset({COMMAND_CENTER_VIEW}),
+    "maintainer": frozenset({REPLAY_TRIGGER, TASK_TAG, COMMAND_CENTER_VIEW}),
 }
 
 # User -> role overrides (e.g. seeded by tests / demo seed).
@@ -141,6 +150,7 @@ def _missing_capability_exception(capability: str) -> HTTPException:
 
 
 __all__ = [
+    "COMMAND_CENTER_VIEW",
     "REPLAY_TRIGGER",
     "TASK_TAG",
     "ensure_capabilities",
