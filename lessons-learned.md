@@ -381,3 +381,37 @@
 - **LogsAndTraces.tsx drilldown + coverage gap + sensitive payload masked pattern**: query param `?from=incident:{id}|signal:{id}|badcase:{id}` 驱动 useSearchParams hook;coverage gap 显式 "No correlated logs found + 3 reasons" 不被静默;sensitive payload 默认 masked + Request Reveal 跳 US6 governance
 - **ec-1 测试用 `act()` 包裹 `window.dispatchEvent`**: LogDetailDrawer 监听 `ic:reveal-denied` CustomEvent,触发 `setDeniedBanner` + `onClose` 两个 state update。test 里若直接 `dispatchEvent(...)` 后立即 `expect()`,React 18 会 warn "An update to LogDetailDrawer inside a test was not wrapped in act(...)",**而且** `screen.getByTestId('log-detail-drawer-denied')` 因为 close drawer 把 component 替换成 banner 的分支还没 flush 而 find 不到。`act(() => { dispatchEvent(...) })` 同步块即可,无需 async,因为 listener 内部是同步 setState + setTimeout。
 - **mock api 替换模式 (US5 baseline)**: US5 用 `adminLogsApi.getAgentRun = vi.fn(async () => MOCK_AGENT_RUN)` + `adminLogsApi.getSharedByIncidents = vi.fn(...)` 在 `beforeEach` 直接替换 mock 对象属性,无需 `vi.mock('@/api/admin-logs', ...)`,因为 module 是 named export 的 object。这是 US1 baseline pattern 的延续 — 写新 US 时直接复用,不要 fallback 到 `vi.mock()`。
+
+## 260704 REQ-044-US7 Review Snapshots + Metric Trust
+
+**新增 lesson**:
+
+### MetricDefinition10Field wrapper — 不动 telemetry_contracts dataclass,而是 Pydantic 包一层
+**问题**: FR-027 要求 metric 必须暴露 10 字段 (definition / owner / source / numerator / denominator / unit / period / freshness / completeness / quality_flags)。但 `telemetry_contracts/metrics.py` 的 `MetricDefinition` dataclass 只有 6 字段 (metric_id / name / description / unit / aggregation / source_event) + 可选 dimensions。直接改 dataclass 会影响 PM dashboard 的所有消费者。
+**修复**: 在 `review_snapshots/schemas.py` 新建 `MetricDefinition10Field` Pydantic v2 模型,把 dataclass 当 source of truth,扩 4 字段 (owner / numerator / denominator / period / freshness / completeness),并把 `quality_flags` 复用 US6 `DataStatus` Literal 5 状态。9 个 string 字段默认 `NOT_PROVIDED = "(not provided)"` literal sentinel,强制 AC-27.4 "no silent omission" 在 schema default + contract test 双重守卫。
+**适用场景**: 任何要扩 dataclass 但避免影响大量下游消费者的 US。US7 是跨模块 contract 漂移的标准模式: 新 schema layer 包 old,union 共存,phase 2 batch 5 再统一迁移。
+**避免**: (1) 不要直接在 telemetry_contracts/metrics.py 改 `MetricDefinition` 字段 — PM dashboard US9 + US4 badcase US10 + US2 funnel 都消费它,改字段会爆 6 处测试; (2) 不要把 NOT_PROVIDED 用 None 占位 — frontend 渲染时 None vs "" vs "(not provided)" 是 3 种语义,None 触发 React warning ""; (3) 不要在 MetricDefinition10Field 加 `field_validator` 处理空字符串 → 与 default NOT_PROVIDED 重复,frontend 测试 `data-missing="true"` 判断会歧义。
+
+### Snapshot immutable 必须显式 PUT/PATCH/DELETE 405 handler — 不用 FastAPI 默认 405
+**问题**: FR-030 + AC-30.4 要求 snapshot 一旦生成不可变 (immutable),任何 PUT/PATCH/DELETE 必须返 405。FastAPI 默认 405 响应 body 是 `{"detail": "Method Not Allowed"}`,**不携带** audit_event_id / SNAPSHOT_IMMUTABLE error code / governance-friendly reason。Frontend trace drawer 关不掉,governance 工作流无法追溯谁尝试篡改 snapshot。
+**修复**: 三层守卫: (1) `service.assert_snapshot_immutable(snapshot_id)` 抛 `SnapshotImmutableError` (FR-030 + 自定义 error); (2) `api.py` 显式注册 3 个 405 handler `@router.put("/{snapshot_id}", status_code=405, ...)` + `@router.patch` + `@router.delete`,body 返 `{"error":"SNAPSHOT_IMMUTABLE","message":"...","snapshot_id":"..."}`; (3) contract test 走 OpenAPI schema 断言 3 method 都声明 405 + service guard unit test 断言 raise SnapshotImmutableError。
+**适用场景**: 任何 FR-NNN 要求 resource immutable 的 US (snapshot / audit event / access matrix / retention policy)。US7 模式可复用 US6 audit log 守卫 + US4 badcase 状态变更守卫。
+**避免**: (1) 不要依赖 FastAPI `405 Method Not Allowed` 自动响应 — body 太轻,无法进 audit log; (2) 不要在 service 层返回 `None` 让 API 层处理 — caller 不知道 405 vs 404 区别,前端 trace drawer 关不掉; (3) 不要把 immutable guard 写到 Pydantic ConfigDict(frozen=True) — 那会让整个 snapshot 实例不可变,连 GET 后的 hydrate 都失败; (4) OpenAPI schema 必须显式声明 405,否则 FastAPI 自动生成的 spec 不带 status_code,前端 type 推断不出 405 response shape。
+
+### apiClient.request<T> 签名 — 没有 .get() / .post() 快捷方式
+**问题**: 写 `src/api/admin-review-snapshots.ts` 时本能写 `apiClient.post(BASE, body)` + `apiClient.get(...)`,但 tsc 报 `Property 'post' does not exist on type '{ request: ... }'` (TS2339)。
+**修复**: 用 canonical 签名 `apiClient.request<T>({method: 'POST' | 'GET' | ..., path: BASE, body, signal})`。这是 US1 baseline pattern,从 US6 governance + US4 incidents + US3 ai_operations 一直沿用。
+**适用场景**: 任何新增 admin-console sub-module 的 api client 文件。US7 是这个 trap 的第 4 次 — 模式已稳定,新文件应直接复用。
+**避免**: (1) 不要尝试在 `src/api/client.ts` 加 `.get`/`.post` 快捷方式 — 会破坏 request<T> signature 的 AbortSignal 传递; (2) 不要 fallback 到 `fetch()` 直调 — 失去 auth header + error interceptor + request_id 注入; (3) US7 模式应直接 copy US6 `admin-governance.ts` 的 `apiClient.request<>` 三件套 (create / list / get)。
+
+### NotProvided literal sentinel + frontend `data-missing` attribute 双层守卫
+**问题**: AC-27.4 "missing fields → display (not provided) not silent null fallback" 需要 schema 层 + frontend 层 双层守卫,否则 (1) Python 端 None 序列化 JSON 变 `null` → frontend 无法区分 "未提供" vs "显式空字符串"; (2) frontend 渲染时 `value ?? ''` 会让 React 18 报 "value prop should not be null" warning。
+**修复**: 双层: (1) backend `MetricDefinition10Field` 9 个 string 字段 default = `NOT_PROVIDED = "(not provided)"` literal string,不让 None 出现; (2) frontend `MetricTooltip` 渲染时 `const isMissing = value === NOT_PROVIDED || value == null || value === ''`,加 `data-missing={isMissing ? "true" : "false"}` attribute 让 test 可 querySelector; (3) vitest 测试 `data-missing="true"` 数量 ≥ 9 + getAllByText('(not provided)') ≥ 9 两条断言覆盖 sentinel 渲染。
+**适用场景**: 任何 "missing field display" 类型 US (AC-XX.X "no silent omission")。US7 模式可复用 FR-032 raw_* 守卫 (UserPrivacySafe 4 raw_* not in schema) + US6 EXPORT_FIELDS_REDACTED raw_* 白名单。
+**避免**: (1) 不要只在 frontend 守卫不写 backend default — API 直接返 null,frontend 永远不知道 "未提供" vs "字段缺失"; (2) 不要用 `value === undefined` 判断 — Pydantic 序列化 JSON 时把 missing default 写成 null,而非 undefined; (3) 不要把 sentinel 写到 CSS class — data-attribute 更适合 test querySelector。
+
+### SC-012 8-field envelope + contract test 全非空守卫
+**问题**: SC-012 要求 snapshot POST response 含 8 字段 (filters / frozen_values / comparison_deltas / metric_definitions / freshness_warnings / quality_flags / evidence_links / annotations),任何字段缺失或为 null 都会让 PM 看到 "half-snapshot" 不可信。
+**修复**: 两层: (1) backend `ReviewSnapshotResponse` Pydantic 模型 8 字段全声明 `Field(...)` required,frozen_values / deltas / metric_definitions / evidence_links 都声明 `list[...]` (空 list 也是 OK,但 contract test 断言 len ≥ 1); (2) contract test 写 `for field in ("frozen_values", "comparison_deltas", ...): assert hasattr(snap, field)` + `assert snap.filters` + `assert snap.quality_flags` + `assert snap.annotations == "Weekly PM sync"` (注入的测试 annotation 必回传)。两层都 fail-fast,任何字段意外变 None 立即测试 red。
+**适用场景**: 任何 spec 写 "must preserve ... for review" 类型的 US (FR-029 review snapshot / FR-035 export envelope)。US7 模式可复用 US6 export 6-field envelope + US2 funnel 5-step seed。
+**避免**: (1) 不要让任意字段 Optional — 那会让 "half-snapshot" 通过 Pydantic 校验,但 PM 看到 broken UI; (2) contract test 不要只断言 `len(snap.frozen_values) >= 1` 一处 — 8 字段都要独立断言,否则 `del metric_definitions` 也会通过; (3) 不要在测试里 hardcode 字段顺序 — Pydantic model_dump() 是 dict 插入序,但 spec 顺序变更测试要跟改。
