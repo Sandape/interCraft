@@ -1,5 +1,6 @@
 /**
- * AdminShell — REQ-044 IA shell.
+ * AdminShell — REQ-044 IA shell + CROSS FR-006 / FR-002 role-aware
+ * top-bar integration.
  *
  * The legacy 4-item sidebar is gone. The new top-level IA exposes 8
  * stable workspaces
@@ -12,6 +13,11 @@
  *   2. `useAuthStore.user.email === 'demo@intercraft.io'` → PM 硬编码兜底
  *   3. `useAuthStore.user.role` （后端真 RBAC 上线后由 Phase 2 US6 同步）
  *   4. fallback → 'pm' （command-center 单项可见）
+ *
+ * CROSS FR-002 / AC-2.4: the top-bar role badge is now a clickable
+ * dropdown (``<RoleBadgeDropdown/>``) for dev/test role switching
+ * — the resolver still reads localStorage first so external
+ * Playwright tests continue to drive the role via ``auth-user``.
  *
  * [CROSS-TEAM-DEBT] 后端 `WorkspaceId` / `ConsoleRole` Pydantic Literal
  * 与本前端 union 字面同步在 Phase 2 US6 落地。
@@ -28,6 +34,7 @@ import { LogsAndTraces } from '@/admin/pages/LogsAndTraces'
 import { UsersAccounts } from '@/admin/pages/UsersAccounts'
 import { Reports } from '@/admin/pages/Reports'
 import { Governance } from '@/admin/pages/Governance'
+import { RoleBadgeDropdown } from './RoleBadgeDropdown'
 
 interface NavItem {
   to: string
@@ -200,9 +207,7 @@ export function AdminShell() {
         </div>
         <div className="ac-shell__topbar-user">
           {user?.email ?? 'unknown'}
-          <span className="ac-shell__topbar-role" data-testid="topbar-role-badge">
-            {isAdmin ? role : 'viewer'}
-          </span>
+          <RoleBadgeDropdown role={isAdmin ? role : 'unknown'} />
         </div>
       </header>
 

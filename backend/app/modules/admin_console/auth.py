@@ -59,11 +59,23 @@ GOVERNANCE_CHANGE = "GOVERNANCE_CHANGE"  # FR-036 AC-36.2 + EC-4
 # per spec US7; operations / maintainer get read+generate to support
 # investigations; reviewer / viewer remain denied (FR-031 least-privilege).
 REVIEW_SNAPSHOT = "REVIEW_SNAPSHOT"   # FR-029 AC-29.1 + AC-29.5
+# REQ-044 CROSS FR-006 — Saved Views (FR-006). PM is the primary owner
+# of saved views; operations / maintainer get read+change to support
+# triage; reviewer gets read-only (filter by shared_with); viewer
+# remains denied (FR-031 least-privilege). Owner + admin get the full
+# set; the 2 tokens are also covered by the audit ``saved_view_change``
+# action (12th audit taxonomy token, see ``audit.VALID_ACTIONS``).
+SAVED_VIEW_VIEW = "SAVED_VIEW_VIEW"
+SAVED_VIEW_CHANGE = "SAVED_VIEW_CHANGE"
 
 # Default role -> capability grants.
 # FR-031 least-privilege: command-center view is granted to
 # pm / owner / admin; reviewer + viewer / operations get a separate
 # grant when their workspaces are wired (Phase 2 batch 2).
+# CROSS FR-006: SAVED_VIEW_VIEW granted to all roles except viewer
+# (FR-031 least-privilege). SAVED_VIEW_CHANGE granted to pm / owner /
+# admin / operations / maintainer (the 4 roles that can edit views);
+# reviewer remains read-only.
 _ROLE_GRANTS: dict[str, frozenset[str]] = {
     "admin": frozenset(
         {
@@ -84,6 +96,8 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             GOVERNANCE_VIEW,
             GOVERNANCE_CHANGE,
             REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
         }
     ),
     "owner": frozenset(
@@ -105,6 +119,8 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             GOVERNANCE_VIEW,
             GOVERNANCE_CHANGE,
             REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
         }
     ),
     "pm": frozenset(
@@ -120,6 +136,8 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             GOVERNANCE_VIEW,
             RBAC_VIEW,
             REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
         }
     ),
     "reviewer": frozenset(
@@ -132,6 +150,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             BADCASE_CHANGE,
             AUDIT_VIEW,
             GOVERNANCE_VIEW,
+            SAVED_VIEW_VIEW,
         }
     ),
     "viewer": frozenset({AUDIT_VIEW, GOVERNANCE_VIEW}),
@@ -149,6 +168,8 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             GOVERNANCE_VIEW,
             RBAC_VIEW,
             REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
         }
     ),
     "maintainer": frozenset(
@@ -166,6 +187,8 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             GOVERNANCE_VIEW,
             RBAC_VIEW,
             REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
         }
     ),
 }
@@ -288,6 +311,8 @@ __all__ = [
     "RBAC_VIEW",
     "REPLAY_TRIGGER",
     "REVIEW_SNAPSHOT",
+    "SAVED_VIEW_CHANGE",
+    "SAVED_VIEW_VIEW",
     "SENSITIVE_REVEAL",
     "TASK_TAG",
     "USER_LOOKUP",

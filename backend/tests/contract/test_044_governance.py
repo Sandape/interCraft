@@ -378,13 +378,13 @@ def test_list_reveal_requests_requires_audit_view() -> None:
 
 
 @pytest.mark.contract
-def test_audit_event_taxonomy_eleven_actions() -> None:
-    """AC-34.1: AUDIT_ACTIONS frozen set has 11 actions."""
+def test_audit_event_taxonomy_twelve_actions() -> None:
+    """AC-34.1: AUDIT_ACTIONS frozen set has 12 actions (US1+US4+US6+US7+CROSS)."""
     from app.modules.admin_console.governance.schemas import AUDIT_ACTIONS
     from app.modules.admin_console.audit import VALID_ACTIONS
 
-    assert len(AUDIT_ACTIONS) == 11, f"expected 11 actions, got {len(AUDIT_ACTIONS)}"
-    assert len(VALID_ACTIONS) == 11, f"audit.VALID_ACTIONS: {len(VALID_ACTIONS)}"
+    assert len(AUDIT_ACTIONS) == 12, f"expected 12 actions, got {len(AUDIT_ACTIONS)}"
+    assert len(VALID_ACTIONS) == 12, f"audit.VALID_ACTIONS: {len(VALID_ACTIONS)}"
     expected = {
         "replay_triggered",
         "diff_computed",
@@ -397,6 +397,7 @@ def test_audit_event_taxonomy_eleven_actions() -> None:
         "sensitive_reveal",
         "export",
         "review_snapshot",
+        "saved_view_change",
     }
     assert AUDIT_ACTIONS == expected, f"AUDIT_ACTIONS mismatch: {AUDIT_ACTIONS ^ expected}"
     assert VALID_ACTIONS == expected
@@ -425,6 +426,7 @@ def test_all_eleven_actions_emit_audit_event() -> None:
         log_sensitive_reveal,
         log_export,
         log_governance_change,
+        log_saved_view_change,
     )
     import asyncio
     from unittest.mock import AsyncMock
@@ -469,6 +471,12 @@ def test_all_eleven_actions_emit_audit_event() -> None:
     asyncio.run(log_governance_change(
         session, user, workspace_field="governance",
         retention_days=90, action="warn", actor="@user:t",
+    ))
+    asyncio.run(log_saved_view_change(
+        session, user, saved_view_id="sv-test-001",
+        workspace_id="command-center", lifecycle="created",
+        actor="@user:t", name="smoke view",
+        shared_with=["pm", "owner"],
     ))
 
     # No exception raised = all 11 helpers accepted their action tokens

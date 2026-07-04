@@ -216,6 +216,7 @@ AuditAction = Literal[
     "sensitive_reveal",
     "export",
     "review_snapshot",
+    "saved_view_change",
 ]
 
 AuditResult = Literal[
@@ -239,6 +240,7 @@ AuditTargetKind = Literal[
     "export",
     "snapshot",
     "governance",
+    "saved_view",
 ]
 
 
@@ -372,5 +374,6 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "sensitive_reveal",
         "export",
         "review_snapshot",
+        "saved_view_change",
     }
 )

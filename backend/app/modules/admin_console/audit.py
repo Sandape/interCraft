@@ -5,7 +5,7 @@ also accepts pre-validated action / target_kind tokens. All audit
 writes go through this module so the action vocabulary is enforced
 in one place (DB CHECK constraint is the second line of defense).
 
-Action vocabulary (locked across US1 + US4 + US6 + US7):
+Action vocabulary (locked across US1 + US4 + US6 + US7 + CROSS):
 
 - US1 baseline (4): ``replay_triggered`` / ``diff_computed`` /
   ``tag_added`` / ``tag_removed``.
@@ -17,6 +17,10 @@ Action vocabulary (locked across US1 + US4 + US6 + US7):
 - US7: reuses ``review_snapshot`` action (target_kind='snapshot');
   no new action tokens are introduced. The taxonomy stays at
   11 actions (per AC-34.1).
+- CROSS (FR-006 saved views) adds the 12th action
+  ``saved_view_change`` (target_kind='saved_view') for create /
+  update / delete lifecycle events. This unlocks SC-009 auditing
+  for FR-006 saved views (AC-6.7).
 
 Target kinds:
 - US1 (3): ``trace`` / ``task`` / ``diff``.
@@ -44,7 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin_console import repository
 
-#: US1 baseline 4 actions (DB-backed) + US4 4 + US6 3 = 11 total
+#: US1 baseline 4 actions (DB-backed) + US4 4 + US6 3 + CROSS 1 = 12 total
 #: (Python-side until migration 0022 widens the CHECK constraint in
 #: Phase 2 batch 5).
 VALID_ACTIONS: frozenset[str] = frozenset(
@@ -63,6 +67,8 @@ VALID_ACTIONS: frozenset[str] = frozenset(
         "sensitive_reveal",
         "export",
         "review_snapshot",
+        # CROSS FR-006 (1) — saved view lifecycle (create/update/delete)
+        "saved_view_change",
     }
 )
 VALID_TARGET_KINDS: frozenset[str] = frozenset(
@@ -83,6 +89,8 @@ VALID_TARGET_KINDS: frozenset[str] = frozenset(
         "export",
         "snapshot",
         "governance",
+        # CROSS FR-006 — saved view target kind
+        "saved_view",
     }
 )
 
@@ -192,6 +200,8 @@ _DB_BLOCKED_ACTIONS: frozenset[str] = frozenset(
         "sensitive_reveal",
         "export",
         "review_snapshot",
+        # CROSS FR-006 (Python-side until Phase 2 batch 5 widens CHECK)
+        "saved_view_change",
     }
 )
 
@@ -342,6 +352,7 @@ __all__ = [
     "log_incident_change",
     "log_incident_comment",
     "log_replay",
+    "log_saved_view_change",
     "log_sensitive_reveal",
     "log_snapshot_generated",
     "log_tag_added",
@@ -484,6 +495,60 @@ async def log_snapshot_generated(
             "format": format,
             "comparison_period": comparison_period,
             "actor": actor,
+            "result": result,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# CROSS FR-006 — saved view change audit helper
+# (FR-006 + FR-034 AC-6.7 + SC-009). 12th audit action.
+# ---------------------------------------------------------------------------
+
+
+async def log_saved_view_change(
+    session: AsyncSession,
+    user_id: UUID,
+    *,
+    saved_view_id: str,
+    workspace_id: str,
+    lifecycle: str,  # 'created' | 'updated' | 'deleted'
+    actor: str,
+    name: str | None = None,
+    shared_with: list[str] | None = None,
+    reason: str | None = None,
+    result: str = "executed",
+) -> None:
+    """Audit a saved view change (FR-006 + FR-034 AC-6.7).
+
+    Maps to the 12th audit action ``saved_view_change`` with
+    ``target_kind='saved_view'``. The DB CHECK constraint does not
+    yet accept this action — see :data:`_DB_BLOCKED_ACTIONS`. Real
+    DB persistence lands in Phase 2 batch 5.
+
+    Lifecycle must be one of ``created`` / ``updated`` / ``deleted``
+    (raised as ``ValueError`` otherwise).
+    """
+    if lifecycle not in {"created", "updated", "deleted"}:
+        raise ValueError(
+            f"saved_view lifecycle must be one of created|updated|deleted, "
+            f"got {lifecycle!r}"
+        )
+
+    await _write_audit_unsafe(
+        session,
+        user_id=user_id,
+        action="saved_view_change",
+        target_kind="saved_view",
+        target_id=None,
+        details={
+            "saved_view_id": saved_view_id,
+            "workspace_id": workspace_id,
+            "lifecycle": lifecycle,
+            "actor": actor,
+            "name": name,
+            "shared_with": list(shared_with or []),
+            "reason": reason,
             "result": result,
         },
     )

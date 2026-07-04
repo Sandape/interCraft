@@ -263,6 +263,27 @@ def create_app() -> FastAPI:
         tags=["admin-console"],
     )
 
+    # 044 CROSS: saved views cross-cutting workspace (FR-006).
+    # Mounted at ``/api/v1/admin-console/saved-views`` with 5 active
+    # endpoints (GET list + POST + GET detail + PATCH + DELETE) +
+    # 1 health endpoint. Auth: 2 new capability tokens
+    # (SAVED_VIEW_VIEW + SAVED_VIEW_CHANGE) granted per FR-031
+    # least-privilege — SAVED_VIEW_VIEW to all roles except viewer;
+    # SAVED_VIEW_CHANGE to pm / owner / admin / operations /
+    # maintainer (4 editor roles); reviewer remains read-only.
+    # Audit: 12th action ``saved_view_change`` (target_kind=
+    # 'saved_view') is emitted on create / update / delete
+    # lifecycle events (FR-034 AC-6.7).
+    from app.modules.admin_console.saved_views import (
+        saved_views_router,
+    )
+
+    app.include_router(
+        saved_views_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/saved-views",
+        tags=["admin-console"],
+    )
+
     return app
 
 

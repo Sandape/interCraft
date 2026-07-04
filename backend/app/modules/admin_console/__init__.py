@@ -50,6 +50,7 @@ from app.modules.admin_console import (
     product_analytics,
     rate_limit,
     repository,
+    saved_views,
     schemas,
     service,
 )
@@ -60,6 +61,7 @@ from app.modules.admin_console.product_analytics import (
     product_analytics_router,
     users_router,
 )
+from app.modules.admin_console.saved_views import saved_views_router
 
 __all__ = [
     "ai_operations",
@@ -75,6 +77,8 @@ __all__ = [
     "rate_limit",
     "repository",
     "router",
+    "saved_views",
+    "saved_views_router",
     "schemas",
     "service",
     "users_router",

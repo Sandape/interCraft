@@ -36,7 +36,29 @@ export type ConsoleRole =
 
 // --- REQ-044 FR-006 saved views ------------------------------------------
 
-export type SavedViewTrustStatus = 'trusted' | 'provisional' | 'unverified'
+// 5 console roles (FR-002 / AC-2.5) can appear in shared_with.
+// Mirrors backend app/modules/admin_console/saved_views/schemas.py:
+// SharedWithRole Literal.
+export type SharedWithRole = 'pm' | 'operations' | 'maintainer' | 'reviewer' | 'owner'
+
+// Mirrors backend SavedViewTrustStatus Literal — verified / pending / deprecated.
+export type SavedViewTrustStatusStrict =
+  | 'verified'
+  | 'pending'
+  | 'deprecated'
+
+// SavedViewTrustStatus now accepts BOTH the legacy 3-state ('trusted' /
+// 'provisional' / 'unverified' — used by the US1 IA shell) AND the
+// strict 3-state ('verified' / 'pending' / 'deprecated' — used by
+// the CROSS real backend). The repository layer normalises
+// strict→legacy for callers that haven't migrated yet.
+export type SavedViewTrustStatus =
+  | 'trusted'
+  | 'provisional'
+  | 'unverified'
+  | 'verified'
+  | 'pending'
+  | 'deprecated'
 
 export interface SavedView {
   id?: string
@@ -45,12 +67,81 @@ export interface SavedView {
   owner: string
   description: string
   trustStatus: SavedViewTrustStatus
+  // CROSS FR-006 extension: cross-workspace shared_with (12 fields).
+  workspace_id?: string
+  owner_user_id?: string
+  created_at?: string
+  updated_at?: string
+  shared_with?: SharedWithRole[]
+  version?: number
+  warnings?: string[]
+}
+
+// Detail response envelope — wraps a single view with role-aware
+// warnings (EC-1 deleted cohort, EC-2 permission revoked).
+export interface SavedViewDetailResponse {
+  view: SavedView
+  permission_revoked: boolean
+  warnings: string[]
+}
+
+// Create response envelope — POST returns the new view + the
+// audit_event_id (FR-034 AC-6.7).
+export interface SavedViewCreateResponse {
+  view: SavedView
+  audit_event_id: string
+}
+
+// Legacy create / update input shapes — kept for backward compat with
+// the US1 IA shell. The CROSS repository normalises them into the
+// strict backend Pydantic body shape.
+export interface CreateSavedViewInput {
+  name: string
+  filters: Record<string, string>
+  owner: string
+  description: string
+  trustStatus: SavedViewTrustStatus
+}
+
+export interface UpdateSavedViewInput {
+  name?: string
+  filters?: Record<string, string>
+  description?: string
+  trustStatus?: SavedViewTrustStatus
+}
+
+// Backend request bodies — wire-format names match the Pydantic
+// schemas in backend/app/modules/admin_console/saved_views/schemas.py.
+export interface SavedViewCreateRequest {
+  name: string
+  workspace_id: string
+  filters: Record<string, string>
+  description: string
+  shared_with: SharedWithRole[]
+  trust_status: 'verified' | 'pending' | 'deprecated'
+}
+
+export interface SavedViewUpdateRequest {
+  name?: string
+  filters?: Record<string, string>
+  description?: string
+  shared_with?: SharedWithRole[]
+  trust_status?: 'verified' | 'pending' | 'deprecated'
+  version?: number
 }
 
 export interface SavedViewListResponse {
   views: SavedView[]
   total: number
+  workspace_id?: string
+  role_view?: SharedWithRole
+  warnings?: string[]
 }
+
+// Cross-team contract lock (memory feedback_cross_team_contract_l031):
+// widening the SharedWithRole union here MUST be synced with the
+// backend SharedWithRole Literal in
+// app/modules/admin_console/saved_views/schemas.py.
 
 export type NormalizedStatus = 'success' | 'failed' | 'pending' | 'running'
 export type NormalizedTaskType =

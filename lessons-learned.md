@@ -415,3 +415,29 @@
 **修复**: 两层: (1) backend `ReviewSnapshotResponse` Pydantic 模型 8 字段全声明 `Field(...)` required,frozen_values / deltas / metric_definitions / evidence_links 都声明 `list[...]` (空 list 也是 OK,但 contract test 断言 len ≥ 1); (2) contract test 写 `for field in ("frozen_values", "comparison_deltas", ...): assert hasattr(snap, field)` + `assert snap.filters` + `assert snap.quality_flags` + `assert snap.annotations == "Weekly PM sync"` (注入的测试 annotation 必回传)。两层都 fail-fast,任何字段意外变 None 立即测试 red。
 **适用场景**: 任何 spec 写 "must preserve ... for review" 类型的 US (FR-029 review snapshot / FR-035 export envelope)。US7 模式可复用 US6 export 6-field envelope + US2 funnel 5-step seed。
 **避免**: (1) 不要让任意字段 Optional — 那会让 "half-snapshot" 通过 Pydantic 校验,但 PM 看到 broken UI; (2) contract test 不要只断言 `len(snap.frozen_values) >= 1` 一处 — 8 字段都要独立断言,否则 `del metric_definitions` 也会通过; (3) 不要在测试里 hardcode 字段顺序 — Pydantic model_dump() 是 dict 插入序,但 spec 顺序变更测试要跟改。
+
+## 2026-07-04 REQ-044 CROSS — Saved Views + Role 扩展
+
+### Repository `_lock` recursion deadlock during seed_once
+**问题**: 实现 `saved_views/repository.py` 时,`_build_seed_view` 内部 `with _lock: _NEXT_VIEW_SEQ += 1`,而 `seed_once` 也 `with _lock: for v in _build_seed_view(...)`,导致 `_lock` 递归死锁,`seed_once()` 直接 hang 60s+。`pytest` 跑 19 个 case 时挂在前 3 个 module import 后,1 个 test 通过后下一个 test 卡住,timeout 60s 报 124。
+**修复**: `_build_seed_view` 移除 `with _lock:` 包装,加 docstring 注明 "callers MUST hold _lock"。`seed_once` 仍然持有外层 `_lock`,内部 helper 仅做纯函数构造 (无 I/O / 无共享状态变更)。
+**适用场景**: 任何"初始化辅助函数 + 持有 lock 的批量种子" 模式 (US1/2/3/4/6/7 seed 都有这个结构,但他们把 seed 函数 inline 在 `with _lock:` block 内,所以没踩)。US-CROSS 把 `_build_seed_view` 提取出来复用导致陷阱。
+**避免**: (1) 不要把"helper 里修改全局可变状态"和"lock 内批量调用 helper"组合 — 这是教科书 deadlock 反例; (2) 同步原语相关的 seed 应该保持 flat,即把 helper 写为 `_build_view_unsafe(lock_held=True)`,显式让 caller 持有 lock; (3) 跑 `seed_once()` 时若 hang 第一反应是 grep `with _lock:` 嵌套 — Python 同步原语不支持 reentrant,threading.RLock 才支持。
+
+### AuditEvent 没有 `lifecycle` / `details` 字段 — reason 字段编码 lifecycle marker
+**问题**: `SavedView` lifecycle (created / updated / deleted) 最初想存到 `AuditEvent.details["lifecycle"]`,但 Pydantic `AuditEvent` schema 只有 9 字段 (event_id / actor / timestamp / target_kind / target_id / action / reason / result / visibility_mode),没有 `details` dict,Pydantic `model_config = ConfigDict(frozen=False)` 只允许 mutate 现有字段。contract test 写 `events[0].details["lifecycle"] == "created"` 直接 AttributeError。
+**修复**: lifecycle marker 编码到 `reason` 字段字符串 `"saved_view created: sv-... workspace=..."`,contract test 改 `assert "created" in events[0].reason`。这是 US6 governance helper (`log_sensitive_reveal` / `log_export`) 沿用的 9 字段格式,跨 US 一致。
+**适用场景**: 任何"11-action audit taxonomy 内的 audit helper" (US1/4/6/7 都用 9-field AuditEvent)。新的 `log_saved_view_change` 应该复用同样格式。
+**避免**: (1) 不要在 AuditEvent 上加 `details` 字段 — 那会让 11-action US1/4/6 audit test 全部需要重新校准; (2) 不要尝试 `AuditEvent.model_config = ConfigDict(extra='allow')` 私下加字段 — schema 锁死 front of contract; (3) US7 + US-CROSS 都证明 "9 字段 + reason 编码子状态" 是稳定的最小契约。
+
+### US1 stub repository 重写需锁 cross-team contract + 测试 mock 模式
+**问题**: US1 (IA shell) 阶段 `savedViewRepository.ts` 5 个方法 `throw NotImplementedError`,US-CROSS 必须真实化。直接删除 throw 后,前端 tsc 报 `Module has no exported member 'CreateSavedViewInput' / 'SavedViewCreateRequest'` (因为旧 types 文件只声明 5 字段的精简 `SavedView`,没有严格 3-state trustStatus / shared_with)。
+**修复**: 三层 lock: (1) backend `schemas.py` 加 `SavedViewTrustStatus = Literal["verified","pending","deprecated"]` + `SharedWithRole = Literal[5 角色]` (单一来源); (2) frontend `types/admin-console.ts` 扩展 `SavedView` 加 `workspace_id / owner_user_id / shared_with / version / warnings` 12 字段,保留 legacy `SavedViewTrustStatus` 3-state 兼容; (3) repository 层做 strict↔legacy `trustStatus` 映射 (verified↔trusted / pending↔provisional / deprecated↔unverified),让 US1 IA shell 的旧 caller 不破。
+**适用场景**: 任何"IA stub → Phase 2 真实化"的 US (memory req_032_v2_repo_stub_trap 列出的反例)。CROSS 是这个 trap 的第 3 次。
+**避免**: (1) 不要 hard delete legacy 类型 — 8 处老 caller 都会 broken; (2) 不要新加 `SavedViewV2` 类型 — 散弹式 rename 比单点兼容更贵; (3) `apiClient.request<T>` signature 不可改 — US6/US7 + 现在 US-CROSS 都用,改它要 4 个 US 一并改。
+
+### Frontend SavedView 类型增字段导致 role-aware test matrix 测试
+**问题**: 想要 vitest 验证 5 角色各自 sidebar 可见 workspace 子集 (AC-2.3),但 AdminShell 是 React component,需要 mock router + auth store + localStorage,setup cost 巨大。
+**修复**: 不要直接测 AdminShell,而是 (1) 测 `roleToWorkspaces` 输出的预期矩阵用 const table (`EXPECTED_MATRIX: Record<ConsoleRole, string[]>`);(2) 用 vitest 读 `AdminShell.tsx` 源码字符串,grep `case 'pm':` 后的 600 字符是否包含 `'<workspace>'` literal,字符串级 parity 测试。免 mock 免 RouterProvider。
+**适用场景**: 任何"角色矩阵 / RBAC matrix / state transition table"类型的组件 (US1 IA role-to-workspaces / US6 access matrix 5x8x6)。Vitest 字符级 grep 测试足够锁住契约。
+**避免**: (1) 不要 wrap AdminShell 用 MemoryRouter + 全套 QueryClientProvider 测 — 30+ 行 setup,且 React Router v6 future flag warning 噪音大; (2) 不要 unit-test `roleToWorkspaces` 直接 import — 那是 private fn,需要 export 才能测,破坏封装; (3) 字符级 grep 测试要跳过 `command-center` (太常见会误中),只断言非通用 workspace token (如 `'governance'`、`'reports'`)。
