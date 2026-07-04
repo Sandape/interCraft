@@ -1,27 +1,36 @@
-"""REQ-039 B1 — admin_console audit writer (US1 + US4 extended).
+"""REQ-039 B1 — admin_console audit writer (US1 + US4 + US6 extended).
 
 Thin convenience wrapper around :func:`repository.write_audit` that
 also accepts pre-validated action / target_kind tokens. All audit
 writes go through this module so the action vocabulary is enforced
 in one place (DB CHECK constraint is the second line of defense).
 
-Action vocabulary (locked across US1 + US4):
+Action vocabulary (locked across US1 + US4 + US6):
 
 - US1 baseline (4): ``replay_triggered`` / ``diff_computed`` /
   ``tag_added`` / ``tag_removed``.
 - US4 additions (4): ``incident_status_changed`` /
   ``incident_comment_added`` / ``badcase_status_changed`` /
   ``badcase_escalated``.
+- US6 additions (3): ``sensitive_reveal`` / ``export`` /
+  ``review_snapshot``.
 
-Target kinds (US4 additions): ``incident`` / ``badcase``.
+Target kinds:
+- US1 (3): ``trace`` / ``task`` / ``diff``.
+- US4 (2): ``incident`` / ``badcase``.
+- US6 (8): ``user_resume`` / ``user_interview`` / ``ai_prompt`` /
+  ``ai_model_output`` / ``incident_payload`` / ``export`` /
+  ``snapshot`` / ``governance``.
 
 [NOTE] The DB CHECK constraint in migration 0022 currently only
-recognizes the 4 US1 actions. Phase 2 batch 4 will widen the CHECK
-constraint to include the 4 US4 actions. For US4 we ONLY add the
-Python-side tokens so the call sites can be wired and unit-tested
-without touching the DB. The write_audit helper is no-op for the
-new actions until the migration lands — see :func:`log_incident_change`
-+ :func:`log_badcase_change` for the explicit comment.
+recognizes the 4 US1 actions. Phase 2 batch 5 will widen the CHECK
+constraint to include the 4 US4 + 3 US6 actions. For US4 + US6 we
+ONLY add the Python-side tokens so the call sites can be wired and
+unit-tested without touching the DB. The write_audit helper is
+no-op for the new actions until the migration lands — see
+:func:`log_incident_change` + :func:`log_badcase_change` +
+:func:`log_sensitive_reveal` + :func:`log_export` +
+:func:`log_governance_change` for the explicit comment.
 """
 from __future__ import annotations
 
@@ -32,22 +41,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin_console import repository
 
-#: US1 baseline 4 actions (DB-backed) + US4 4 actions (Python-side
-#: until migration 0022 widens the CHECK constraint in Phase 2 batch 4).
+#: US1 baseline 4 actions (DB-backed) + US4 4 + US6 3 = 11 total
+#: (Python-side until migration 0022 widens the CHECK constraint in
+#: Phase 2 batch 5).
 VALID_ACTIONS: frozenset[str] = frozenset(
     {
+        # US1 (4)
         "replay_triggered",
         "diff_computed",
         "tag_added",
         "tag_removed",
+        # US4 (4)
         "incident_status_changed",
         "incident_comment_added",
         "badcase_status_changed",
         "badcase_escalated",
+        # US6 (3)
+        "sensitive_reveal",
+        "export",
+        "review_snapshot",
     }
 )
 VALID_TARGET_KINDS: frozenset[str] = frozenset(
-    {"trace", "task", "diff", "incident", "badcase"}
+    {
+        # US1
+        "trace",
+        "task",
+        "diff",
+        # US4
+        "incident",
+        "badcase",
+        # US6
+        "user_resume",
+        "user_interview",
+        "ai_prompt",
+        "ai_model_output",
+        "incident_payload",
+        "export",
+        "snapshot",
+        "governance",
+    }
 )
 
 
@@ -132,24 +165,30 @@ async def log_tag_removed(
 
 
 # ---------------------------------------------------------------------------
-# US4 — incident / badcase audit helpers
+# US4 + US6 — incident / badcase / sensitive / export / governance
+# audit helpers
 #
-# [CROSS-TEAM-DEBT] Phase 2 batch 4 will widen the ``admin_audit_log``
-# CHECK constraint to include the 4 US4 actions. Until then these
-# helpers use :func:`_write_audit_unsafe` which is gated by a
-# Python-side allowlist. Tests use the ``admin_console.incidents.service``
+# [CROSS-TEAM-DEBT] Phase 2 batch 5 will widen the ``admin_audit_log``
+# CHECK constraint to include the 4 US4 + 3 US6 actions. Until then
+# these helpers use :func:`_write_audit_unsafe` which is gated by a
+# Python-side allowlist. Tests use the ``admin_console.governance.repository``
 # in-memory audit buffer for end-to-end coverage.
 # ---------------------------------------------------------------------------
 
 
-#: Subset of actions that are NOT yet DB-persisted (Phase 2 batch 4
+#: Subset of actions that are NOT yet DB-persisted (Phase 2 batch 5
 #: will widen the migration 0022 CHECK constraint to include them).
 _DB_BLOCKED_ACTIONS: frozenset[str] = frozenset(
     {
+        # US4
         "incident_status_changed",
         "incident_comment_added",
         "badcase_status_changed",
         "badcase_escalated",
+        # US6
+        "sensitive_reveal",
+        "export",
+        "review_snapshot",
     }
 )
 
@@ -295,9 +334,110 @@ __all__ = [
     "log_badcase_change",
     "log_badcase_escalate",
     "log_diff",
+    "log_export",
+    "log_governance_change",
     "log_incident_change",
     "log_incident_comment",
     "log_replay",
+    "log_sensitive_reveal",
     "log_tag_added",
     "log_tag_removed",
 ]
+
+# ---------------------------------------------------------------------------
+# US6 — sensitive reveal / export / governance audit helpers
+# (FR-033 + FR-034 + FR-035 + FR-036 + EC-4 self-audit)
+# ---------------------------------------------------------------------------
+
+
+async def log_sensitive_reveal(
+    session: AsyncSession,
+    user_id: UUID,
+    *,
+    target_kind: str,
+    target_id: str,
+    actor: str,
+    reason: str,
+    result: str,
+    visibility_mode: str,
+) -> None:
+    """Audit a sensitive reveal request (FR-033 + FR-034 AC-34.4).
+
+    See :data:`_DB_BLOCKED_ACTIONS` for the Phase 2 batch 5 caveat.
+    """
+    await _write_audit_unsafe(
+        session,
+        user_id=user_id,
+        action="sensitive_reveal",
+        target_kind=target_kind,
+        target_id=None,
+        details={
+            "target_kind": target_kind,
+            "target_id": target_id,
+            "actor": actor,
+            "reason": reason,
+            "result": result,
+            "visibility_mode": visibility_mode,
+        },
+    )
+
+
+async def log_export(
+    session: AsyncSession,
+    user_id: UUID,
+    *,
+    export_id: str,
+    workspace: str,
+    format: str,
+    actor: str,
+    fields_included: list[str],
+    fields_redacted: list[str],
+    result: str = "executed",
+) -> None:
+    """Audit an export operation (FR-034 + FR-035 AC-35.5)."""
+    await _write_audit_unsafe(
+        session,
+        user_id=user_id,
+        action="export",
+        target_kind="export",
+        target_id=None,
+        details={
+            "export_id": export_id,
+            "workspace": workspace,
+            "format": format,
+            "actor": actor,
+            "fields_included": fields_included,
+            "fields_redacted": fields_redacted,
+            "result": result,
+        },
+    )
+
+
+async def log_governance_change(
+    session: AsyncSession,
+    user_id: UUID,
+    *,
+    workspace_field: str,
+    retention_days: int,
+    action: str,
+    actor: str,
+) -> None:
+    """Audit a governance setting change (FR-034 + EC-4 self-audit).
+
+    Maps to the 11th ``review_snapshot`` action with ``target_kind=
+    'governance'`` so the audit-event taxonomy stays at 11 tokens
+    (per AC-34.1: 11 actions cumulative across US1+US4+US6).
+    """
+    await _write_audit_unsafe(
+        session,
+        user_id=user_id,
+        action="review_snapshot",
+        target_kind="governance",
+        target_id=None,
+        details={
+            "workspace_field": workspace_field,
+            "retention_days": retention_days,
+            "action": action,
+            "actor": actor,
+        },
+    )

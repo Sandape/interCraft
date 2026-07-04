@@ -27,7 +27,7 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 
-# Capability tokens (FR-009 / FR-020 / FR-031 / REQ-044 US1 / US2 / US3).
+# Capability tokens (FR-009 / FR-020 / FR-031 / REQ-044 US1 / US2 / US3 / US4 / US6).
 REPLAY_TRIGGER = "REPLAY_TRIGGER"
 TASK_TAG = "TASK_TAG"
 COMMAND_CENTER_VIEW = "COMMAND_CENTER_VIEW"
@@ -44,6 +44,17 @@ INCIDENT_VIEW = "INCIDENT_VIEW"
 INCIDENT_CHANGE = "INCIDENT_CHANGE"
 BADCASE_VIEW = "BADCASE_VIEW"
 BADCASE_CHANGE = "BADCASE_CHANGE"
+# REQ-044 US6 — Governance / Audit / Export / Retention (FR-031~FR-036).
+# 6 new tokens; least-privilege: owner / admin get the full set, others
+# get scoped subsets (AUDIT_VIEW granted to all roles so any user can
+# see they are being audited; SENSITIVE_REVEAL / EXPORT / GOVERNANCE_
+# CHANGE restricted to owner + admin).
+RBAC_VIEW = "RBAC_VIEW"               # FR-031 AC-31.1
+SENSITIVE_REVEAL = "SENSITIVE_REVEAL"  # FR-033 AC-33.1
+AUDIT_VIEW = "AUDIT_VIEW"             # FR-034 AC-34.4
+EXPORT = "EXPORT"                     # FR-035 AC-35.1
+GOVERNANCE_VIEW = "GOVERNANCE_VIEW"    # FR-036 AC-36.1
+GOVERNANCE_CHANGE = "GOVERNANCE_CHANGE"  # FR-036 AC-36.2 + EC-4
 
 # Default role -> capability grants.
 # FR-031 least-privilege: command-center view is granted to
@@ -62,6 +73,12 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             INCIDENT_CHANGE,
             BADCASE_VIEW,
             BADCASE_CHANGE,
+            RBAC_VIEW,
+            SENSITIVE_REVEAL,
+            AUDIT_VIEW,
+            EXPORT,
+            GOVERNANCE_VIEW,
+            GOVERNANCE_CHANGE,
         }
     ),
     "owner": frozenset(
@@ -76,6 +93,12 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             INCIDENT_CHANGE,
             BADCASE_VIEW,
             BADCASE_CHANGE,
+            RBAC_VIEW,
+            SENSITIVE_REVEAL,
+            AUDIT_VIEW,
+            EXPORT,
+            GOVERNANCE_VIEW,
+            GOVERNANCE_CHANGE,
         }
     ),
     "pm": frozenset(
@@ -87,6 +110,9 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             INCIDENT_VIEW,
             INCIDENT_CHANGE,
             BADCASE_VIEW,
+            AUDIT_VIEW,
+            GOVERNANCE_VIEW,
+            RBAC_VIEW,
         }
     ),
     "reviewer": frozenset(
@@ -97,9 +123,11 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             INCIDENT_VIEW,
             BADCASE_VIEW,
             BADCASE_CHANGE,
+            AUDIT_VIEW,
+            GOVERNANCE_VIEW,
         }
     ),
-    "viewer": frozenset(),
+    "viewer": frozenset({AUDIT_VIEW, GOVERNANCE_VIEW}),
     "operations": frozenset(
         {
             COMMAND_CENTER_VIEW,
@@ -110,6 +138,9 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             INCIDENT_CHANGE,
             BADCASE_VIEW,
             BADCASE_CHANGE,
+            AUDIT_VIEW,
+            GOVERNANCE_VIEW,
+            RBAC_VIEW,
         }
     ),
     "maintainer": frozenset(
@@ -122,6 +153,10 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             INCIDENT_VIEW,
             INCIDENT_CHANGE,
             BADCASE_VIEW,
+            AUDIT_VIEW,
+            EXPORT,
+            GOVERNANCE_VIEW,
+            RBAC_VIEW,
         }
     ),
 }
@@ -231,13 +266,19 @@ def _missing_capability_exception(capability: str) -> HTTPException:
 
 __all__ = [
     "AI_OPERATIONS_VIEW",
+    "AUDIT_VIEW",
     "BADCASE_CHANGE",
     "BADCASE_VIEW",
     "COMMAND_CENTER_VIEW",
+    "EXPORT",
+    "GOVERNANCE_CHANGE",
+    "GOVERNANCE_VIEW",
     "INCIDENT_CHANGE",
     "INCIDENT_VIEW",
     "PRODUCT_ANALYTICS_VIEW",
+    "RBAC_VIEW",
     "REPLAY_TRIGGER",
+    "SENSITIVE_REVEAL",
     "TASK_TAG",
     "USER_LOOKUP",
     "ensure_capabilities",

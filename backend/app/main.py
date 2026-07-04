@@ -228,6 +228,23 @@ def create_app() -> FastAPI:
         tags=["admin-console"],
     )
 
+    # 044 US6: governance / audit / export / retention workspace
+    # (FR-031~FR-036). Mounted at /api/v1/admin-console/governance
+    # with 8 endpoints: access-matrix, reveal-requests (POST/GET),
+    # audit-events, exports (POST), retention-policy (GET/PUT), health.
+    # Auth: 6 new capability tokens (RBAC_VIEW / SENSITIVE_REVEAL /
+    # AUDIT_VIEW / EXPORT / GOVERNANCE_VIEW / GOVERNANCE_CHANGE) granted
+    # per FR-031 least-privilege in admin_console.auth._ROLE_GRANTS.
+    from app.modules.admin_console.governance import (
+        governance_router,
+    )
+
+    app.include_router(
+        governance_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/governance",
+        tags=["admin-console"],
+    )
+
     return app
 
 

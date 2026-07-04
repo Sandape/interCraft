@@ -1898,3 +1898,378 @@ button {
   font-family: monospace;
   color: var(--ac-ink-muted);
 }
+/* REQ-044 US6 — Governance workspace styles (FR-031~FR-036) */
+
+.ac-gov {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ac-gov__tabs {
+  display: flex;
+  border-bottom: 1px solid var(--ac-border-subtle);
+  gap: 4px;
+}
+
+.ac-gov__tab {
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ac-ink-muted);
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+}
+
+.ac-gov__tab.is-active {
+  color: var(--ac-ink);
+  border-bottom-color: var(--ac-accent, #3b82f6);
+  font-weight: 500;
+}
+
+.ac-gov__tab-count {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--ac-bg-subtle, #f1f5f9);
+  font-size: 11px;
+  color: var(--ac-ink-muted);
+}
+
+/* Access matrix table */
+.ac-gov-matrix {
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.ac-gov-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ac-gov-matrix th,
+.ac-gov-matrix td {
+  padding: 6px 8px;
+  text-align: center;
+  border: 1px solid var(--ac-border-subtle);
+}
+
+.ac-gov-matrix th {
+  background: var(--ac-bg-subtle, #f8fafc);
+  color: var(--ac-ink-muted);
+  font-weight: 500;
+}
+
+.ac-gov-matrix__role-cell {
+  text-align: left;
+  font-weight: 500;
+  color: var(--ac-ink);
+  background: var(--ac-bg-subtle, #f8fafc);
+}
+
+.ac-gov-matrix__cell-allowed {
+  background: rgba(22, 163, 74, 0.08);
+  color: #15803d;
+}
+
+.ac-gov-matrix__cell-denied {
+  color: var(--ac-ink-faint);
+}
+
+/* Reveal request form */
+.ac-gov-reveal__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: 6px;
+}
+
+.ac-gov-reveal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ac-gov-reveal__label {
+  font-size: 12px;
+  color: var(--ac-ink-muted);
+  font-weight: 500;
+}
+
+.ac-gov-reveal__input,
+.ac-gov-reveal__textarea,
+.ac-gov-reveal__select {
+  padding: 6px 8px;
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.ac-gov-reveal__textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.ac-gov-reveal__counter {
+  font-size: 11px;
+  color: var(--ac-ink-faint);
+}
+
+.ac-gov-reveal__counter--ok {
+  color: #15803d;
+}
+
+.ac-gov-reveal__counter--err {
+  color: #b91c1c;
+}
+
+.ac-gov-reveal__submit {
+  align-self: flex-start;
+  padding: 8px 16px;
+  background: var(--ac-accent, #3b82f6);
+  color: white;
+  border: 0;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ac-gov-reveal__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ac-gov-reveal__denied-banner {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: white;
+  z-index: 9999;
+}
+
+.ac-gov-reveal__denied-banner pre {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+}
+
+/* Audit log viewer */
+.ac-gov-audit {
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: 6px;
+}
+
+.ac-gov-audit__row {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 0.8fr 1.2fr 1.5fr 0.6fr 0.8fr;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ac-border-subtle);
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.ac-gov-audit__row--header {
+  background: var(--ac-bg-subtle, #f8fafc);
+  color: var(--ac-ink-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.ac-gov-audit__action {
+  font-weight: 500;
+  color: var(--ac-ink);
+}
+
+.ac-gov-audit__empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--ac-ink-faint);
+  font-size: 13px;
+}
+
+/* Export form */
+.ac-gov-export__form {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: 6px;
+}
+
+.ac-gov-export__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ac-gov-export__result {
+  padding: 12px;
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: 6px;
+  background: var(--ac-bg-subtle, #f8fafc);
+  margin-top: 12px;
+}
+
+.ac-gov-export__field-list {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--ac-ink-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.ac-gov-export__field-chip {
+  padding: 2px 6px;
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: 3px;
+  background: white;
+}
+
+.ac-gov-export__field-chip--redacted {
+  background: rgba(185, 28, 28, 0.06);
+  color: #b91c1c;
+}
+
+/* Retention policy editor */
+.ac-gov-retention__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1.5fr 1fr;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ac-border-subtle);
+  font-size: 12px;
+  align-items: center;
+}
+
+.ac-gov-retention__grid--header {
+  background: var(--ac-bg-subtle, #f8fafc);
+  color: var(--ac-ink-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+}
+
+.ac-gov-retention__editor {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--ac-border-subtle);
+  align-items: end;
+}
+
+.ac-gov-retention__editor input,
+.ac-gov-retention__editor select {
+  padding: 6px 8px;
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+/* Quality flags badge (5 states) */
+.ac-quality-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ac-quality-flag__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ac-quality-flag--valid_zero {
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+}
+
+.ac-quality-flag--valid_zero .ac-quality-flag__dot {
+  background: #16a34a;
+}
+
+.ac-quality-flag--missing {
+  background: rgba(148, 163, 184, 0.18);
+  color: #475569;
+}
+
+.ac-quality-flag--missing .ac-quality-flag__dot {
+  background: #94a3b8;
+}
+
+.ac-quality-flag--partial {
+  background: rgba(234, 179, 8, 0.18);
+  color: #92400e;
+}
+
+.ac-quality-flag--partial .ac-quality-flag__dot {
+  background: #eab308;
+}
+
+.ac-quality-flag--stale {
+  background: rgba(249, 115, 22, 0.18);
+  color: #9a3412;
+}
+
+.ac-quality-flag--stale .ac-quality-flag__dot {
+  background: #f97316;
+}
+
+.ac-quality-flag--failed {
+  background: rgba(220, 38, 38, 0.18);
+  color: #991b1b;
+}
+
+.ac-quality-flag--failed .ac-quality-flag__dot {
+  background: #dc2626;
+}
+
+/* Field permission badge (FR-031 field-level) */
+.ac-field-perm {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  border-radius: 3px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ac-field-perm--hidden {
+  background: rgba(148, 163, 184, 0.2);
+  color: #64748b;
+}
+
+.ac-field-perm--masked {
+  background: rgba(234, 179, 8, 0.18);
+  color: #92400e;
+}
+
+.ac-field-perm--full {
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+}
