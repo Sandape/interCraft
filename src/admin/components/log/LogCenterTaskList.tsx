@@ -1,5 +1,5 @@
 /**
- * LogCenter task list — REQ-039 B2 US1.
+ * Logs/Traces task list — REQ-039 B2 US1.
  *
  * Columns: task_id / type / status / started_at / duration / Replay btn / Diff checkbox
  *

@@ -1,5 +1,5 @@
 /**
- * LogCenter filter bar — REQ-039 B2 US1.
+ * Logs/Traces filter bar — REQ-039 B2 US1.
  *
  * Four dimensions: time range / task type / status / keyword search.
  * Mutating any filter fires a refresh via the `onChange` callback

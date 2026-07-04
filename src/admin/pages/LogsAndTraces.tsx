@@ -1,0 +1,312 @@
+/**
+ * LogsAndTraces — REQ-044 FR-005 + US5 / FR-024 + FR-025 + FR-026.
+ *
+ * Workspace page that wraps the existing LogCenter business logic
+ * (REQ-039 B2) under the new 8-workspace IA shell, and adds the
+ * US5 drilldown surface:
+ *
+ * - Drilldown banner (?from=incident|signal|badcase|user|trace:id)
+ * - Tabs for "Logs" / "Traces" / "List" (legacy)
+ * - Log list / trace list filtered by correlation_id when drilled in
+ * - Coverage gap notice when no correlated log/trace exists
+ * - LogDetailDrawer (4-panel deep view + masked sensitive + reveal)
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { LogCenter as _BaseLogsAndTraces } from './LogCenter'
+import { DrilldownBanner } from '@/admin/components/log/DrilldownBanner'
+import { CoverageGapNotice } from '@/admin/components/log/CoverageGapNotice'
+import { LogDetailDrawer } from '@/admin/components/log/LogDetailDrawer'
+import { adminLogsApi, parseDrilldownParam } from '@/api/admin-logs'
+import type { DrilldownSource, LogEvent } from '@/types/admin-logs'
+
+type TabId = 'logs' | 'traces' | 'list'
+
+const TAB_LABELS: Record<TabId, string> = {
+  logs: 'Logs',
+  traces: 'Traces',
+  list: 'Trace list',
+}
+
+export function LogsAndTraces() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [tab, setTab] = useState<TabId>('logs')
+  const [selectedLog, setSelectedLog] = useState<LogEvent | null>(null)
+
+  // FR-024 — parse ?from=source_type:source_id
+  const drilldown: DrilldownSource | null = useMemo(() => {
+    const from = searchParams.get('from')
+    return parseDrilldownParam(from)
+  }, [searchParams])
+
+  const traceIdFromUrl = searchParams.get('trace')
+
+  // FR-024 — auto-load log events correlated with the drilldown source.
+  const logsQuery = useCallback(async () => {
+    if (!drilldown) {
+      return { events: [] as LogEvent[], total: 0, coverageGap: false }
+    }
+    return adminLogsApi.listLogEvents({ from: drilldown, traceId: traceIdFromUrl })
+  }, [drilldown, traceIdFromUrl])
+
+  // We keep the data fetch state local rather than via TanStack to
+  // keep US5 scope minimal and avoid cross-cutting cache invalidation.
+  const [logs, setLogs] = useState<LogEvent[]>([])
+  const [logsTotal, setLogsTotal] = useState(0)
+  const [coverageGap, setCoverageGap] = useState(false)
+  const [logsLoading, setLogsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!drilldown) {
+      setLogs([])
+      setLogsTotal(0)
+      setCoverageGap(false)
+      return
+    }
+    let canceled = false
+    setLogsLoading(true)
+    logsQuery()
+      .then((res) => {
+        if (canceled) return
+        setLogs(res.events)
+        setLogsTotal(res.total)
+        setCoverageGap(res.coverageGap)
+      })
+      .catch(() => {
+        if (canceled) return
+        setLogs([])
+        setLogsTotal(0)
+        setCoverageGap(false)
+      })
+      .finally(() => {
+        if (!canceled) setLogsLoading(false)
+      })
+    return () => {
+      canceled = true
+    }
+  }, [drilldown, logsQuery])
+
+  // AC-24.3 — when source is a trace, auto-select it.
+  const autoSelectTraceId =
+    drilldown?.type === 'trace' ? drilldown.id : traceIdFromUrl
+
+  const handleAutoSelectTrace = useCallback(
+    (traceId: string) => {
+      const next = new URLSearchParams(searchParams)
+      next.set('trace', traceId)
+      setSearchParams(next, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  // When in "list" mode (no drilldown), delegate to the legacy
+  // LogCenter page so all existing US1 functionality (filter, replay,
+  // diff, tag, command palette) stays reachable.
+  if (!drilldown) {
+    return <_BaseLogsAndTraces />
+  }
+
+  return (
+    <div className="ac-page" data-testid="logs-and-traces-drilldown">
+      <div className="ac-page__header">
+        <h1 className="ac-page__title">Logs &amp; Traces</h1>
+        <span className="ac-page__hint">
+          Maintainer Drilldown · FR-024~FR-026
+        </span>
+      </div>
+
+      <DrilldownBanner
+        source={drilldown}
+        onAutoSelectTrace={handleAutoSelectTrace}
+        autoSelectTraceId={autoSelectTraceId}
+      />
+
+      <nav
+        className="ac-lt-tabs"
+        role="tablist"
+        aria-label="Logs & Traces tabs"
+      >
+        {(Object.keys(TAB_LABELS) as TabId[]).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            className={`ac-lt-tab ${tab === id ? 'is-active' : ''}`}
+            data-testid={`logs-traces-tab-${id}`}
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+          >
+            {TAB_LABELS[id]}
+          </button>
+        ))}
+      </nav>
+
+      <div className="ac-lt-tabpanel" data-testid="logs-traces-tabpanel">
+        {tab === 'logs' ? (
+          <LogsTab
+            loading={logsLoading}
+            logs={logs}
+            total={logsTotal}
+            coverageGap={coverageGap}
+            sourceType={drilldown.type}
+            sourceId={drilldown.id}
+            onSelectLog={setSelectedLog}
+          />
+        ) : null}
+
+        {tab === 'traces' ? (
+          <TracesTab source={drilldown} />
+        ) : null}
+
+        {tab === 'list' ? (
+          <_BaseLogsAndTraces />
+        ) : null}
+      </div>
+
+      <LogDetailDrawer
+        open={Boolean(selectedLog)}
+        log={selectedLog}
+        onClose={() => setSelectedLog(null)}
+      />
+    </div>
+  )
+}
+
+interface LogsTabProps {
+  loading: boolean
+  logs: LogEvent[]
+  total: number
+  coverageGap: boolean
+  sourceType: DrilldownSource['type']
+  sourceId: string
+  onSelectLog: (log: LogEvent) => void
+}
+
+function LogsTab({
+  loading,
+  logs,
+  total,
+  coverageGap,
+  sourceType,
+  sourceId,
+  onSelectLog,
+}: LogsTabProps) {
+  if (loading) {
+    return (
+      <div className="ac-lt-loading" data-testid="logs-tab-loading">
+        加载相关 log…
+      </div>
+    )
+  }
+  if (coverageGap || total === 0) {
+    return (
+      <CoverageGapNotice sourceType={sourceType} sourceId={sourceId} />
+    )
+  }
+  return (
+    <ul className="ac-lt-log-list" data-testid="logs-tab-list">
+      {logs.map((log) => (
+        <li
+          key={log.id}
+          className="ac-lt-log-item"
+          data-testid={`log-item-${log.id}`}
+        >
+          <button
+            type="button"
+            className="ac-lt-log-item__btn"
+            onClick={() => onSelectLog(log)}
+            data-testid={`log-item-open-${log.id}`}
+          >
+            <span
+              className={`ac-status ac-status--${
+                log.level === 'error'
+                  ? 'failed'
+                  : log.level === 'warn'
+                    ? 'pending'
+                    : log.level === 'info'
+                      ? 'success'
+                      : 'pending'
+              }`}
+            >
+              {log.level}
+            </span>
+            <span className="ac-lt-log-item__msg">{log.message}</span>
+            <span className="ac-lt-log-item__time">{log.timestamp}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+interface TracesTabProps {
+  source: DrilldownSource
+}
+
+function TracesTab({ source }: TracesTabProps) {
+  const [spans, setSpans] = useState<{ id: string; spanName: string; durationMs: number | null; status: string }[]>([])
+  const [loading, setLoading] = useState(false)
+  const [gap, setGap] = useState(false)
+
+  useEffect(() => {
+    let canceled = false
+    setLoading(true)
+    adminLogsApi
+      .listTraceSpans({
+        from: source,
+        traceId: source.type === 'trace' ? source.id : null,
+      })
+      .then((res) => {
+        if (canceled) return
+        setSpans(
+          res.spans.map((s) => ({
+            id: s.id,
+            spanName: s.spanName,
+            durationMs: s.durationMs,
+            status: s.status,
+          })),
+        )
+        setGap(res.coverageGap)
+      })
+      .catch(() => {
+        if (!canceled) setGap(true)
+      })
+      .finally(() => {
+        if (!canceled) setLoading(false)
+      })
+    return () => {
+      canceled = true
+    }
+  }, [source])
+
+  if (loading) {
+    return (
+      <div className="ac-lt-loading" data-testid="traces-tab-loading">
+        加载相关 trace span…
+      </div>
+    )
+  }
+  if (gap || spans.length === 0) {
+    return <CoverageGapNotice sourceType={source.type} sourceId={source.id} />
+  }
+  return (
+    <ul className="ac-lt-span-list" data-testid="traces-tab-list">
+      {spans.map((s) => (
+        <li
+          key={s.id}
+          className="ac-lt-span-item"
+          data-testid={`span-item-${s.id}`}
+        >
+          <span className="ac-lt-span-item__name">{s.spanName}</span>
+          <span className="ac-mono">{s.id}</span>
+          <span>{s.durationMs ?? '—'} ms</span>
+          <span>{s.status}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export { LogCenter } from './LogCenter'
+
+export default LogsAndTraces

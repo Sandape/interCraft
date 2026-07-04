@@ -1,5 +1,5 @@
 /**
- * LogCenter command palette — REQ-039 B2 US1 (⌘K).
+ * Logs/Traces command palette — REQ-039 B2 US1 (⌘K).
  *
  * Two lists: Recent (last 5 unique trace_ids the page has loaded) +
  * Filters (one-click apply each filter preset). Esc / ⌘K closes.

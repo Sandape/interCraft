@@ -160,6 +160,130 @@ def create_app() -> FastAPI:
         tags=["admin-console"],
     )
 
+    # 044 US1: admin console command center (decision queue + KPI tiles).
+    # Mounted at /api/v1/admin-console/command-center — 3 endpoints covering
+    # decision signals list, overview KPI tiles, and module liveness.
+    from app.modules.admin_console.decision_signals import (
+        router as decision_signals_router,
+    )
+
+    app.include_router(
+        decision_signals_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/command-center",
+        tags=["admin-console"],
+    )
+
+    # 044 US2: product analytics workspace (FR-011~FR-015).
+    # Mounted at /api/v1/admin-console/product-analytics — question
+    # templates, funnel, cohorts, feature-adoption, and module liveness.
+    # Plus /api/v1/admin-console/users for privacy-safe user lookup.
+    from app.modules.admin_console.product_analytics import (
+        product_analytics_router,
+        users_router,
+    )
+
+    app.include_router(
+        product_analytics_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/product-analytics",
+        tags=["admin-console"],
+    )
+    app.include_router(
+        users_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/users",
+        tags=["admin-console"],
+    )
+
+    # 044 US3: AI operations workspace (FR-016~FR-020).
+    # Mounted at /api/v1/admin-console/ai-operations — 10 endpoints
+    # covering KPI tiles, volume-by-feature, failure-categories,
+    # latency-bands, token-usage, cost-summary, version-selector,
+    # quality-issues, cost-quality-flag, and eval-badcase-summary
+    # + module liveness.
+    from app.modules.admin_console.ai_operations import router as ai_operations_router
+
+    app.include_router(
+        ai_operations_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/ai-operations",
+        tags=["admin-console"],
+    )
+
+    # 044 US4: incidents & badcases workspace (FR-021~FR-023 业务层).
+    # Mounted at /api/v1/admin-console/incidents (8 endpoints) and
+    # /api/v1/admin-console/badcases (4 endpoints). Includes incident
+    # list / detail / evidence / comments / status change / audit
+    # trail + badcase list / detail / escalate.
+    from app.modules.admin_console.incidents import (
+        badcases_router,
+        incidents_router,
+    )
+
+    app.include_router(
+        incidents_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/incidents",
+        tags=["admin-console"],
+    )
+    app.include_router(
+        badcases_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/badcases",
+        tags=["admin-console"],
+    )
+
+    # 044 US6: governance / audit / export / retention workspace
+    # (FR-031~FR-036). Mounted at /api/v1/admin-console/governance
+    # with 8 endpoints: access-matrix, reveal-requests (POST/GET),
+    # audit-events, exports (POST), retention-policy (GET/PUT), health.
+    # Auth: 6 new capability tokens (RBAC_VIEW / SENSITIVE_REVEAL /
+    # AUDIT_VIEW / EXPORT / GOVERNANCE_VIEW / GOVERNANCE_CHANGE) granted
+    # per FR-031 least-privilege in admin_console.auth._ROLE_GRANTS.
+    from app.modules.admin_console.governance import (
+        governance_router,
+    )
+
+    app.include_router(
+        governance_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/governance",
+        tags=["admin-console"],
+    )
+
+    # 044 US7: review snapshots + metric trust workspace
+    # (FR-027~FR-030 + SC-012). Mounted at
+    # /api/v1/admin-console/review-snapshots with 4 active endpoints
+    # (POST + GET list + GET detail + health) + 3 explicit PUT/PATCH/
+    # DELETE 405 immutable guards (AC-30.4).
+    # Auth: new capability token REVIEW_SNAPSHOT granted per FR-031
+    # least-privilege to pm / owner / admin / operations / maintainer
+    # in admin_console.auth._ROLE_GRANTS.
+    from app.modules.admin_console.review_snapshots import (
+        review_snapshots_router,
+    )
+
+    app.include_router(
+        review_snapshots_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/review-snapshots",
+        tags=["admin-console"],
+    )
+
+    # 044 CROSS: saved views cross-cutting workspace (FR-006).
+    # Mounted at ``/api/v1/admin-console/saved-views`` with 5 active
+    # endpoints (GET list + POST + GET detail + PATCH + DELETE) +
+    # 1 health endpoint. Auth: 2 new capability tokens
+    # (SAVED_VIEW_VIEW + SAVED_VIEW_CHANGE) granted per FR-031
+    # least-privilege — SAVED_VIEW_VIEW to all roles except viewer;
+    # SAVED_VIEW_CHANGE to pm / owner / admin / operations /
+    # maintainer (4 editor roles); reviewer remains read-only.
+    # Audit: 12th action ``saved_view_change`` (target_kind=
+    # 'saved_view') is emitted on create / update / delete
+    # lifecycle events (FR-034 AC-6.7).
+    from app.modules.admin_console.saved_views import (
+        saved_views_router,
+    )
+
+    app.include_router(
+        saved_views_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/saved-views",
+        tags=["admin-console"],
+    )
+
     return app
 
 

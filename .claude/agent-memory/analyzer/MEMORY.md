@@ -1,0 +1,2 @@
+- [req044 worktree spec gap](req044_worktree_spec_gap.md) — base_commit predates specs/044/; spec only in main as untracked; sync before executor runs
+- [admin console baseline for REQ-044](admin_console_baseline.md) — 4-item nav + LogCenter (039) + 6 pm_dashboard panels (033) shipped; 044 redesigns to 8 workspaces

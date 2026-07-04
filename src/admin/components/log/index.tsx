@@ -1,5 +1,5 @@
 /**
- * LogCenter shared utilities — REQ-039 B2.
+ * Logs & Traces shared utilities — REQ-039 B2 (internal).
  *
  * - normalizeStatus / normalizeType : map backend enums to UI tokens.
  * - formatDuration                  : human-readable durations.

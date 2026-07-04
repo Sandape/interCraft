@@ -348,7 +348,7 @@ export function LogCenter() {
   return (
     <div className="ac-page" data-testid="log-center">
       <div className="ac-page__header">
-        <h1 className="ac-page__title">日志中心</h1>
+        <h1 className="ac-page__title">Logs &amp; Traces</h1>
         <span className="ac-page__hint">
           手动刷新 · ⌘R / F5 · ⌘K 唤起命令面板
         </span>

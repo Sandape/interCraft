@@ -275,3 +275,169 @@
 4. **返回类型 Literal 子串守卫** — 旧测试 grep 4-way Literal 子串失败时，回退到 `Union[Literal[3-way], Literal["__end__]]` 而非 4-way Literal 改 3-way（会破坏 typing 契约）。优先用 Union 保留 3-way 子串。
 5. **不跨团队文件改动** — 仅改当前 worktree 范围的代码 + 测试；其他团队（038 / 023 / 040）仅可 import，不可 commit 跨团队文件。
 6. **Pydantic 形态与 dict 形态双守卫** — conditional router 既要 `state.get("_mark_complete")` (dict/TypedDict) 又要 `getattr(state, "_mark_complete", False)` (Pydantic BaseModel)；`isinstance(state, dict)` 分支必须双写。
+
+## 260704 REQ-044-US1 decision_signals seed-only Phase 1 pattern
+
+**问题**: REQ-044 US1 需要"决策队列 (FR-007~FR-010) + 4 档 confidence + quiet steady-state"，但真实 metric_panel → signal aggregate 管线不在本 PR 范围。如果 hardcode 真实 DB query 会拖慢 4 周开发周期；如果 return `[]` 静默 fallback 则违反铁律 A (any stub must throw NotImplementedError)。
+
+**修复**: 采用 **seed_demo_signals()** 静态 seed 模式（8 条样例覆盖全部 6 categories × 全部 4 confidence tiers + 至少 1 stale + 1 partial_baseline + 1 candidate），service.list_decision_signals() 直接返回 seed list：
+- `seed_demo_signals()` 是纯函数（无 I/O），可被 contract test 直接调用验证 FR-008/SC-002
+- 后端 API endpoint GET /signals mount 在 `/api/v1/admin-console/command-center`
+- 每个 Pydantic schema field 都有 contract test lock（grep + Pydantic model_fields 双重断言）
+- 真实 metric_panel 接入标 `[CROSS-TEAM-DEBT] Phase 2 batch 2` 在 service docstring + AC 矩阵 ## 起草说明 ## 未覆盖的边界 ## 三处明确标注
+
+**关键决策**:
+- **seed 必须覆盖所有 4 confidence tiers** —— 否则 FR-009 视觉区分无法在静态验证阶段证明；test_seed_covers_all_four_confidence_tiers + test_seed_covers_all_six_categories 双锁
+- **Pydantic `extra="forbid"` 与 seed 一致性** —— 写 SignalQualityFlags 时漏掉 `delayed_ingestion` 字段，导致 seed 第一次跑挂 8/13 test；修复：seed 字段必须先于 schema 字段全集声明
+- **decision_signals 子目录不破坏 admin_console 既有模块** —— 新建 `backend/app/modules/admin_console/decision_signals/{__init__,schemas,service,api}.py`，既有的 `admin_console/api.py` (observability) 不动；只通过 `admin_console/__init__.py` 暴露 `decision_signals_router`
+- **fronend type 字段名 snake_case → camelCase** —— 后端 Pydantic 用 snake_case (`what_changed`)，前端 interface 用 camelCase (`whatChanged`)，从后端 JSON 响应自动转换；类型层通过 grep `what_changed|whatChanged` 双锚定确保不漏
+- **COMMAND_CENTER_VIEW capability 加入 role map** —— FR-031 least-privilege：pm/owner/admin/reviewer/operations/maintainer 全部 grant，但 viewer 显式不 grant。`_ROLE_GRANTS["viewer"] = frozenset()` 保留
+
+**适用场景**: 任何"PM 决策面 / AI Ops dashboard / Console overview" 类的 Phase 1 实施，需要：
+- **真实 metric 接入不在本 PR 范围**（其他 team / 后续 batch）
+- **PM-facing UI 必须可端到端验证**（不能空白页）
+- **FR-007~FR-010 视觉/字段契约必须静态锁**
+
+**避免**:
+1. **不要写 silent empty list fallback** (`return []` when metric unavailable) —— 违反铁律 A；正确是 throw NotImplementedError 或 seed + [CROSS-TEAM-DEBT] tag
+2. **不要把 schema field 默认值偷偷放宽** (`extra="ignore"` 兜底) —— 字段名漂移；正确是 schema 字段全集一次性声明 + seed 同步
+3. **不要跨子目录 mount router** (在 `admin_console/api.py` 里追加新 endpoint) —— 破坏 035/039 既有 contract test；正确是新建子目录 + 新 router + 在 `admin_console/__init__.py` 暴露新 prefix
+4. **不要把 frontend type 与 backend Pydantic Literal 解耦** —— 加新 tier 时不同步必爆；正确是 grep 双锚定 + AC 矩阵 [CROSS-TEAM-DEBT] 显式标注
+5. **不要让 8 条 seed 全部 high-severity** —— FR-010 quiet steady-state 必须能被验证；正确是 seed 中至少 1 条 non-high 信号 + QuietState component 真正被测试覆盖
+
+## 第11轮修正（REQ-044 US2） — 2026-07-04
+
+### Pydantic Literal `__args__` 比对 vs `annotation_repr` 字面比对 — 二者都能 grep 但 `__args__` 更稳
+**问题**: US2 起草 AC-15.1 时第一版想"测试 frontend type union 等于 backend Pydantic Literal union"。前端用 TypeScript 字面 union `type X = 'a' | 'b' | 'c'`，后端 Pydantic v2 用 `Literal['a', 'b', 'c']` 存在 `model_fields['x'].annotation.__args__`。两套机制 — 但**测试**怎么验？US1 已用 `str(annotation)` 字面包含 6 个字符串，本想沿用。但字面比对会把 `'a_b'` 当作 `'a'` 的子串误判（如果 'a' 是 'a_b' 的前缀）。
+**修复**: backend contract test 用 `UserPrivacySafeField.model_fields['name'].annotation.__args__` 直接拿 Literal 元组 → set 比对；前端 type 同步用 union 字符串解析。两者都用 set 操作（精确包含），避免字面前缀污染。
+**适用场景**: 任何"frontend union 字面量 ↔ backend Pydantic Literal"cross-team contract 锁定。US2 在 `UserPrivacySafeField.name` union（7 字段）vs Pydantic Literal（7 字段）上严格 set 比对；US1 已用 `__args__` 模式 lock 6 categories + 4 confidence tiers。
+**避免**: (1) 不要用 `str(Literal['a', 'b'])` 字面包含 `'a'` 验证 union — 'a' 是 'a_b' 的前缀会误判；改用 `__args__` 拿 tuple 转 set 比对。(2) 不要在前端用 enum（const enum）替代 union — babel 转译后 enum 可能被擦除；union `'a' | 'b'` 转 JS 后仍是 string literal，type erasure 安全。
+
+### AC grep gate "0 hits" 必须用 `grep -cF` + exit 1 处理
+**问题**: AC-15.4 grep 守卫要求 `grep -F "raw_resume|raw_prompt|raw_model_output" src/admin/pages/UsersAccounts.tsx` 返回 0 命中。但 grep 0 hits → exit code 1 → bash `set -e` 直接 fail，CI 报错"测试失败"但实际是守卫生效。`grep -c` 输出 `0`（数字 0）→ exit 1 是正常行为。
+**修复**: 测试断言分两层：(1) `expect(html).not.toMatch(/raw_resume/)` 在 Playwright spec 里 (无 exit code 问题)；(2) contract test 用 `assert grep_count == 0` 而非 `assert grep_count >= 0`（0 是有效 PASS，非 1）；(3) CI 脚本 wrap `grep -cF "..." file || true` 让 0 hits 不被当成 grep 失败。
+**适用场景**: 任何"必须 0 命中"类隐私/审计守卫。grep exit 1 ≠ 测试失败，单纯表示"未找到匹配"，CI 工具链需要单独处理。
+**避免**: (1) 不要在 `set -e` 脚本里直接 `grep -F "forbidden" file && exit 1` — `&& exit 1` 让"找到匹配则失败"是对的，但"未找到匹配"也会让 grep exit 1 → `set -e` 误判；(2) Playwright 用 `page.content()` + `not.toMatch()` 比 `execSync grep` 干净，避免 exit code 副作用。
+
+### Bash heredoc + 中文注释 = quote 终结陷阱 — 用 Write 工具替代
+**问题**: 想 append 一段带中文注释的 CSS 到 `admin.css`。用 `cat >> file <<'EOF' ... EOF`，但 heredoc 内容里的 `'` 单引号（中文文本里的"产品分析 workspace"被自动转换无影响）实际是 CSS `'`-quoted CSS class 名（`var(--ac-ink)`），bash 看到 EOF 终结但解析时遇到 `'` 提前终结，**报 "unexpected EOF while looking for matching `''`"**。换 `cat >> ... <<EOF`（无引号）也不行，因为 CSS 有 `'` 也提前终结。
+**修复**: 把 CSS 内容先 `Write` 到 `CSS_PATCH.txt` 临时文件 → `cat CSS_PATCH.txt >> admin.css && rm CSS_PATCH.txt`。两步分开，每步的 quote 模式独立可控。
+**适用场景**: 任何想 append 大段代码（含单引号 / 反引号 / 中文）到现有文件的场景 — bash heredoc 与代码 quoting 是永恒痛点。
+**避免**: (1) 不要在 heredoc 内用任何 quote 字符（`'` `"` `` ` `` `$`），即使 wrap 在 `<<'EOF'` 也可能撞 quote；(2) Write tool + 临时文件 + cat append 是更稳的两步法；(3) 长 append 改用 Python `with open(file, 'a')` 一步到位，quote 问题最少。
+
+### Vitest testid 拼写与 component 实际 testid 必须 strict 一致 — kebab vs snake 不兼容
+**问题**: MetricTooltip test 写 `for field of [..., 'quality_flag']` + 模板字符串 `metric-tooltip-field-${field}` → 期望 `metric-tooltip-field-quality_flag`。但 component 实际 testid 是 `metric-tooltip-field-quality-flag`（kebab case），所以 expect 找不到 element → FAIL。
+**修复**: 把 test 数组里 `'quality_flag'` 改成 `'quality-flag'` 匹配 component 实际 testid。Lesson：testid 命名约定要在 component / test / AC 矩阵三处 grep 同步。
+**适用场景**: 任何 component-rendered testid 与 test assertion 一致性。grep `\bdata-testid="X"` 在 component + grep `\bgetByTestId` 在 test 必须 align。
+**避免**: (1) 不要 component 用 kebab (`quality-flag`) 但 test 用 snake (`quality_flag`) — 风格漂移会导致 silent fail；(2) grep `data-testid=` 在 component 文件确认实际字符串，再 grep `getByTestId(` 在 test 文件确认期望字符串，最后 set 比对两者覆盖集。
+
+### `admin_console.auth` capability role map 必须随新 US 同步扩 — 否则新路由 403
+**问题**: US2 新增 `PRODUCT_ANALYTICS_VIEW` + `USER_LOOKUP` capability token，但 `_ROLE_GRANTS` dict 只覆盖 US1 的 3 capability。如果只在 `auth.py` 加 token 不改 `_ROLE_GRANTS`，demo PM 角色拿不到新 capability → 所有新 endpoint 返回 403 missing_capability。
+**修复**: `_ROLE_GRANTS["pm"]` / `_ROLE_GRANTS["operations"]` 必须包含 `PRODUCT_ANALYTICS_VIEW` + `USER_LOOKUP`（PM workspace 必需）。加新 US 时同步扩 role map 并加 `test_*_capability_in_role_map` contract test 断言。
+**适用场景**: 任何在 admin_console 下新增 capability 的 US。role map 是 dict，token 是 string，两者都在同一个文件，但 role map 漏更新比 token 漏声明更隐蔽（因为前端 API 调用 200 解析后才发现 403）。
+**避免**: (1) 不要以为加了 token = role 自动有 — role map 必须显式 grant；(2) viewer role 故意给空 frozenset（FR-031 least-privilege），新 capability 不应自动 grant viewer；(3) contract test 必须断言 `viewer not in grants` 防止过度授权。
+
+### Backend route mount 在 `main.py` 增加新 prefix 必须同时 import + include_router — 缺一就 404
+**问题**: 在 `admin_console/product_analytics/api.py` 定义 `product_analytics_router = APIRouter()` + 5 endpoints，但在 `main.py` 加了 `app.include_router(product_analytics_router, prefix=...)` 却忘了 import `users_router`。结果 `/api/v1/admin-console/users/{user_id}` 静默 404（FastAPI 不会因为 router include 顺序报错，只在 OpenAPI 注册时缺）。
+**修复**: import 块 + include_router 块必须严格成对：本 US 加了 2 个 router (product_analytics + users) → import 2 个 + include 2 个。grep `include_router` 计数 vs `import router as` 计数对齐。
+**适用场景**: 任何新增 FastAPI router + mount 的 US。OpenAPI 列表 (`app.openapi()["paths"]`) 是验证 surface — contract test 断言所有期望 path 出现在 OpenAPI。
+**避免**: (1) 不要假设 FastAPI 会报"router 没 include" — 它不会，missing route = 404 only；(2) 写 `test_*_routes_in_openapi` 类型的 contract test 必须在 `app.routes` 或 `app.openapi()["paths"]` 里断言所有期望 path 存在；(3) DB-dependent 测试用 `pytest.skip("DATABASE_URL not configured")` 是合理 baseline（033/039 沿用模式），但**所有非 DB 路径的 schema/seed 断言必须 pass** — 不要因为整体 skip 而掩盖 schema regression。
+
+### `tests/unit/export-api.test.ts` blob.text() 失败是 jsdom 限制 — pre-existing 不是我破坏的
+**问题**: US2 跑 `npm run test -- --run` 全套发现 5 个 fail，其中 `tests/unit/export-api.test.ts` 报 `result.blob.text is not a function`。第一反应：是不是我改 client.ts 影响了？但 git stash 后重跑 → 同样 5 个 fail（pre-existing）。根因：jsdom + vitest 的 Blob 实现不完整，`Response.blob()` 返回的 blob 没 `.text()` 方法，033 era 写测试时 jsdom 17 还支持，后来 vitest 升级 jsdom 22 删了。
+**修复**: 不修 — 不是我 US2 范围，且与本 PR 0 关系。Lesson：跑测试看到 fail，先 `git stash` 一次对比 baseline，不要立刻进入"我刚改坏了"模式。
+**适用场景**: 任何接手 dirty worktree 或多人协作项目，测试出现 fail 的根因判断。50% 概率是 pre-existing，30% 是环境（jsdom/node 版本），20% 才是你改的。
+**避免**: (1) 不要见到测试 fail 就开始改代码 — 先 git stash 验证 baseline；(2) `git stash` + 重跑 + `git stash pop` 是 5 秒成本，节省数小时误诊断；(3) 不要在 lessons 里写 "pre-existing bug" 但不附 git hash — reviewer 重跑发现 hash 没了就无法复现；本次写"5 fail 同 stash 前后"作为最小可复现证据。
+
+### REQ-044 US3: 9-endpoint admin workspace — capability + capability map 缺一必 403 (与 US1/US2 同类陷阱的 US3 具体确认)
+**问题**: US3 新增 10 endpoints (kpis / volume-by-feature / failure-categories / latency-bands / token-usage / cost-summary / version-selector / quality-issues / cost-quality-flag / eval-badcase-summary + health) 在 `ai_operations/api.py` 用 `require_capability(AI_OPERATIONS_VIEW)`。如果只在 `auth.py` 加 `AI_OPERATIONS_VIEW = "AI_OPERATIONS_VIEW"` 字符串而不更新 `_ROLE_GRANTS["pm"]` / `_ROLE_GRANTS["operations"]` 等 5 个 role 的 frozenset，pm/operations/reviewer/maintainer 全部 403 missing_capability。
+**修复**: 必须同时：(1) 加 capability token 字符串；(2) 更新 5+ role `_ROLE_GRANTS` frozenset 包含新 token；(3) 在 `__all__` 加入新 token；(4) 加 `test_ai_operations_capabilities_in_role_map` contract test 断言 5 role 都有 + viewer 没有 (FR-031)。
+**适用场景**: 任何在 `admin_console.auth` 加 capability 的 US。US3 与 US1 (COMMAND_CENTER_VIEW) + US2 (PRODUCT_ANALYTICS_VIEW + USER_LOOKUP) 是同一个 trap 的第 3 次 — pattern 已稳定。
+**避免**: (1) 不要假定 FastAPI IncludesRouter + capability decorator = role automatic grant (role grants 是 process-local dict); (2) US3 加 `maintainer` 也带 AI_OPERATIONS_VIEW（因 maintainer 需 dril ldown AI tasks for log/trace explorer）— 不要漏了 maintainer 单独 role; (3) 写 contract test 时 `pm in grants` `operations in grants` `maintainer in grants` `viewer not in grants` 四条断言全要; (4) 复用 US1/US2 pattern 时直接 copy-paste role map 并替换 token，避免 token 漏 inject。
+
+### REQ-044 US4: Audit log action vocabulary 必须分阶段扩 — DB CHECK constraint 滞后是隐性 blocking
+**问题**: US4 新增 4 类 audit action（incident_status_changed / incident_comment_added / badcase_status_changed / badcase_escalated），但 admin_audit_log 表的 DB CHECK constraint 来自 migration 0022（US1 era），只接受 4 个 US1 baseline action。如果直接把 4 个 US4 action 通过 `repository.write_audit` 写入 → DB 抛 IntegrityError 5xx，HTTP 500 把整个 endpoint 拖死。
+**修复**: 两层防御：(1) 在 `admin_console/audit.py` 加 `VALID_ACTIONS` frozenset 扩到 8（包含 US4 的 4 个），让 Python-side 校验通过；(2) 加 `_DB_BLOCKED_ACTIONS` 子集 + `_write_audit_unsafe` helper，对 4 个 US4 action 做 no-op（不写 DB）但仍记录到 in-memory audit buffer（`incidents/service.py` 的 `_AUDIT` dict）；(3) `get_incident_audit_trail` 把 seed entries + runtime entries 合并返回，所以 EC-4 audit trail 验证可走 service 而非 DB；(4) Phase 2 batch 4 才会 widen migration CHECK constraint 把 US4 action 持久化，TODO 写在 [CROSS-TEAM-DEBT]。
+**适用场景**: 任何在已有 DB 表加 enum 值的 US，且要避免：(a) 等 migration 改完再 ship（拖延节奏）；(b) 直接写入触发 5xx（破 endpoint）；(c) 完全 silently skip 让 audit log 丢失（违反 FR-034）。本次 in-memory buffer + DB-gated helper 是 3 方妥协。
+**避免**: (1) 不要假定 migration CHECK constraint 是「lazy」能容纳新值 — 它是 strict 字符串 equality，必须显式 widden；(2) 不要试图用 `try/except IntegrityError` 包住 `write_audit` 让它 silent fail — 把 5xx 降级为 silent skip 是反 pattern，破坏了 audit 的 tamper-evident 语义；(3) 扩 `_ROLE_GRANTS` + `VALID_ACTIONS` 必须在同一 commit，否则 test skip 但 endpoint 403 仍能混过 CI；(4) contract test 必须有 `test_audit_actions_cover_us4_vocabulary` 断言新 action 已加入 frozenset，否则 `__all__` 漏 export 导致 import 错误时不报错。
+
+### REQ-044 US6: governance-self-audit 把 review_snapshot 当 11th audit action — Python `set | dict` literal 拼写错是高频陷阱 (US1/4 同类教训在 US6 具体化)
+**问题**: US6 实施 governance workspace (FR-031~FR-036) 涉及 (1) audit.py 加 3 个新 helper (log_sensitive_reveal / log_export / log_governance_change) 把 audit taxonomy 扩到 11 actions；(2) auth.py 加 6 capability token + 同步扩 7 role 的 `_ROLE_GRANTS`；(3) main.py 加 governance_router include；(4) service.py 写 audit-before-content-invariant 锁 AC-33.5 顺序。陷阱反复出现：
+  - repository.py 写 `{... for ...}.fromkeys({})` 这种 dict/set literal 拼接是 Python 3.12 报错 — 必须直接 `dict.update({...})` 二阶段
+  - `_assert_user_privacy_safe_no_raw()` 这种 import-time assertion 是最好的 schema contract enforcement — 比 type hint 更隐蔽的字段泄漏能直接在 import 时 fail-fast
+  - audit event 写顺序必须先于敏感内容返回（AC-33.5）；audit 写到 repository.append_audit_event 之后再返回 RevealRequest，否则 EC-1 deny 后 trace drawer 不知道关
+  - retention PUT 清 cache (EC-3) + self-audit (EC-4) = 同一 service function；repository.upsert_retention_policy 同时做两件事，不要把 EC-4 audit 写到 API 层（顺序不可保证）
+**修复**: (1) audit.py 用 `frozenset` 锁 VALID_ACTIONS = 11 tokens，import 时构造失败比 runtime 强；(2) auth.py 7 role 同步扩 6 token + `__all__` 列入新 token + `test_viewer_denied_governance_workspace` 断言 viewer 不能 RBAC_VIEW；(3) governance.service.create_reveal_request 把 audit write 放在 result 生成之前；(4) governance.service.update_retention_policy 内部先 upsert（清 cache）再 append_audit_event。
+**适用场景**: 任何 (a) DB 表 CHECK constraint 需扩展但 migration 滞后 + (b) 涉及多 capability token 同步扩 + (c) 写顺序敏感的 audit/event 类接口 — US6 综合了 US1 audit + US2 capability + US4 in-memory buffer + US5 retention cache invalidation 4 个 pattern。
+**避免**: (1) 不要把 audit write 推到 api.py — service 层是执行 boundary；(2) 不要用 `{x for x in ...}.fromkeys(...)` — dict literal 必须显式 key:value 对；(3) frontend vitest mock api 时 `vi.mock()` 必须在 QueryClient 外面 — 否则 query 仍然去 fetch；(4) 不要在 server `min_length=20` 之后又想在 client 端精度 high — 服务端 ValidationError 是主防御，client 只是 UX。
+
+## 260704 REQ-044-US5 Maintainer Drilldown
+
+**状态**: committed by main-agent retry after dev agent React act() warning interruption
+
+**新增 lesson**:
+- **React state dispatch outside act() warning**: 子 agent 跑 vitest 时若 setState 未被 act() 包裹,React 18 strict mode 会打 warning 但不 fail;若 vitest 测试用 `fireEvent` 后立即断言 async state 更新 → 需 `await act(async () => { fireEvent.click(...); })` 包裹;warning 不影响 PASS,但 cross-agent 接力时主 agent retry 必须知道 warning 可接受
+- **跨 agent 接力模式**: dev agent 因 act() warning 中断 → 主 agent 看到 "dispatch happens outside an act()" 输出后,**先验证文件已写**(git status)→ 再跑测试确认 PASS → 再手动补 commit,不要重做文件
+- **LogsAndTraces.tsx drilldown + coverage gap + sensitive payload masked pattern**: query param `?from=incident:{id}|signal:{id}|badcase:{id}` 驱动 useSearchParams hook;coverage gap 显式 "No correlated logs found + 3 reasons" 不被静默;sensitive payload 默认 masked + Request Reveal 跳 US6 governance
+- **ec-1 测试用 `act()` 包裹 `window.dispatchEvent`**: LogDetailDrawer 监听 `ic:reveal-denied` CustomEvent,触发 `setDeniedBanner` + `onClose` 两个 state update。test 里若直接 `dispatchEvent(...)` 后立即 `expect()`,React 18 会 warn "An update to LogDetailDrawer inside a test was not wrapped in act(...)",**而且** `screen.getByTestId('log-detail-drawer-denied')` 因为 close drawer 把 component 替换成 banner 的分支还没 flush 而 find 不到。`act(() => { dispatchEvent(...) })` 同步块即可,无需 async,因为 listener 内部是同步 setState + setTimeout。
+- **mock api 替换模式 (US5 baseline)**: US5 用 `adminLogsApi.getAgentRun = vi.fn(async () => MOCK_AGENT_RUN)` + `adminLogsApi.getSharedByIncidents = vi.fn(...)` 在 `beforeEach` 直接替换 mock 对象属性,无需 `vi.mock('@/api/admin-logs', ...)`,因为 module 是 named export 的 object。这是 US1 baseline pattern 的延续 — 写新 US 时直接复用,不要 fallback 到 `vi.mock()`。
+
+## 260704 REQ-044-US7 Review Snapshots + Metric Trust
+
+**新增 lesson**:
+
+### MetricDefinition10Field wrapper — 不动 telemetry_contracts dataclass,而是 Pydantic 包一层
+**问题**: FR-027 要求 metric 必须暴露 10 字段 (definition / owner / source / numerator / denominator / unit / period / freshness / completeness / quality_flags)。但 `telemetry_contracts/metrics.py` 的 `MetricDefinition` dataclass 只有 6 字段 (metric_id / name / description / unit / aggregation / source_event) + 可选 dimensions。直接改 dataclass 会影响 PM dashboard 的所有消费者。
+**修复**: 在 `review_snapshots/schemas.py` 新建 `MetricDefinition10Field` Pydantic v2 模型,把 dataclass 当 source of truth,扩 4 字段 (owner / numerator / denominator / period / freshness / completeness),并把 `quality_flags` 复用 US6 `DataStatus` Literal 5 状态。9 个 string 字段默认 `NOT_PROVIDED = "(not provided)"` literal sentinel,强制 AC-27.4 "no silent omission" 在 schema default + contract test 双重守卫。
+**适用场景**: 任何要扩 dataclass 但避免影响大量下游消费者的 US。US7 是跨模块 contract 漂移的标准模式: 新 schema layer 包 old,union 共存,phase 2 batch 5 再统一迁移。
+**避免**: (1) 不要直接在 telemetry_contracts/metrics.py 改 `MetricDefinition` 字段 — PM dashboard US9 + US4 badcase US10 + US2 funnel 都消费它,改字段会爆 6 处测试; (2) 不要把 NOT_PROVIDED 用 None 占位 — frontend 渲染时 None vs "" vs "(not provided)" 是 3 种语义,None 触发 React warning ""; (3) 不要在 MetricDefinition10Field 加 `field_validator` 处理空字符串 → 与 default NOT_PROVIDED 重复,frontend 测试 `data-missing="true"` 判断会歧义。
+
+### Snapshot immutable 必须显式 PUT/PATCH/DELETE 405 handler — 不用 FastAPI 默认 405
+**问题**: FR-030 + AC-30.4 要求 snapshot 一旦生成不可变 (immutable),任何 PUT/PATCH/DELETE 必须返 405。FastAPI 默认 405 响应 body 是 `{"detail": "Method Not Allowed"}`,**不携带** audit_event_id / SNAPSHOT_IMMUTABLE error code / governance-friendly reason。Frontend trace drawer 关不掉,governance 工作流无法追溯谁尝试篡改 snapshot。
+**修复**: 三层守卫: (1) `service.assert_snapshot_immutable(snapshot_id)` 抛 `SnapshotImmutableError` (FR-030 + 自定义 error); (2) `api.py` 显式注册 3 个 405 handler `@router.put("/{snapshot_id}", status_code=405, ...)` + `@router.patch` + `@router.delete`,body 返 `{"error":"SNAPSHOT_IMMUTABLE","message":"...","snapshot_id":"..."}`; (3) contract test 走 OpenAPI schema 断言 3 method 都声明 405 + service guard unit test 断言 raise SnapshotImmutableError。
+**适用场景**: 任何 FR-NNN 要求 resource immutable 的 US (snapshot / audit event / access matrix / retention policy)。US7 模式可复用 US6 audit log 守卫 + US4 badcase 状态变更守卫。
+**避免**: (1) 不要依赖 FastAPI `405 Method Not Allowed` 自动响应 — body 太轻,无法进 audit log; (2) 不要在 service 层返回 `None` 让 API 层处理 — caller 不知道 405 vs 404 区别,前端 trace drawer 关不掉; (3) 不要把 immutable guard 写到 Pydantic ConfigDict(frozen=True) — 那会让整个 snapshot 实例不可变,连 GET 后的 hydrate 都失败; (4) OpenAPI schema 必须显式声明 405,否则 FastAPI 自动生成的 spec 不带 status_code,前端 type 推断不出 405 response shape。
+
+### apiClient.request<T> 签名 — 没有 .get() / .post() 快捷方式
+**问题**: 写 `src/api/admin-review-snapshots.ts` 时本能写 `apiClient.post(BASE, body)` + `apiClient.get(...)`,但 tsc 报 `Property 'post' does not exist on type '{ request: ... }'` (TS2339)。
+**修复**: 用 canonical 签名 `apiClient.request<T>({method: 'POST' | 'GET' | ..., path: BASE, body, signal})`。这是 US1 baseline pattern,从 US6 governance + US4 incidents + US3 ai_operations 一直沿用。
+**适用场景**: 任何新增 admin-console sub-module 的 api client 文件。US7 是这个 trap 的第 4 次 — 模式已稳定,新文件应直接复用。
+**避免**: (1) 不要尝试在 `src/api/client.ts` 加 `.get`/`.post` 快捷方式 — 会破坏 request<T> signature 的 AbortSignal 传递; (2) 不要 fallback 到 `fetch()` 直调 — 失去 auth header + error interceptor + request_id 注入; (3) US7 模式应直接 copy US6 `admin-governance.ts` 的 `apiClient.request<>` 三件套 (create / list / get)。
+
+### NotProvided literal sentinel + frontend `data-missing` attribute 双层守卫
+**问题**: AC-27.4 "missing fields → display (not provided) not silent null fallback" 需要 schema 层 + frontend 层 双层守卫,否则 (1) Python 端 None 序列化 JSON 变 `null` → frontend 无法区分 "未提供" vs "显式空字符串"; (2) frontend 渲染时 `value ?? ''` 会让 React 18 报 "value prop should not be null" warning。
+**修复**: 双层: (1) backend `MetricDefinition10Field` 9 个 string 字段 default = `NOT_PROVIDED = "(not provided)"` literal string,不让 None 出现; (2) frontend `MetricTooltip` 渲染时 `const isMissing = value === NOT_PROVIDED || value == null || value === ''`,加 `data-missing={isMissing ? "true" : "false"}` attribute 让 test 可 querySelector; (3) vitest 测试 `data-missing="true"` 数量 ≥ 9 + getAllByText('(not provided)') ≥ 9 两条断言覆盖 sentinel 渲染。
+**适用场景**: 任何 "missing field display" 类型 US (AC-XX.X "no silent omission")。US7 模式可复用 FR-032 raw_* 守卫 (UserPrivacySafe 4 raw_* not in schema) + US6 EXPORT_FIELDS_REDACTED raw_* 白名单。
+**避免**: (1) 不要只在 frontend 守卫不写 backend default — API 直接返 null,frontend 永远不知道 "未提供" vs "字段缺失"; (2) 不要用 `value === undefined` 判断 — Pydantic 序列化 JSON 时把 missing default 写成 null,而非 undefined; (3) 不要把 sentinel 写到 CSS class — data-attribute 更适合 test querySelector。
+
+### SC-012 8-field envelope + contract test 全非空守卫
+**问题**: SC-012 要求 snapshot POST response 含 8 字段 (filters / frozen_values / comparison_deltas / metric_definitions / freshness_warnings / quality_flags / evidence_links / annotations),任何字段缺失或为 null 都会让 PM 看到 "half-snapshot" 不可信。
+**修复**: 两层: (1) backend `ReviewSnapshotResponse` Pydantic 模型 8 字段全声明 `Field(...)` required,frozen_values / deltas / metric_definitions / evidence_links 都声明 `list[...]` (空 list 也是 OK,但 contract test 断言 len ≥ 1); (2) contract test 写 `for field in ("frozen_values", "comparison_deltas", ...): assert hasattr(snap, field)` + `assert snap.filters` + `assert snap.quality_flags` + `assert snap.annotations == "Weekly PM sync"` (注入的测试 annotation 必回传)。两层都 fail-fast,任何字段意外变 None 立即测试 red。
+**适用场景**: 任何 spec 写 "must preserve ... for review" 类型的 US (FR-029 review snapshot / FR-035 export envelope)。US7 模式可复用 US6 export 6-field envelope + US2 funnel 5-step seed。
+**避免**: (1) 不要让任意字段 Optional — 那会让 "half-snapshot" 通过 Pydantic 校验,但 PM 看到 broken UI; (2) contract test 不要只断言 `len(snap.frozen_values) >= 1` 一处 — 8 字段都要独立断言,否则 `del metric_definitions` 也会通过; (3) 不要在测试里 hardcode 字段顺序 — Pydantic model_dump() 是 dict 插入序,但 spec 顺序变更测试要跟改。
+
+## 2026-07-04 REQ-044 CROSS — Saved Views + Role 扩展
+
+### Repository `_lock` recursion deadlock during seed_once
+**问题**: 实现 `saved_views/repository.py` 时,`_build_seed_view` 内部 `with _lock: _NEXT_VIEW_SEQ += 1`,而 `seed_once` 也 `with _lock: for v in _build_seed_view(...)`,导致 `_lock` 递归死锁,`seed_once()` 直接 hang 60s+。`pytest` 跑 19 个 case 时挂在前 3 个 module import 后,1 个 test 通过后下一个 test 卡住,timeout 60s 报 124。
+**修复**: `_build_seed_view` 移除 `with _lock:` 包装,加 docstring 注明 "callers MUST hold _lock"。`seed_once` 仍然持有外层 `_lock`,内部 helper 仅做纯函数构造 (无 I/O / 无共享状态变更)。
+**适用场景**: 任何"初始化辅助函数 + 持有 lock 的批量种子" 模式 (US1/2/3/4/6/7 seed 都有这个结构,但他们把 seed 函数 inline 在 `with _lock:` block 内,所以没踩)。US-CROSS 把 `_build_seed_view` 提取出来复用导致陷阱。
+**避免**: (1) 不要把"helper 里修改全局可变状态"和"lock 内批量调用 helper"组合 — 这是教科书 deadlock 反例; (2) 同步原语相关的 seed 应该保持 flat,即把 helper 写为 `_build_view_unsafe(lock_held=True)`,显式让 caller 持有 lock; (3) 跑 `seed_once()` 时若 hang 第一反应是 grep `with _lock:` 嵌套 — Python 同步原语不支持 reentrant,threading.RLock 才支持。
+
+### AuditEvent 没有 `lifecycle` / `details` 字段 — reason 字段编码 lifecycle marker
+**问题**: `SavedView` lifecycle (created / updated / deleted) 最初想存到 `AuditEvent.details["lifecycle"]`,但 Pydantic `AuditEvent` schema 只有 9 字段 (event_id / actor / timestamp / target_kind / target_id / action / reason / result / visibility_mode),没有 `details` dict,Pydantic `model_config = ConfigDict(frozen=False)` 只允许 mutate 现有字段。contract test 写 `events[0].details["lifecycle"] == "created"` 直接 AttributeError。
+**修复**: lifecycle marker 编码到 `reason` 字段字符串 `"saved_view created: sv-... workspace=..."`,contract test 改 `assert "created" in events[0].reason`。这是 US6 governance helper (`log_sensitive_reveal` / `log_export`) 沿用的 9 字段格式,跨 US 一致。
+**适用场景**: 任何"11-action audit taxonomy 内的 audit helper" (US1/4/6/7 都用 9-field AuditEvent)。新的 `log_saved_view_change` 应该复用同样格式。
+**避免**: (1) 不要在 AuditEvent 上加 `details` 字段 — 那会让 11-action US1/4/6 audit test 全部需要重新校准; (2) 不要尝试 `AuditEvent.model_config = ConfigDict(extra='allow')` 私下加字段 — schema 锁死 front of contract; (3) US7 + US-CROSS 都证明 "9 字段 + reason 编码子状态" 是稳定的最小契约。
+
+### US1 stub repository 重写需锁 cross-team contract + 测试 mock 模式
+**问题**: US1 (IA shell) 阶段 `savedViewRepository.ts` 5 个方法 `throw NotImplementedError`,US-CROSS 必须真实化。直接删除 throw 后,前端 tsc 报 `Module has no exported member 'CreateSavedViewInput' / 'SavedViewCreateRequest'` (因为旧 types 文件只声明 5 字段的精简 `SavedView`,没有严格 3-state trustStatus / shared_with)。
+**修复**: 三层 lock: (1) backend `schemas.py` 加 `SavedViewTrustStatus = Literal["verified","pending","deprecated"]` + `SharedWithRole = Literal[5 角色]` (单一来源); (2) frontend `types/admin-console.ts` 扩展 `SavedView` 加 `workspace_id / owner_user_id / shared_with / version / warnings` 12 字段,保留 legacy `SavedViewTrustStatus` 3-state 兼容; (3) repository 层做 strict↔legacy `trustStatus` 映射 (verified↔trusted / pending↔provisional / deprecated↔unverified),让 US1 IA shell 的旧 caller 不破。
+**适用场景**: 任何"IA stub → Phase 2 真实化"的 US (memory req_032_v2_repo_stub_trap 列出的反例)。CROSS 是这个 trap 的第 3 次。
+**避免**: (1) 不要 hard delete legacy 类型 — 8 处老 caller 都会 broken; (2) 不要新加 `SavedViewV2` 类型 — 散弹式 rename 比单点兼容更贵; (3) `apiClient.request<T>` signature 不可改 — US6/US7 + 现在 US-CROSS 都用,改它要 4 个 US 一并改。
+
+### Frontend SavedView 类型增字段导致 role-aware test matrix 测试
+**问题**: 想要 vitest 验证 5 角色各自 sidebar 可见 workspace 子集 (AC-2.3),但 AdminShell 是 React component,需要 mock router + auth store + localStorage,setup cost 巨大。
+**修复**: 不要直接测 AdminShell,而是 (1) 测 `roleToWorkspaces` 输出的预期矩阵用 const table (`EXPECTED_MATRIX: Record<ConsoleRole, string[]>`);(2) 用 vitest 读 `AdminShell.tsx` 源码字符串,grep `case 'pm':` 后的 600 字符是否包含 `'<workspace>'` literal,字符串级 parity 测试。免 mock 免 RouterProvider。
+**适用场景**: 任何"角色矩阵 / RBAC matrix / state transition table"类型的组件 (US1 IA role-to-workspaces / US6 access matrix 5x8x6)。Vitest 字符级 grep 测试足够锁住契约。
+**避免**: (1) 不要 wrap AdminShell 用 MemoryRouter + 全套 QueryClientProvider 测 — 30+ 行 setup,且 React Router v6 future flag warning 噪音大; (2) 不要 unit-test `roleToWorkspaces` 直接 import — 那是 private fn,需要 export 才能测,破坏封装; (3) 字符级 grep 测试要跳过 `command-center` (太常见会误中),只断言非通用 workspace token (如 `'governance'`、`'reports'`)。

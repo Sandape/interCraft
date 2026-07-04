@@ -27,14 +27,170 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 
-# Capability tokens (FR-009 / FR-020).
+# Capability tokens (FR-009 / FR-020 / FR-031 / REQ-044 US1 / US2 / US3 / US4 / US6).
 REPLAY_TRIGGER = "REPLAY_TRIGGER"
 TASK_TAG = "TASK_TAG"
+COMMAND_CENTER_VIEW = "COMMAND_CENTER_VIEW"
+# REQ-044 US2 — Product Analytics workspace (FR-011~FR-015)
+PRODUCT_ANALYTICS_VIEW = "PRODUCT_ANALYTICS_VIEW"
+USER_LOOKUP = "USER_LOOKUP"
+# REQ-044 US3 — AI Operations workspace (FR-016~FR-020)
+AI_OPERATIONS_VIEW = "AI_OPERATIONS_VIEW"
+# REQ-044 US4 — Incidents & Badcases workspace (FR-021~FR-023).
+# Operations is the primary audience; reviewers get BADCASE_CHANGE
+# because the badcase review workflow is owned by reviewers; viewers
+# remain denied (FR-031 least-privilege).
+INCIDENT_VIEW = "INCIDENT_VIEW"
+INCIDENT_CHANGE = "INCIDENT_CHANGE"
+BADCASE_VIEW = "BADCASE_VIEW"
+BADCASE_CHANGE = "BADCASE_CHANGE"
+# REQ-044 US6 — Governance / Audit / Export / Retention (FR-031~FR-036).
+# 6 new tokens; least-privilege: owner / admin get the full set, others
+# get scoped subsets (AUDIT_VIEW granted to all roles so any user can
+# see they are being audited; SENSITIVE_REVEAL / EXPORT / GOVERNANCE_
+# CHANGE restricted to owner + admin).
+RBAC_VIEW = "RBAC_VIEW"               # FR-031 AC-31.1
+SENSITIVE_REVEAL = "SENSITIVE_REVEAL"  # FR-033 AC-33.1
+AUDIT_VIEW = "AUDIT_VIEW"             # FR-034 AC-34.4
+EXPORT = "EXPORT"                     # FR-035 AC-35.1
+GOVERNANCE_VIEW = "GOVERNANCE_VIEW"    # FR-036 AC-36.1
+GOVERNANCE_CHANGE = "GOVERNANCE_CHANGE"  # FR-036 AC-36.2 + EC-4
+# REQ-044 US7 — Review Snapshots (FR-029). PM is the primary audience
+# per spec US7; operations / maintainer get read+generate to support
+# investigations; reviewer / viewer remain denied (FR-031 least-privilege).
+REVIEW_SNAPSHOT = "REVIEW_SNAPSHOT"   # FR-029 AC-29.1 + AC-29.5
+# REQ-044 CROSS FR-006 — Saved Views (FR-006). PM is the primary owner
+# of saved views; operations / maintainer get read+change to support
+# triage; reviewer gets read-only (filter by shared_with); viewer
+# remains denied (FR-031 least-privilege). Owner + admin get the full
+# set; the 2 tokens are also covered by the audit ``saved_view_change``
+# action (12th audit taxonomy token, see ``audit.VALID_ACTIONS``).
+SAVED_VIEW_VIEW = "SAVED_VIEW_VIEW"
+SAVED_VIEW_CHANGE = "SAVED_VIEW_CHANGE"
 
 # Default role -> capability grants.
+# FR-031 least-privilege: command-center view is granted to
+# pm / owner / admin; reviewer + viewer / operations get a separate
+# grant when their workspaces are wired (Phase 2 batch 2).
+# CROSS FR-006: SAVED_VIEW_VIEW granted to all roles except viewer
+# (FR-031 least-privilege). SAVED_VIEW_CHANGE granted to pm / owner /
+# admin / operations / maintainer (the 4 roles that can edit views);
+# reviewer remains read-only.
 _ROLE_GRANTS: dict[str, frozenset[str]] = {
-    "admin": frozenset({REPLAY_TRIGGER, TASK_TAG}),
-    "viewer": frozenset(),
+    "admin": frozenset(
+        {
+            REPLAY_TRIGGER,
+            TASK_TAG,
+            COMMAND_CENTER_VIEW,
+            PRODUCT_ANALYTICS_VIEW,
+            USER_LOOKUP,
+            AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
+            BADCASE_CHANGE,
+            RBAC_VIEW,
+            SENSITIVE_REVEAL,
+            AUDIT_VIEW,
+            EXPORT,
+            GOVERNANCE_VIEW,
+            GOVERNANCE_CHANGE,
+            REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
+        }
+    ),
+    "owner": frozenset(
+        {
+            REPLAY_TRIGGER,
+            TASK_TAG,
+            COMMAND_CENTER_VIEW,
+            PRODUCT_ANALYTICS_VIEW,
+            USER_LOOKUP,
+            AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
+            BADCASE_CHANGE,
+            RBAC_VIEW,
+            SENSITIVE_REVEAL,
+            AUDIT_VIEW,
+            EXPORT,
+            GOVERNANCE_VIEW,
+            GOVERNANCE_CHANGE,
+            REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
+        }
+    ),
+    "pm": frozenset(
+        {
+            COMMAND_CENTER_VIEW,
+            PRODUCT_ANALYTICS_VIEW,
+            USER_LOOKUP,
+            AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
+            AUDIT_VIEW,
+            GOVERNANCE_VIEW,
+            RBAC_VIEW,
+            REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
+        }
+    ),
+    "reviewer": frozenset(
+        {
+            COMMAND_CENTER_VIEW,
+            PRODUCT_ANALYTICS_VIEW,
+            AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            BADCASE_VIEW,
+            BADCASE_CHANGE,
+            AUDIT_VIEW,
+            GOVERNANCE_VIEW,
+            SAVED_VIEW_VIEW,
+        }
+    ),
+    "viewer": frozenset({AUDIT_VIEW, GOVERNANCE_VIEW}),
+    "operations": frozenset(
+        {
+            COMMAND_CENTER_VIEW,
+            PRODUCT_ANALYTICS_VIEW,
+            USER_LOOKUP,
+            AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
+            BADCASE_CHANGE,
+            AUDIT_VIEW,
+            GOVERNANCE_VIEW,
+            RBAC_VIEW,
+            REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
+        }
+    ),
+    "maintainer": frozenset(
+        {
+            REPLAY_TRIGGER,
+            TASK_TAG,
+            COMMAND_CENTER_VIEW,
+            PRODUCT_ANALYTICS_VIEW,
+            AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
+            AUDIT_VIEW,
+            EXPORT,
+            GOVERNANCE_VIEW,
+            RBAC_VIEW,
+            REVIEW_SNAPSHOT,
+            SAVED_VIEW_VIEW,
+            SAVED_VIEW_CHANGE,
+        }
+    ),
 }
 
 # User -> role overrides (e.g. seeded by tests / demo seed).
@@ -141,8 +297,25 @@ def _missing_capability_exception(capability: str) -> HTTPException:
 
 
 __all__ = [
+    "AI_OPERATIONS_VIEW",
+    "AUDIT_VIEW",
+    "BADCASE_CHANGE",
+    "BADCASE_VIEW",
+    "COMMAND_CENTER_VIEW",
+    "EXPORT",
+    "GOVERNANCE_CHANGE",
+    "GOVERNANCE_VIEW",
+    "INCIDENT_CHANGE",
+    "INCIDENT_VIEW",
+    "PRODUCT_ANALYTICS_VIEW",
+    "RBAC_VIEW",
     "REPLAY_TRIGGER",
+    "REVIEW_SNAPSHOT",
+    "SAVED_VIEW_CHANGE",
+    "SAVED_VIEW_VIEW",
+    "SENSITIVE_REVEAL",
     "TASK_TAG",
+    "USER_LOOKUP",
     "ensure_capabilities",
     "grant_role",
     "require_capability",
