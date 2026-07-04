@@ -55,6 +55,10 @@ AUDIT_VIEW = "AUDIT_VIEW"             # FR-034 AC-34.4
 EXPORT = "EXPORT"                     # FR-035 AC-35.1
 GOVERNANCE_VIEW = "GOVERNANCE_VIEW"    # FR-036 AC-36.1
 GOVERNANCE_CHANGE = "GOVERNANCE_CHANGE"  # FR-036 AC-36.2 + EC-4
+# REQ-044 US7 — Review Snapshots (FR-029). PM is the primary audience
+# per spec US7; operations / maintainer get read+generate to support
+# investigations; reviewer / viewer remain denied (FR-031 least-privilege).
+REVIEW_SNAPSHOT = "REVIEW_SNAPSHOT"   # FR-029 AC-29.1 + AC-29.5
 
 # Default role -> capability grants.
 # FR-031 least-privilege: command-center view is granted to
@@ -79,6 +83,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             EXPORT,
             GOVERNANCE_VIEW,
             GOVERNANCE_CHANGE,
+            REVIEW_SNAPSHOT,
         }
     ),
     "owner": frozenset(
@@ -99,6 +104,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             EXPORT,
             GOVERNANCE_VIEW,
             GOVERNANCE_CHANGE,
+            REVIEW_SNAPSHOT,
         }
     ),
     "pm": frozenset(
@@ -113,6 +119,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             AUDIT_VIEW,
             GOVERNANCE_VIEW,
             RBAC_VIEW,
+            REVIEW_SNAPSHOT,
         }
     ),
     "reviewer": frozenset(
@@ -141,6 +148,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             AUDIT_VIEW,
             GOVERNANCE_VIEW,
             RBAC_VIEW,
+            REVIEW_SNAPSHOT,
         }
     ),
     "maintainer": frozenset(
@@ -157,6 +165,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             EXPORT,
             GOVERNANCE_VIEW,
             RBAC_VIEW,
+            REVIEW_SNAPSHOT,
         }
     ),
 }
@@ -278,6 +287,7 @@ __all__ = [
     "PRODUCT_ANALYTICS_VIEW",
     "RBAC_VIEW",
     "REPLAY_TRIGGER",
+    "REVIEW_SNAPSHOT",
     "SENSITIVE_REVEAL",
     "TASK_TAG",
     "USER_LOOKUP",

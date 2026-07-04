@@ -245,6 +245,24 @@ def create_app() -> FastAPI:
         tags=["admin-console"],
     )
 
+    # 044 US7: review snapshots + metric trust workspace
+    # (FR-027~FR-030 + SC-012). Mounted at
+    # /api/v1/admin-console/review-snapshots with 4 active endpoints
+    # (POST + GET list + GET detail + health) + 3 explicit PUT/PATCH/
+    # DELETE 405 immutable guards (AC-30.4).
+    # Auth: new capability token REVIEW_SNAPSHOT granted per FR-031
+    # least-privilege to pm / owner / admin / operations / maintainer
+    # in admin_console.auth._ROLE_GRANTS.
+    from app.modules.admin_console.review_snapshots import (
+        review_snapshots_router,
+    )
+
+    app.include_router(
+        review_snapshots_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/review-snapshots",
+        tags=["admin-console"],
+    )
+
     return app
 
 

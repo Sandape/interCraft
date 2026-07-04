@@ -5,7 +5,7 @@ also accepts pre-validated action / target_kind tokens. All audit
 writes go through this module so the action vocabulary is enforced
 in one place (DB CHECK constraint is the second line of defense).
 
-Action vocabulary (locked across US1 + US4 + US6):
+Action vocabulary (locked across US1 + US4 + US6 + US7):
 
 - US1 baseline (4): ``replay_triggered`` / ``diff_computed`` /
   ``tag_added`` / ``tag_removed``.
@@ -14,6 +14,9 @@ Action vocabulary (locked across US1 + US4 + US6):
   ``badcase_escalated``.
 - US6 additions (3): ``sensitive_reveal`` / ``export`` /
   ``review_snapshot``.
+- US7: reuses ``review_snapshot`` action (target_kind='snapshot');
+  no new action tokens are introduced. The taxonomy stays at
+  11 actions (per AC-34.1).
 
 Target kinds:
 - US1 (3): ``trace`` / ``task`` / ``diff``.
@@ -340,6 +343,7 @@ __all__ = [
     "log_incident_comment",
     "log_replay",
     "log_sensitive_reveal",
+    "log_snapshot_generated",
     "log_tag_added",
     "log_tag_removed",
 ]
@@ -439,5 +443,47 @@ async def log_governance_change(
             "retention_days": retention_days,
             "action": action,
             "actor": actor,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# US7 — review snapshot generation audit helper
+# (FR-029 + FR-034 + AC-29.2 + EC-3)
+# ---------------------------------------------------------------------------
+
+
+async def log_snapshot_generated(
+    session: AsyncSession,
+    user_id: UUID,
+    *,
+    snapshot_id: str,
+    workspace: str,
+    format: str,
+    comparison_period: str,
+    actor: str,
+    result: str = "executed",
+) -> None:
+    """Audit a review snapshot generation (FR-029 + FR-034 AC-29.2).
+
+    Maps to the ``review_snapshot`` action (already in US6 + US7
+    taxonomy) with ``target_kind='snapshot'``. The DB CHECK constraint
+    does not yet accept the US6/US7 actions — see
+    :data:`_DB_BLOCKED_ACTIONS`. Real DB persistence lands in
+    Phase 2 batch 5.
+    """
+    await _write_audit_unsafe(
+        session,
+        user_id=user_id,
+        action="review_snapshot",
+        target_kind="snapshot",
+        target_id=None,
+        details={
+            "snapshot_id": snapshot_id,
+            "workspace": workspace,
+            "format": format,
+            "comparison_period": comparison_period,
+            "actor": actor,
+            "result": result,
         },
     )
