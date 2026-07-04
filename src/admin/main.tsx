@@ -14,6 +14,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AdminAppRoutes } from './routes'
 import './styles/admin.css'
+import './styles/ai-operations.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {

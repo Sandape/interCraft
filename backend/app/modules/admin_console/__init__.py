@@ -1,4 +1,4 @@
-"""REQ-039 B1 + REQ-044 US1 + US2 — admin_console module public surface.
+"""REQ-039 B1 + REQ-044 US1 + US2 + US3 — admin_console module public surface.
 
 The full admin console surface spans:
 
@@ -41,6 +41,7 @@ by :func:`app.main.create_app`.
 from __future__ import annotations
 
 from app.modules.admin_console import (
+    ai_operations,
     api,
     audit,
     auth,
@@ -52,6 +53,7 @@ from app.modules.admin_console import (
     schemas,
     service,
 )
+from app.modules.admin_console.ai_operations import router as ai_operations_router
 from app.modules.admin_console.api import router
 from app.modules.admin_console.decision_signals import router as decision_signals_router
 from app.modules.admin_console.product_analytics import (
@@ -60,6 +62,8 @@ from app.modules.admin_console.product_analytics import (
 )
 
 __all__ = [
+    "ai_operations",
+    "ai_operations_router",
     "api",
     "audit",
     "auth",

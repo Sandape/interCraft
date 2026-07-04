@@ -348,3 +348,9 @@
 **修复**: 不修 — 不是我 US2 范围，且与本 PR 0 关系。Lesson：跑测试看到 fail，先 `git stash` 一次对比 baseline，不要立刻进入"我刚改坏了"模式。
 **适用场景**: 任何接手 dirty worktree 或多人协作项目，测试出现 fail 的根因判断。50% 概率是 pre-existing，30% 是环境（jsdom/node 版本），20% 才是你改的。
 **避免**: (1) 不要见到测试 fail 就开始改代码 — 先 git stash 验证 baseline；(2) `git stash` + 重跑 + `git stash pop` 是 5 秒成本，节省数小时误诊断；(3) 不要在 lessons 里写 "pre-existing bug" 但不附 git hash — reviewer 重跑发现 hash 没了就无法复现；本次写"5 fail 同 stash 前后"作为最小可复现证据。
+
+### REQ-044 US3: 9-endpoint admin workspace — capability + capability map 缺一必 403 (与 US1/US2 同类陷阱的 US3 具体确认)
+**问题**: US3 新增 10 endpoints (kpis / volume-by-feature / failure-categories / latency-bands / token-usage / cost-summary / version-selector / quality-issues / cost-quality-flag / eval-badcase-summary + health) 在 `ai_operations/api.py` 用 `require_capability(AI_OPERATIONS_VIEW)`。如果只在 `auth.py` 加 `AI_OPERATIONS_VIEW = "AI_OPERATIONS_VIEW"` 字符串而不更新 `_ROLE_GRANTS["pm"]` / `_ROLE_GRANTS["operations"]` 等 5 个 role 的 frozenset，pm/operations/reviewer/maintainer 全部 403 missing_capability。
+**修复**: 必须同时：(1) 加 capability token 字符串；(2) 更新 5+ role `_ROLE_GRANTS` frozenset 包含新 token；(3) 在 `__all__` 加入新 token；(4) 加 `test_ai_operations_capabilities_in_role_map` contract test 断言 5 role 都有 + viewer 没有 (FR-031)。
+**适用场景**: 任何在 `admin_console.auth` 加 capability 的 US。US3 与 US1 (COMMAND_CENTER_VIEW) + US2 (PRODUCT_ANALYTICS_VIEW + USER_LOOKUP) 是同一个 trap 的第 3 次 — pattern 已稳定。
+**避免**: (1) 不要假定 FastAPI IncludesRouter + capability decorator = role automatic grant (role grants 是 process-local dict); (2) US3 加 `maintainer` 也带 AI_OPERATIONS_VIEW（因 maintainer 需 dril ldown AI tasks for log/trace explorer）— 不要漏了 maintainer 单独 role; (3) 写 contract test 时 `pm in grants` `operations in grants` `maintainer in grants` `viewer not in grants` 四条断言全要; (4) 复用 US1/US2 pattern 时直接 copy-paste role map 并替换 token，避免 token 漏 inject。

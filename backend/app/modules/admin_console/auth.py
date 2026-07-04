@@ -27,13 +27,15 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 
-# Capability tokens (FR-009 / FR-020 / FR-031 / REQ-044 US1 / US2).
+# Capability tokens (FR-009 / FR-020 / FR-031 / REQ-044 US1 / US2 / US3).
 REPLAY_TRIGGER = "REPLAY_TRIGGER"
 TASK_TAG = "TASK_TAG"
 COMMAND_CENTER_VIEW = "COMMAND_CENTER_VIEW"
 # REQ-044 US2 — Product Analytics workspace (FR-011~FR-015)
 PRODUCT_ANALYTICS_VIEW = "PRODUCT_ANALYTICS_VIEW"
 USER_LOOKUP = "USER_LOOKUP"
+# REQ-044 US3 — AI Operations workspace (FR-016~FR-020)
+AI_OPERATIONS_VIEW = "AI_OPERATIONS_VIEW"
 
 # Default role -> capability grants.
 # FR-031 least-privilege: command-center view is granted to
@@ -47,6 +49,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             COMMAND_CENTER_VIEW,
             PRODUCT_ANALYTICS_VIEW,
             USER_LOOKUP,
+            AI_OPERATIONS_VIEW,
         }
     ),
     "owner": frozenset(
@@ -56,6 +59,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             COMMAND_CENTER_VIEW,
             PRODUCT_ANALYTICS_VIEW,
             USER_LOOKUP,
+            AI_OPERATIONS_VIEW,
         }
     ),
     "pm": frozenset(
@@ -63,15 +67,23 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             COMMAND_CENTER_VIEW,
             PRODUCT_ANALYTICS_VIEW,
             USER_LOOKUP,
+            AI_OPERATIONS_VIEW,
         }
     ),
-    "reviewer": frozenset({COMMAND_CENTER_VIEW, PRODUCT_ANALYTICS_VIEW}),
+    "reviewer": frozenset(
+        {
+            COMMAND_CENTER_VIEW,
+            PRODUCT_ANALYTICS_VIEW,
+            AI_OPERATIONS_VIEW,
+        }
+    ),
     "viewer": frozenset(),
     "operations": frozenset(
         {
             COMMAND_CENTER_VIEW,
             PRODUCT_ANALYTICS_VIEW,
             USER_LOOKUP,
+            AI_OPERATIONS_VIEW,
         }
     ),
     "maintainer": frozenset(
@@ -80,6 +92,7 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             TASK_TAG,
             COMMAND_CENTER_VIEW,
             PRODUCT_ANALYTICS_VIEW,
+            AI_OPERATIONS_VIEW,
         }
     ),
 }
@@ -188,6 +201,7 @@ def _missing_capability_exception(capability: str) -> HTTPException:
 
 
 __all__ = [
+    "AI_OPERATIONS_VIEW",
     "COMMAND_CENTER_VIEW",
     "PRODUCT_ANALYTICS_VIEW",
     "REPLAY_TRIGGER",

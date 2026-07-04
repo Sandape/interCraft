@@ -193,6 +193,20 @@ def create_app() -> FastAPI:
         tags=["admin-console"],
     )
 
+    # 044 US3: AI operations workspace (FR-016~FR-020).
+    # Mounted at /api/v1/admin-console/ai-operations — 10 endpoints
+    # covering KPI tiles, volume-by-feature, failure-categories,
+    # latency-bands, token-usage, cost-summary, version-selector,
+    # quality-issues, cost-quality-flag, and eval-badcase-summary
+    # + module liveness.
+    from app.modules.admin_console.ai_operations import router as ai_operations_router
+
+    app.include_router(
+        ai_operations_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/ai-operations",
+        tags=["admin-console"],
+    )
+
     return app
 
 
