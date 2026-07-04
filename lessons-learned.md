@@ -370,3 +370,14 @@
 **修复**: (1) audit.py 用 `frozenset` 锁 VALID_ACTIONS = 11 tokens，import 时构造失败比 runtime 强；(2) auth.py 7 role 同步扩 6 token + `__all__` 列入新 token + `test_viewer_denied_governance_workspace` 断言 viewer 不能 RBAC_VIEW；(3) governance.service.create_reveal_request 把 audit write 放在 result 生成之前；(4) governance.service.update_retention_policy 内部先 upsert（清 cache）再 append_audit_event。
 **适用场景**: 任何 (a) DB 表 CHECK constraint 需扩展但 migration 滞后 + (b) 涉及多 capability token 同步扩 + (c) 写顺序敏感的 audit/event 类接口 — US6 综合了 US1 audit + US2 capability + US4 in-memory buffer + US5 retention cache invalidation 4 个 pattern。
 **避免**: (1) 不要把 audit write 推到 api.py — service 层是执行 boundary；(2) 不要用 `{x for x in ...}.fromkeys(...)` — dict literal 必须显式 key:value 对；(3) frontend vitest mock api 时 `vi.mock()` 必须在 QueryClient 外面 — 否则 query 仍然去 fetch；(4) 不要在 server `min_length=20` 之后又想在 client 端精度 high — 服务端 ValidationError 是主防御，client 只是 UX。
+
+## 260704 REQ-044-US5 Maintainer Drilldown
+
+**状态**: committed by main-agent retry after dev agent React act() warning interruption
+
+**新增 lesson**:
+- **React state dispatch outside act() warning**: 子 agent 跑 vitest 时若 setState 未被 act() 包裹,React 18 strict mode 会打 warning 但不 fail;若 vitest 测试用 `fireEvent` 后立即断言 async state 更新 → 需 `await act(async () => { fireEvent.click(...); })` 包裹;warning 不影响 PASS,但 cross-agent 接力时主 agent retry 必须知道 warning 可接受
+- **跨 agent 接力模式**: dev agent 因 act() warning 中断 → 主 agent 看到 "dispatch happens outside an act()" 输出后,**先验证文件已写**(git status)→ 再跑测试确认 PASS → 再手动补 commit,不要重做文件
+- **LogsAndTraces.tsx drilldown + coverage gap + sensitive payload masked pattern**: query param `?from=incident:{id}|signal:{id}|badcase:{id}` 驱动 useSearchParams hook;coverage gap 显式 "No correlated logs found + 3 reasons" 不被静默;sensitive payload 默认 masked + Request Reveal 跳 US6 governance
+- **ec-1 测试用 `act()` 包裹 `window.dispatchEvent`**: LogDetailDrawer 监听 `ic:reveal-denied` CustomEvent,触发 `setDeniedBanner` + `onClose` 两个 state update。test 里若直接 `dispatchEvent(...)` 后立即 `expect()`,React 18 会 warn "An update to LogDetailDrawer inside a test was not wrapped in act(...)",**而且** `screen.getByTestId('log-detail-drawer-denied')` 因为 close drawer 把 component 替换成 banner 的分支还没 flush 而 find 不到。`act(() => { dispatchEvent(...) })` 同步块即可,无需 async,因为 listener 内部是同步 setState + setTimeout。
+- **mock api 替换模式 (US5 baseline)**: US5 用 `adminLogsApi.getAgentRun = vi.fn(async () => MOCK_AGENT_RUN)` + `adminLogsApi.getSharedByIncidents = vi.fn(...)` 在 `beforeEach` 直接替换 mock 对象属性,无需 `vi.mock('@/api/admin-logs', ...)`,因为 module 是 named export 的 object。这是 US1 baseline pattern 的延续 — 写新 US 时直接复用,不要 fallback 到 `vi.mock()`。
