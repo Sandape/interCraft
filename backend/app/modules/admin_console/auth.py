@@ -36,6 +36,14 @@ PRODUCT_ANALYTICS_VIEW = "PRODUCT_ANALYTICS_VIEW"
 USER_LOOKUP = "USER_LOOKUP"
 # REQ-044 US3 — AI Operations workspace (FR-016~FR-020)
 AI_OPERATIONS_VIEW = "AI_OPERATIONS_VIEW"
+# REQ-044 US4 — Incidents & Badcases workspace (FR-021~FR-023).
+# Operations is the primary audience; reviewers get BADCASE_CHANGE
+# because the badcase review workflow is owned by reviewers; viewers
+# remain denied (FR-031 least-privilege).
+INCIDENT_VIEW = "INCIDENT_VIEW"
+INCIDENT_CHANGE = "INCIDENT_CHANGE"
+BADCASE_VIEW = "BADCASE_VIEW"
+BADCASE_CHANGE = "BADCASE_CHANGE"
 
 # Default role -> capability grants.
 # FR-031 least-privilege: command-center view is granted to
@@ -50,6 +58,10 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             PRODUCT_ANALYTICS_VIEW,
             USER_LOOKUP,
             AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
+            BADCASE_CHANGE,
         }
     ),
     "owner": frozenset(
@@ -60,6 +72,10 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             PRODUCT_ANALYTICS_VIEW,
             USER_LOOKUP,
             AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
+            BADCASE_CHANGE,
         }
     ),
     "pm": frozenset(
@@ -68,6 +84,9 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             PRODUCT_ANALYTICS_VIEW,
             USER_LOOKUP,
             AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
         }
     ),
     "reviewer": frozenset(
@@ -75,6 +94,9 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             COMMAND_CENTER_VIEW,
             PRODUCT_ANALYTICS_VIEW,
             AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            BADCASE_VIEW,
+            BADCASE_CHANGE,
         }
     ),
     "viewer": frozenset(),
@@ -84,6 +106,10 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             PRODUCT_ANALYTICS_VIEW,
             USER_LOOKUP,
             AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
+            BADCASE_CHANGE,
         }
     ),
     "maintainer": frozenset(
@@ -93,6 +119,9 @@ _ROLE_GRANTS: dict[str, frozenset[str]] = {
             COMMAND_CENTER_VIEW,
             PRODUCT_ANALYTICS_VIEW,
             AI_OPERATIONS_VIEW,
+            INCIDENT_VIEW,
+            INCIDENT_CHANGE,
+            BADCASE_VIEW,
         }
     ),
 }
@@ -202,7 +231,11 @@ def _missing_capability_exception(capability: str) -> HTTPException:
 
 __all__ = [
     "AI_OPERATIONS_VIEW",
+    "BADCASE_CHANGE",
+    "BADCASE_VIEW",
     "COMMAND_CENTER_VIEW",
+    "INCIDENT_CHANGE",
+    "INCIDENT_VIEW",
     "PRODUCT_ANALYTICS_VIEW",
     "REPLAY_TRIGGER",
     "TASK_TAG",

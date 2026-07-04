@@ -207,6 +207,27 @@ def create_app() -> FastAPI:
         tags=["admin-console"],
     )
 
+    # 044 US4: incidents & badcases workspace (FR-021~FR-023 业务层).
+    # Mounted at /api/v1/admin-console/incidents (8 endpoints) and
+    # /api/v1/admin-console/badcases (4 endpoints). Includes incident
+    # list / detail / evidence / comments / status change / audit
+    # trail + badcase list / detail / escalate.
+    from app.modules.admin_console.incidents import (
+        badcases_router,
+        incidents_router,
+    )
+
+    app.include_router(
+        incidents_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/incidents",
+        tags=["admin-console"],
+    )
+    app.include_router(
+        badcases_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/badcases",
+        tags=["admin-console"],
+    )
+
     return app
 
 
