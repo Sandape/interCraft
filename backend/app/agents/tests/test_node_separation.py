@@ -12,11 +12,13 @@ AC coverage in this module:
   sink_error does not call LLM).
 - AC-4.5: routing function ``_route_after_score_llm`` returns the
   ``Literal["interviewer", "sink_error", "report"]`` type and the graph
-  has 4 edges (3 from score_llm + 1 sink_error -> interviewer).
+  has exactly one conditional router from score_llm. Plain score_llm
+  add_edge calls are forbidden because LangGraph executes them in
+  addition to conditional branches.
 - AC-4.6 / AC-4.7a / AC-4.7b: failure isolation + node-internal retry +
   retry_graph_op compatibility.
-- AC-4.9: ``interrupt_before`` equals ``["sink_error"]`` and does not
-  keep ``"score"``.
+- AC-4.9: ``interrupt_before`` includes ``sink_error`` and
+  ``interrupt_after`` includes ``question_gen`` so turns pause after asking.
 - AC-5.1..AC-5.4: split files for update_dim_db / update_history /
   update_activities / ws_push.
 - AC-5.5: each node writes only its own table / pushes only WS.
@@ -84,19 +86,14 @@ def test_ac_4_4_sink_error_node_does_not_call_llm() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC-4.5: routing function signature + 4 edges + Literal three-way.
+# AC-4.5: routing function signature + exclusive conditional routing.
 # ---------------------------------------------------------------------------
 
 
 def test_ac_4_5_route_after_score_llm_function_and_edges() -> None:
-    """AC-4.5: _route_after_score_llm exists with Literal three-way; graph has 4 edges."""
+    """AC-4.5: score_llm must route through one exclusive conditional edge."""
     from app.agents.interview.graph import InterviewGraph
 
-    src = Path(InterviewGraph.__module__.replace(".", "/") + ".py").read_text(
-        encoding="utf-8"
-    )
-    backend_root = Path(src).resolve().parent
-    # The graph module is at backend/app/agents/interview/graph.py; resolve relative to file.
     graph_path = Path(__file__).resolve().parents[1] / "interview" / "graph.py"
     graph_src = graph_path.read_text(encoding="utf-8")
 
@@ -108,20 +105,87 @@ def test_ac_4_5_route_after_score_llm_function_and_edges() -> None:
     assert (
         'Literal["interviewer", "sink_error", "report"]' in graph_src
     ), "Literal three-way annotation required"
-    # Edge count: 3 from score_llm + 1 sink_error -> interviewer
-    edge_hits = re.findall(
-        r'add_(?:conditional_)?edge\([^)]*(?:score_llm|sink_error)[^)]*\)',
+
+    conditional_hits = re.findall(
+        r'add_conditional_edges\("interview\.score_llm"',
         graph_src,
     )
-    assert len(edge_hits) >= 4, f"need >=4 edges (3 from score_llm + 1 sink_error->interviewer), got {len(edge_hits)}"
+    assert conditional_hits == [
+        'add_conditional_edges("interview.score_llm"'
+    ], "score_llm must have exactly one conditional router"
+
+    plain_score_edges = re.findall(
+        r'add_edge\("interview\.score_llm"',
+        graph_src,
+    )
+    assert plain_score_edges == [], (
+        "score_llm plain add_edge calls run in addition to the conditional "
+        "router and cause question_gen/sink_error/report to execute together"
+    )
+    assert (
+        'add_edge("interview.sink_error", "interview.question_gen")' in graph_src
+    ), "sink_error must return to question_gen after the DB side effect"
 
 
 def test_ac_4_5_error_threshold_in_config() -> None:
-    """AC-4.5: ERROR_THRESHOLD = 60 in backend/app/agents/interview/config.py."""
+    """AC-4.5: ERROR_THRESHOLD matches the 0-10 score scale."""
     from app.agents.interview import config
 
     assert hasattr(config, "ERROR_THRESHOLD"), "ERROR_THRESHOLD must be defined"
-    assert config.ERROR_THRESHOLD == 60, f"ERROR_THRESHOLD must be 60 (was {config.ERROR_THRESHOLD})"
+    assert config.ERROR_THRESHOLD == 6, f"ERROR_THRESHOLD must be 6 (was {config.ERROR_THRESHOLD})"
+
+
+@pytest.mark.asyncio
+async def test_ac_4_5_score_llm_scores_question_matching_answer_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """score_llm must score the answered question, not a newer generated one."""
+    from app.agents.interview.nodes import score_llm
+
+    captured: dict[str, str] = {}
+
+    class FakeClient:
+        async def invoke(self, *, messages, **kwargs):
+            captured["prompt"] = messages[-1]["content"]
+            return {
+                "content": (
+                    '{"score": 8, "dimension": "tech_depth", '
+                    '"feedback": "命中题目", "sub_scores": {"clarity": 8}}'
+                )
+            }
+
+    monkeypatch.setattr(score_llm, "get_llm_client", lambda: FakeClient())
+
+    result = await score_llm.score_llm_node(
+        {
+            "current_question": 2,
+            "questions": [
+                {
+                    "question_no": 1,
+                    "dimension": "tech_depth",
+                    "question": "Q1 SyntheticEvent?",
+                },
+                {
+                    "question_no": 2,
+                    "dimension": "architecture",
+                    "question": "Q2 architecture?",
+                },
+            ],
+            "scores": [],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Answer for Q1",
+                    "sequence_no": 1,
+                }
+            ],
+        }
+    )
+
+    assert "Q1 SyntheticEvent?" in captured["prompt"]
+    assert "Q2 architecture?" not in captured["prompt"]
+    assert result["scores"][-1]["dimension"] == "tech_depth"
+    assert result["scores"][-1]["question_text"] == "Q1 SyntheticEvent?"
 
 
 def test_ac_4_5_max_questions_in_config() -> None:
@@ -219,7 +283,7 @@ async def test_ac_4_7a_sink_error_node_internal_retry(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(
         "app.agents.interview.nodes.sink_error.get_session_context",
-        lambda: FakeCtx(),
+        lambda user_id=None: FakeCtx(),
     )
 
     await sink_error.sink_error_node(state)
@@ -264,26 +328,12 @@ async def test_ac_4_7b_retry_graph_op_compatible_with_node_split(monkeypatch: py
         fake_cp.aget_state = AsyncMock(side_effect=fake_aget_state)
         mock_get_cp.return_value = fake_cp
 
-        # Build a tiny graph with just score_llm + sink_error to verify retry
-        # calls reach them. We don't need full interview graph here; just
-        # confirm retry_graph_op's reconnect path was taken.
-        from app.agents.interview.nodes import score_llm, sink_error
-
-        score_called = {"n": 0}
-        sink_called = {"n": 0}
-
-        async def score_stub(state):
-            score_called["n"] += 1
-            return {"raw_score": 3, "scores": state.get("scores", []) + [{"score": 3}]}
-
-        async def sink_stub(state):
-            sink_called["n"] += 1
-            return {}
-
         # Simulate the retry_graph_op flow at the checkpointer level
+        fake_graph = MagicMock()
+        fake_graph.aget_state = AsyncMock(side_effect=fake_aget_state)
         try:
             await cp_mod.retry_graph_op(
-                lambda: MagicMock(),
+                AsyncMock(return_value=fake_graph),
                 {"configurable": {"thread_id": "t1"}},
                 "aget_state",
             )
@@ -311,16 +361,20 @@ def test_ac_4_8_score_py_is_reexport_with_deprecated() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC-4.9: interrupt_before = ["sink_error"], no "score" string in graph.py.
+# AC-4.9: HITL before sink_error + turn pause after question_gen.
 # ---------------------------------------------------------------------------
 
 
 def test_ac_4_9_interrupt_before_contains_sink_error() -> None:
-    """AC-4.9: interrupt_before must include 'sink_error'; 'score' must not be in graph.py."""
+    """AC-4.9: pause before sink_error and after question_gen, never bare score."""
     graph_path = Path(__file__).resolve().parents[1] / "interview" / "graph.py"
     src = graph_path.read_text(encoding="utf-8")
     assert "interrupt_before" in src, "interrupt_before must be specified"
     assert '"sink_error"' in src, "interrupt_before must contain 'sink_error'"
+    assert "interrupt_after" in src, "interrupt_after must pause after asking a question"
+    assert (
+        '"interview.question_gen"' in src
+    ), "interrupt_after must contain interview.question_gen"
     # '"score"' string must not appear (the bare score node no longer exists)
     assert '"score"' not in src, (
         "interrupt_before must not contain 'score' string "

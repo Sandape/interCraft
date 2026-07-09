@@ -54,11 +54,7 @@ async def score_llm_node(state: InterviewGraphState) -> dict:
     if not questions:
         return {"raw_score": 0, "scores": scores, "error": "No question to score against"}
 
-    latest_question = questions[-1]
-    question_text = latest_question.get("question", "")
-    dimension = latest_question.get("dimension", "tech_depth")
-
-    # Get latest user answer from messages (supports both dicts and HumanMessage objects)
+    latest_user_sequence: int | None = None
     messages = state.get("messages", [])
     answer = ""
     for msg in reversed(messages):
@@ -66,12 +62,34 @@ async def score_llm_node(state: InterviewGraphState) -> dict:
             role = msg.get("role", "")
             if role == "user":
                 answer = msg.get("content", "")
+                seq = msg.get("sequence_no")
+                if isinstance(seq, int):
+                    latest_user_sequence = seq
                 break
         else:
             # LangGraph HumanMessage object
             if getattr(msg, "type", "") == "human":
                 answer = getattr(msg, "content", "") or ""
+                seq = getattr(msg, "sequence_no", None)
+                if not isinstance(seq, int):
+                    extra = getattr(msg, "additional_kwargs", {}) or {}
+                    seq = extra.get("sequence_no")
+                if isinstance(seq, int):
+                    latest_user_sequence = seq
                 break
+
+    # The graph may already contain the next generated question by the time
+    # scoring runs. Score against the question the submitted answer belongs to,
+    # not blindly against the newest question in state.
+    question_index = None
+    if latest_user_sequence is not None and latest_user_sequence > 0:
+        question_index = latest_user_sequence - 1
+    if question_index is not None and 0 <= question_index < len(questions):
+        latest_question = questions[question_index]
+    else:
+        latest_question = questions[-1]
+    question_text = latest_question.get("question", "")
+    dimension = latest_question.get("dimension", "tech_depth")
 
     template = _load_prompt("score.md")
     prompt = template.format(

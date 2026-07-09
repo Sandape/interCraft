@@ -73,7 +73,7 @@ class ErrorQuestionOut(BaseModel):
     status: str
     frequency: int
     tags: list[str] | None
-    archived_at: datetime | None
+    archived_at: datetime | None = None
     last_practiced_at: datetime | None
     created_at: datetime
     updated_at: datetime

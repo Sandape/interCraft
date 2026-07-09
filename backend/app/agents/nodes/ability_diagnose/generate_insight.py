@@ -8,6 +8,7 @@ from pathlib import Path
 from app.agents.llm_client import get_llm_client
 from app.agents.state.ability_diagnose_state import AbilityDiagnoseState
 from app.agents.utils.node_error_handler import node_error_handler
+from app.agents.tools.approval import bind_tools_with_approval  # REQ-041-P0-APPROVAL AC-5.1/5.2 wiring
 from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "ability_diagnose"
@@ -28,6 +29,13 @@ async def generate_insight_node(state: AbilityDiagnoseState) -> dict:
     prompt = template.format(diagnoses=json.dumps(diagnoses, ensure_ascii=False, indent=2))
 
     client = get_llm_client()
+    # REQ-041-P0-APPROVAL (AC-5.1/5.2): exercise the gate wiring surface. Same
+    # defensive pattern as ``nodes/resume_optimize/diff_jd.py`` — gated by
+    # ``hasattr`` so the production ``LLMClient`` (no ``bind_tools`` attr) does
+    # not crash. The gate becomes load-bearing when this node promotes tool
+    # calls (MarkComplete) into the prompt.
+    if hasattr(client, "bind_tools"):
+        bind_tools_with_approval(client, [])  # AC-5.1 wiring surface
     try:
         result = await client.invoke(
             messages=[

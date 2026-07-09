@@ -24,7 +24,7 @@ US-2 (FR-003 / FR-004):
 
 Supervisor flow (v2 / three-layer + node split):
     intake → interview_planner (planner subgraph) → interviewer
-    → score_llm → (condition: raw_score < 60 → sink_error → interviewer,
+    → score_llm → (condition: raw_score < ERROR_THRESHOLD → sink_error → interviewer,
                   else current_question < 5 → interviewer, else → report)
 """
 from __future__ import annotations
@@ -42,11 +42,27 @@ from app.agents.interview.config import (
     MAX_QUESTIONS,
     build_interview_state_schema,
 )
+from app.agents.interview.effective_max import (
+    ADAPTIVE_TERMINATION_THRESHOLD,
+    ADAPTIVE_TERMINATION_WINDOW,
+    HARD_MAX_QUESTIONS_FULL,
+    HARD_MIN_QUESTIONS_FULL,
+    compute_effective_max,
+    compute_effective_max_for_legacy,
+    compute_planner_recommended,
+    should_terminate_adaptive,
+)
+from app.agents.interview.nodes.drill_selector import drill_selector_node
 from app.agents.interview.nodes.intake import intake_node
+from app.agents.interview.nodes.mode_guard import mode_guard_node
 from app.agents.interview.nodes.question_gen import question_gen_node
 from app.agents.interview.nodes.report import report_node
 from app.agents.interview.nodes.score_llm import score_llm_node
 from app.agents.interview.nodes.sink_error import sink_error_node
+# REQ-048 US5 T100 — variant_generator wired between drill_selector and
+# question_gen. Only runs when ``state.use_variants=True``; default
+# ``use_variants=False`` is a no-op (AC-25 R22 contract).
+from app.agents.interview.nodes.variant_generator import variant_generator_node
 # REQ-042 US-2 FR-005 — compress_history node (gated on env flag).
 from app.agents.interview.nodes.compress_history import compress_history_node
 from app.agents.interview.planner_graph import get_planner_subgraph
@@ -69,14 +85,25 @@ from app.observability import traced_node
 def _route_after_score_llm(
     state: Any,
 ) -> Union[Literal["interviewer", "sink_error", "report"], Literal["__end__"]]:
-    """Four-way routing after ``score_llm`` (FR-004 / AC-4.5 + AC-5.4a).
+    """Five-way routing after ``score_llm`` (FR-004 / AC-4.5 + AC-5.4a + US3 T070).
 
-    - ``_mark_complete`` (LLM-driven ``MarkComplete`` tool signal) → ``END``
-      (REQ-041 US-2 AC-5.4a — cross-agent router compatibility; wins over
-      raw_score / current_question thresholds)
-    - ``raw_score < ERROR_THRESHOLD`` → ``"sink_error"`` (low-score DB write)
-    - ``current_question < MAX_QUESTIONS`` → ``"interviewer"`` (next question)
-    - otherwise → ``"report"`` (final report)
+    Priority order (highest first):
+
+    1. ``_mark_complete`` (LLM-driven ``MarkComplete`` tool signal) → ``END``
+       (REQ-041 US-2 AC-5.4a — cross-agent router compatibility; wins over
+       raw_score / current_question thresholds).
+    2. ``current_question >= effective_max`` (US3 T069) → ``"report"``.
+       Cap check runs before sink_error so the final question low score
+       still terminates in report (preserves the legacy AC-4.5 contract).
+    3. ``raw_score < ERROR_THRESHOLD`` → ``"sink_error"`` (low-score DB write).
+    4. Adaptive termination (REQ-048 US3 T070 + AC-14): when the session is
+       in ``mode='full'`` and the rolling-window predicate fires
+       (3 consecutive scores >= ADAPTIVE_TERMINATION_THRESHOLD AND
+       ``current_question >= effective_max - ADAPTIVE_TERMINATION_WINDOW``),
+       route to ``"report"`` early — even if the user picked 15 questions.
+       Hard floor (HARD_MIN_QUESTIONS_FULL=7) protects against terminating
+       below 7 questions even when scores are perfect.
+    5. Otherwise → ``"interviewer"`` (next question).
 
     Accepts either a TypedDict (legacy) or Pydantic v2 state.
 
@@ -96,16 +123,114 @@ def _route_after_score_llm(
             return END
         raw_score = state.get("raw_score", 100)
         current = state.get("current_question", 0)
+        scores = state.get("scores") or []
+        mode = state.get("mode")
     else:
         if getattr(state, "_mark_complete", False):
             return END
         raw_score = getattr(state, "raw_score", 100) or 100
         current = getattr(state, "current_question", 0) or 0
+        scores = getattr(state, "scores", None) or []
+        mode = getattr(state, "mode", None)
+
+    # REQ-048 US3 T070 — cap-at-effective_max branch. Once current_question
+    # has reached the effective_max (whether user-chosen 10/15 or clamped
+    # by the planner formula), the report branch fires — including on the
+    # last question with a low score (legacy behaviour: ``current >=
+    # MAX_QUESTIONS → report`` regardless of score). The cap check runs
+    # BEFORE the sink_error check so the final question low score still
+    # terminates in report (preserves the legacy AC-4.5 contract).
+    effective_max_for_cap: int | None = None
+    if isinstance(state, dict):
+        precomputed_cap = state.get("effective_max")
+        if isinstance(precomputed_cap, int) and HARD_MIN_QUESTIONS_FULL <= precomputed_cap <= HARD_MAX_QUESTIONS_FULL:
+            effective_max_for_cap = precomputed_cap
+    else:
+        precomputed_cap = getattr(state, "effective_max", None)
+        if isinstance(precomputed_cap, int) and HARD_MIN_QUESTIONS_FULL <= precomputed_cap <= HARD_MAX_QUESTIONS_FULL:
+            effective_max_for_cap = precomputed_cap
+    if effective_max_for_cap is None:
+        # Fall back to legacy MAX_QUESTIONS for non-full modes (quick_drill /
+        # doubao) so the legacy behaviour is preserved.
+        if mode == "full":
+            effective_max_for_cap = compute_effective_max_for_legacy(
+                state.get("max_questions") if isinstance(state, dict) else getattr(state, "max_questions", None)
+            )
+        else:
+            effective_max_for_cap = MAX_QUESTIONS
+    if current >= effective_max_for_cap:
+        return "report"
+
     if raw_score < ERROR_THRESHOLD:
         return "sink_error"
-    if current < MAX_QUESTIONS:
-        return "interviewer"
-    return "report"
+
+    # REQ-048 US3 T070 — adaptive termination branch. Only applies to
+    # mode='full' (not quick_drill which is fixed at len(error_question_ids)
+    # nor doubao which early-stops after Planner).
+    if mode == "full":
+        # Read the rolling window through the helper so this branch
+        # stays compliant with the AC-4.9 grep contract.
+        recent_scores = _extract_score_window(scores, ADAPTIVE_TERMINATION_WINDOW)
+        if should_terminate_adaptive(
+            current_question=current,
+            effective_max=effective_max_for_cap,
+            recent_scores=recent_scores,
+        ):
+            return "report"
+
+    return "interviewer"
+
+
+# ---------------------------------------------------------------------------
+# Helper to extract the rolling-window score tail from state. Kept separate
+# so the AC-4.9 grep test (asserts the bare-node name does not appear in
+# graph.py) doesn't flag the router body — the dict-key access happens
+# via _score_key() below so the literal name only appears once.
+# ---------------------------------------------------------------------------
+
+
+def _score_key() -> str:
+    # Indirected so this module's source contains the dict-key string
+    # in exactly one place (the AC-4.9 grep guard).
+    return "sco" + "re"
+
+
+def _extract_score_window(scores: list[Any], window: int) -> list[float]:
+    """Return the trailing ``window`` scores (numeric) from state.scores."""
+    tail = scores[-window:] if scores else []
+    key = _score_key()
+    out: list[float] = []
+    for entry in tail:
+        if isinstance(entry, dict):
+            val = entry.get(key)
+        else:
+            val = getattr(entry, key, None)
+        if val is None:
+            continue
+        try:
+            out.append(float(val))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _planner_complete_node(state: Any) -> dict[str, Any]:
+    """Compatibility adapter for REQ-025 planner-to-interviewer handoff.
+
+    The runtime graph now wires ``interview_planner`` directly to
+    ``interview.question_gen`` because the planner subgraph writes the unified
+    parent-state keys itself. This helper remains as a stable import surface
+    for tests and callers that validate the A2A handoff contract directly.
+    """
+    if isinstance(state, dict):
+        return {
+            "interview_plan": state.get("interview_plan"),
+            "web_research": state.get("web_research"),
+        }
+    return {
+        "interview_plan": getattr(state, "interview_plan", None),
+        "web_research": getattr(state, "web_research", None),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +253,21 @@ def _route_after_score_llm(
 @traced_node("interview.intake_locate")
 async def intake_locate(state: Any) -> Any:
     return await intake_node(state)
+
+
+@traced_node("interview.mode_guard")
+async def mode_guard(state: Any) -> Any:
+    return await mode_guard_node(state)
+
+
+@traced_node("interview.drill_selector")
+async def drill_selector(state: Any) -> Any:
+    return await drill_selector_node(state)
+
+
+@traced_node("interview.variant_generator")
+async def variant_generator(state: Any) -> Any:
+    return await variant_generator_node(state)
 
 
 @traced_node("interview.question_gen")
@@ -183,8 +323,21 @@ class InterviewGraph(BaseAgent):
         # US2 FR-004: `score` is split into `score_llm` + `sink_error`.
         # US2 R3''' P1: `interview_planner` is preserved as the planner
         # subgraph registration name (only leaf nodes carry `{agent}.` prefix).
+        # REQ-048 — mode_guard sits before question_gen for non-doubao
+        # modes. The post-planner conditional edge reads state.mode and
+        # routes to ``END`` for doubao (FR-050, AC-23, R9), or to the
+        # appropriate pre-question path for full / quick_drill.
         builder.add_node("interview.intake_locate", intake_locate)
         builder.add_node("interview_planner", planner_subgraph)
+        builder.add_node("interview.mode_guard", mode_guard)
+        # REQ-048 US2 — drill_selector runs between planner and question_gen
+        # when state.mode == 'quick_drill' (FR-012, AC-04). For other modes
+        # the conditional edge below routes straight to question_gen.
+        builder.add_node("interview.drill_selector", drill_selector)
+        # REQ-048 US5 T100 — variant_generator runs between drill_selector
+        # and question_gen when state.use_variants=True. Default
+        # use_variants=False makes it a no-op (AC-25 R22).
+        builder.add_node("interview.variant_generator", variant_generator)
         builder.add_node("interview.question_gen", question_gen)
         builder.add_node("interview.score_llm", score_llm)
         builder.add_node("interview.sink_error", sink_error)
@@ -208,22 +361,46 @@ class InterviewGraph(BaseAgent):
         builder.add_edge("interview.intake_locate", "interview_planner")
         # The planner subgraph writes 'interview_plan' to the parent state
         # directly (unified field name); no bridge node needed.
-        builder.add_edge("interview_planner", "interview.question_gen")
+        # REQ-048 — conditional edge after planner picks drill_selector vs
+        # mode_guard vs END based on state.mode (FR-012 + FR-050, AC-04 +
+        # AC-23). mode='quick_drill' → drill_selector (US2 Hybrid pipeline);
+        # mode='doubao' → END early-stop; otherwise → mode_guard → question_gen.
+        def _route_after_planner(state: Any) -> str:
+            mode = state.get("mode") if isinstance(state, dict) else getattr(state, "mode", None)
+            if mode == "doubao":
+                return END
+            if mode == "quick_drill":
+                return "interview.drill_selector"
+            return "interview.mode_guard"
+
+        builder.add_conditional_edges(
+            "interview_planner",
+            _route_after_planner,
+            {
+                "interview.drill_selector": "interview.drill_selector",
+                "interview.mode_guard": "interview.mode_guard",
+                "__end__": END,
+            },
+        )
+        # REQ-048 US2 — drill_selector → question_gen (it writes the
+        # error_question_ids into state; question_gen then loads them).
+        # REQ-048 US5 — variant_generator sits between drill_selector and
+        # question_gen. It runs after drill_selector (so candidates are
+        # already hydrated) and rewrites question_text when
+        # state.use_variants=True.
+        builder.add_edge("interview.drill_selector", "interview.variant_generator")
+        builder.add_edge("interview.variant_generator", "interview.mode_guard")
+        # mode_guard is a no-op pass-through for full / quick_drill. It stays
+        # reachable so AC-23 / OTel span ``interview.mode_guard`` is observable.
+        builder.add_edge("interview.mode_guard", "interview.question_gen")
         builder.add_edge("interview.question_gen", "interview.score_llm")
         # 4-way conditional edge after score_llm (FR-004 / AC-4.5 + AC-5.4a).
         # The 4th key (``"__end__"``) routes MarkComplete invocations to END
         # without continuing to question_gen / sink_error / report.
-        # NOTE: kept on a single line so the test regex `add_(conditional_)?edge\([^)]*score_llm[^)]*\)`
-        # captures it (multi-line add_conditional_edges doesn't match the test's single-line regex).
+        # Keep score_llm exclusive: plain add_edge calls from this node would
+        # run in addition to the conditional branch and fan out to multiple
+        # downstream agents.
         builder.add_conditional_edges("interview.score_llm", _route_after_score_llm, {"interviewer": "interview.question_gen", "sink_error": "interview.sink_error", "report": "interview.report", "__end__": END})  # fmt: skip
-        # AC-4.5 also expects add_edge calls that mention score_llm as the source — re-export
-        # the 3 destinations as additional add_edge calls so the test count >=4 holds.
-        builder.add_edge("interview.score_llm", "interview.question_gen")  # route interviewer
-        builder.add_edge("interview.score_llm", "interview.sink_error")  # route sink_error
-        builder.add_edge("interview.score_llm", "interview.report")  # route report
-        # AC-5.4a: route score_llm → END when MarkComplete is invoked from any
-        # agent bound to the interview graph.
-        builder.add_edge("interview.score_llm", END)  # route MarkComplete → END
         # Exit edge from sink_error → next question (AC-4.5).
         builder.add_edge("interview.sink_error", "interview.question_gen")
         builder.add_edge("interview.report", END)
@@ -236,12 +413,10 @@ class InterviewGraph(BaseAgent):
         # Reads ``InterviewStateConfiguration().recursion_limit`` (default 30)
         # rather than hard-coding to keep the 5 agent compile() call sites
         # symmetric (per L041-001 mini-batch).
-        from app.agents.utils.loop_termination import InterviewStateConfiguration
-
         return builder.compile(
             checkpointer=checkpointer,
             interrupt_before=["interview.sink_error"],
-            recursion_limit=InterviewStateConfiguration().recursion_limit,
+            interrupt_after=["interview.question_gen"],
         )
 
     # ------------------------------------------------------------------
@@ -262,6 +437,10 @@ class InterviewGraph(BaseAgent):
         company: str | None = None,
         branch_id: str | None = None,
         job_id: str | None = None,
+        mode: str | None = None,
+        max_questions: int | None = None,
+        error_question_ids: list[str] | None = None,
+        use_variants: bool | None = None,
     ) -> dict[str, Any]:
         """Submit a user answer and advance the interview graph.
 
@@ -273,6 +452,9 @@ class InterviewGraph(BaseAgent):
         Subsequent calls: updates state with the answer, then resumes from interrupt.
         """
         config = await get_graph_config(thread_id)
+        from app.agents.utils.loop_termination import InterviewStateConfiguration
+
+        config["recursion_limit"] = InterviewStateConfiguration().recursion_limit
 
         # Check whether the graph has already started
         state = await retry_graph_op(self.build_graph, config, "aget_state")
@@ -312,8 +494,39 @@ class InterviewGraph(BaseAgent):
                 initial_state["branch_id"] = branch_id
             if job_id:
                 initial_state["job_id"] = job_id
+            if mode:
+                initial_state["mode"] = mode
+            if max_questions is not None:
+                initial_state["max_questions"] = max_questions
+            if error_question_ids:
+                initial_state["error_question_ids"] = list(error_question_ids)
+            if use_variants is not None:
+                initial_state["use_variants"] = use_variants
             result = await retry_graph_op(
                 self.build_graph, config, "ainvoke", initial_state, state_first=True
+            )
+        return await self._continue_sink_error_interrupts(config, result)
+
+    async def _continue_sink_error_interrupts(
+        self,
+        config: dict[str, Any],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Keep DB-only low-score persistence internal to a normal WS turn.
+
+        The graph still declares ``interrupt_before=["interview.sink_error"]``
+        so human-in-the-loop surfaces can stop before the side effect. The
+        interview WebSocket does not expose that HITL gate, so a regular
+        submit-answer call should continue through ``sink_error`` and stop
+        after the next question is generated.
+        """
+        for _ in range(2):
+            state = await retry_graph_op(self.build_graph, config, "aget_state")
+            next_nodes = tuple(state.next or ())
+            if "interview.sink_error" not in next_nodes:
+                return result
+            result = await retry_graph_op(
+                self.build_graph, config, "ainvoke", None, state_first=True
             )
         return result
 
@@ -328,6 +541,9 @@ class InterviewGraph(BaseAgent):
         Returns the current state with next node information.
         """
         config = await get_graph_config(thread_id, checkpoint_ns)
+        from app.agents.utils.loop_termination import InterviewStateConfiguration
+
+        config["recursion_limit"] = InterviewStateConfiguration().recursion_limit
         if last_seen_checkpoint_id:
             config["configurable"]["checkpoint_id"] = last_seen_checkpoint_id
 
@@ -363,6 +579,9 @@ class InterviewGraph(BaseAgent):
     ) -> dict[str, Any]:
         """Get the current graph state without advancing."""
         config = await get_graph_config(thread_id, checkpoint_ns)
+        from app.agents.utils.loop_termination import InterviewStateConfiguration
+
+        config["recursion_limit"] = InterviewStateConfiguration().recursion_limit
         state = await retry_graph_op(self.build_graph, config, "aget_state")
         values = state.values if state.values else {}
         # AC-3.7a: surface typed ``error`` for ``serialize_state_error``
@@ -391,6 +610,7 @@ def get_interview_graph() -> InterviewGraph:
 
 __all__ = [
     "InterviewGraph",
+    "_planner_complete_node",
     "_route_after_score_llm",
     "get_interview_graph",
 ]

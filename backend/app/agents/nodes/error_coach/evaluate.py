@@ -12,6 +12,8 @@ from app.observability import traced_node
 # REQ-041 US2 AC-4.8 — ``MarkComplete`` import for error_coach bind_tools.
 # Kept at module scope so AC-4.8 grep ``MarkComplete`` in this file passes.
 from app.agents.tools.control.mark_complete import MarkComplete  # noqa: F401  -- AC-4.8 import surface
+# REQ-041-P0-APPROVAL (AC-5.1/5.2) — run-time approval gate wrapper.
+from app.agents.tools.approval import bind_tools_with_approval  # noqa: F401  -- AC-5.1 wiring surface
 
 
 @node_error_handler(fallback_strategy="retry")
@@ -60,7 +62,9 @@ Output ONLY a JSON object:
         # the legacy ``client.invoke`` below is the path that returns content
         # for the existing tests; bind_tools opt-in happens via the
         # AGENT_USE_V2_CONTROL_TOOLS flag in production LLM clients.
-        _llm_with_tools = client.bind_tools([MarkComplete])  # noqa: F841  -- AC-4.8 verify-grep
+        # REQ-041-P0-APPROVAL (AC-5.1/5.2): wrap the LLM-bound-tools call
+        # through the run-time approval gate so MarkComplete is intercepted.
+        _llm_with_tools = bind_tools_with_approval(client, [MarkComplete])  # noqa: F841  -- AC-5.1 wiring
         result = await client.invoke(
             messages=[
                 {"role": "system", "content": "你是一位严格的面试评分官。评分标准: ≥8 为答对, 0-10 分制。"},

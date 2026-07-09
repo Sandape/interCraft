@@ -12,10 +12,16 @@ from app.modules.errors.models import ErrorQuestion
 from app.modules.errors.repository import ErrorQuestionRepository
 
 # Valid status transitions (current → allowed next)
+# REQ-048 US6 T032b + T109: added ``mastered → practicing`` for regression
+# (raw_score < 6 on a previously-mastered question). This was the A-007 risk
+# noted in spec.md; previously mastered questions only transitioned to
+# ``fresh`` (via reset) or ``archived``. Adding ``practicing`` lets the user
+# re-enter the practice cycle when they re-fail a previously-mastered
+# question, which is the AC-27 acceptance scenario.
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "fresh": {"practicing", "archived"},
     "practicing": {"mastered", "fresh", "archived"},
-    "mastered": {"fresh", "archived"},  # fresh = via reset only
+    "mastered": {"fresh", "practicing", "archived"},  # practicing = via regression (REQ-048 T109)
     "archived": set(),  # terminal
 }
 

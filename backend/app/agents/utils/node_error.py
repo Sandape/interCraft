@@ -44,7 +44,10 @@ from app.agents.checkpointer import CheckpointerUnavailableError
 
 
 # ---------------------------------------------------------------------------
-# 6-bucket Literal — must match 038 subclass __name__.lower() literally
+# 6-bucket Literal — must match 038 subclass __name__.lower() literally.
+# 041-P0-APPROVAL (AC-4.1) extends the Literal with ``"tool_approval_denied"``
+# as the **7th** bucket, preserving declaration order — the bucket sits AFTER
+# the existing 6 buckets and is the new trailing entry.
 # ---------------------------------------------------------------------------
 NodeErrorCategory = Literal[
     "schema_invalid",
@@ -59,6 +62,13 @@ NodeErrorCategory = Literal[
     #   cap exceeded; raised by ``iteration_guard_node``.
     "graph_recursion",
     "loop_terminated",
+    # REQ-041 P0 APPROVAL — "tool_approval_denied": emitted by
+    # ``_approval_runtime`` (see ``app.agents.tools.approval``) when an LLM
+    # tries to invoke a tool whose ``ToolSpec.requires_approval`` is True
+    # without a matching ``state["approved_tools"]`` entry. Raised via
+    # ``ToolApprovalDenied`` and classified by ``classify_exception`` from
+    # the ``approval_missing:<ToolName>`` deny-reason pattern.
+    "tool_approval_denied",
 ]
 
 
@@ -115,6 +125,13 @@ def classify_exception(exc: BaseException) -> NodeErrorCategory:
     """
     if isinstance(exc, CheckpointerUnavailableError):
         return "checkpointer_unavailable"
+    # 041-P0-APPROVAL (AC-1.3a / AC-4.1): recognise the new
+    # ``approval_missing:<ToolName>`` message pattern emitted by the run-time
+    # approval gate (``app.agents.tools.approval._approval_runtime``). Match the
+    # substring on ``str(exc)`` so it works regardless of whether the
+    # implementation wraps it in a custom exception subclass.
+    if "approval_missing:" in str(exc):
+        return "tool_approval_denied"
     if isinstance(exc, Quota):
         return "quota"
     if isinstance(exc, Timeout):

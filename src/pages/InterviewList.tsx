@@ -80,7 +80,7 @@ export default function InterviewList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/interview/new">
+          <Link to="/interview/mode">
             <Button variant="primary" leftIcon={<Plus className="h-3.5 w-3.5" />}>
               开始新面试
             </Button>
@@ -141,7 +141,7 @@ export default function InterviewList() {
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Link to="/interview/new">
+                <Link to="/interview/mode">
                   <Button variant="primary" leftIcon={<Sparkles className="h-3.5 w-3.5" />} rightIcon={<ArrowRight className="h-3.5 w-3.5" />}>
                     开始新面试
                   </Button>

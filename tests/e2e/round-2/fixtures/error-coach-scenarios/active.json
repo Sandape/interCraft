@@ -1,0 +1,10 @@
+{
+  "evaluate_scores": [
+    9
+  ],
+  "hint_contents": {
+    "small": "提示：回忆 Hooks 依赖。",
+    "medium": "中等提示。",
+    "detailed": "详细提示。"
+  }
+}

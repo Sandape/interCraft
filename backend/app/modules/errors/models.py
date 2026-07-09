@@ -1,4 +1,10 @@
-"""ErrorQuestion SQLAlchemy model — per data-model-phase-2.md §2."""
+"""ErrorQuestion SQLAlchemy model — per data-model-phase-2.md §2.
+
+REQ-048: adds embedding / embedding_v2 / embedding_computed_at / embedding_model.
+The ``vector`` column types are managed by migration 0029 (pgvector) — the
+SQLAlchemy model keeps them as Text placeholders so the ORM collection step
+does not require a runtime pgvector dialect type.
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -40,8 +46,14 @@ class ErrorQuestion(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="fresh")
     frequency: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=3)
     tags: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_practiced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # REQ-048 — embedding columns. Stored as Text placeholders in the SQLAlchemy
+    # model so the ORM does not require a runtime pgvector dialect type. The
+    # actual column type is ``vector(512)`` / ``vector(1024)`` (migration 0029).
+    embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_v2: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

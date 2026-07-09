@@ -69,7 +69,7 @@ class TestTracedNodeCoverage:
             if "observability" in parts:
                 continue
             text = f.read_text(encoding="utf-8")
-            if "@traced_node" not in text:
+            if not re.search(r"^@traced_node\b", text, re.MULTILINE):
                 continue
             assert "from app.observability.tracing import" in text or (
                 "from app.observability" in text and "traced_node" in text
@@ -132,6 +132,94 @@ class TestLangSmithExporter:
         ]
         # Must not raise
         exporter.export(fake_spans)  # type: ignore[attr-defined]
+
+    def test_langsmith_exporter_preserves_trace_metadata(self):
+        """LangSmith runs include local trace identifiers for UI drilldown."""
+        from app.observability.langsmith import LangSmithExporter
+
+        captured: list[dict] = []
+
+        class FakeClient:
+            def create_run(self, **kwargs):
+                captured.append(kwargs)
+
+        exporter = LangSmithExporter.__new__(LangSmithExporter)
+        exporter.api_key = "test-key"  # type: ignore[attr-defined]
+        exporter.project = "intercraft-prod"  # type: ignore[attr-defined]
+        exporter._client = FakeClient()  # type: ignore[attr-defined]
+        fake_span = type(
+            "FakeSpan",
+            (),
+            {
+                "name": "llm.question_gen",
+                "attributes": {
+                    "llm.node": "question_gen",
+                    "trace.id": "a" * 32,
+                    "run.id": "session-123",
+                    "llm.prompt_tokens": 11,
+                },
+            },
+        )()
+
+        exporter.export([fake_span])  # type: ignore[attr-defined]
+
+        assert len(captured) == 1
+        payload = captured[0]
+        assert payload["run_type"] == "llm"
+        assert "trace:" + "a" * 32 in payload["tags"]
+        assert "run:session-123" in payload["tags"]
+        metadata = payload["extra"]["metadata"]
+        assert metadata["trace.id"] == "a" * 32
+        assert metadata["run.id"] == "session-123"
+        assert metadata["span.name"] == "llm.question_gen"
+
+    def test_tracing_initialization_exports_finished_spans_to_langsmith(
+        self, monkeypatch
+    ):
+        """LangSmith receives the same finished spans emitted through tracing."""
+        from app.observability.tracing import (
+            TracingConfig,
+            _reset_tracing_for_test,
+            init_tracing,
+            span,
+        )
+
+        captured: list = []
+
+        class FakeLangSmithExporter:
+            def __init__(
+                self,
+                api_key: str | None = None,
+                project: str = "intercraft-prod",
+            ):
+                self.api_key = api_key
+                self.project = project
+
+            def export(self, spans):
+                captured.extend(spans)
+
+        monkeypatch.setattr(
+            "app.observability.langsmith.LangSmithExporter",
+            FakeLangSmithExporter,
+        )
+
+        _reset_tracing_for_test()
+        init_tracing(
+            TracingConfig(
+                service_name="test",
+                exporter="in_memory",
+                langsmith_api_key="test-key",
+                langsmith_project="test-project",
+            )
+        )
+        with span(
+            "node.interview.question_gen",
+            **{"node.name": "interview.question_gen"},
+        ):
+            pass
+
+        assert [item.name for item in captured] == ["node.interview.question_gen"]
+        _reset_tracing_for_test()
 
 
 # ---------------------------------------------------------------------------

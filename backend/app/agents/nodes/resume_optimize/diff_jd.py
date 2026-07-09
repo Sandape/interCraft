@@ -9,6 +9,7 @@ from pathlib import Path
 from app.agents.llm_client import get_llm_client
 from app.agents.state.resume_optimize_state import ResumeOptimizeState
 from app.agents.utils.node_error_handler import node_error_handler
+from app.agents.tools.approval import bind_tools_with_approval  # REQ-041-P0-APPROVAL AC-5.1/5.2 wiring
 from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "resume_optimize"
@@ -31,6 +32,15 @@ async def diff_jd_node(state: ResumeOptimizeState) -> dict:
     prompt = template.format(target_jd=target_jd, blocks=blocks_text)
 
     client = get_llm_client()
+    # REQ-041-P0-APPROVAL (AC-5.1/5.2): exercise the gate wiring surface. The
+    # call is opt-in via ``AGENT_USE_V2_TOOL_BINDING`` and currently a no-op
+    # for ``diff_jd`` (no tool_calls in the prompt). We branch on
+    # ``hasattr(client, "bind_tools")`` so the production ``LLMClient`` (no
+    # ``bind_tools`` attr) does not crash — matches the same defensive pattern
+    # used by ``nodes/error_coach/evaluate.py:63`` (the existing AC-4.8
+    # verify-grep surface).
+    if hasattr(client, "bind_tools"):
+        bind_tools_with_approval(client, [])  # AC-5.1 wiring surface
     try:
         result = await client.invoke(
             messages=[

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Send,
@@ -18,13 +18,6 @@ import {
   Lightbulb,
   Volume2,
   VolumeX,
-  Briefcase,
-  Building2,
-  Play,
-  FileText,
-  ChevronDown,
-  ChevronUp,
-  MapPin,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -36,15 +29,41 @@ import { zhCN } from '@/lib/i18n/zh-CN'
 import { useInterviewWS, type WSEvent } from '@/hooks/useInterviewWS'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { interviewSessionRepo } from '@/repositories/interviewSessionRepo'
-import { useResumeBranches } from '@/hooks/queries/useResumeBranches'
-import { useJob } from '@/hooks/queries/useJobs'
 import { getAccessToken } from '@/api/token-storage'
 import { ErrorBanner } from '@/components/interview/ErrorBanner'
+import { InterviewPlanPanel } from '@/components/interview/InterviewPlanPanel'
+import { DoubaoCardWorkspace } from '@/components/interview/DoubaoCardWorkspace'
 import { StreamingText } from '@/components/interview/StreamingText'
 import { ProgressBar } from '@/components/interview/ProgressBar'
+import type { InterviewPlan, InterviewWebResearch } from '@/repositories/interviewSessionRepo'
 
 const TOTAL_QUESTIONS = 5
 const INTERVIEWER_NAME = 'AI 面试官'
+
+// REQ-048 US3 T071 — effective_max drives the progress bar so the user
+// sees a meaningful 「第 X/Y 题」 counter for the 10-15 question envelope.
+// When the backend exposes the session's effective_max, prefer that;
+// otherwise fall back to TOTAL_QUESTIONS (legacy 5-round mode) so the
+// quick-drill path keeps its existing counter behaviour.
+function resolveEffectiveMax(state: {
+  effectiveMax?: number | null
+  maxQuestions?: number | null
+  mode?: string | null
+}): number {
+  if (typeof state.effectiveMax === 'number' && state.effectiveMax >= 7 && state.effectiveMax <= 15) {
+    return state.effectiveMax
+  }
+  if (state.mode === 'full' && typeof state.maxQuestions === 'number') {
+    return state.maxQuestions
+  }
+  return TOTAL_QUESTIONS
+}
+
+function isInterviewWsMockMode(): boolean {
+  const override = (globalThis as any).__VITE_USE_MOCK_OVERRIDE__
+  if (typeof override === 'string') return override === 'true'
+  return (import.meta as any).env?.VITE_USE_MOCK === 'true'
+}
 
 interface QuestionData {
   question: string
@@ -85,32 +104,14 @@ export default function InterviewLive() {
   const userDisplayName =
     currentUser?.display_name || currentUser?.email.split('@')[0] || 'You'
 
-  // 019 — ?job_id + ?branch_id prefill (US3, FR-012)
-  const urlJobId = searchParams.get('job_id')
-  const urlBranchId = searchParams.get('branch_id')
-  const { data: sourceJob } = useJob(urlJobId ?? '')
-
   // ---- phase state ----
-  const [phase, setPhase] = useState<'setup' | 'connecting' | 'live' | 'completed' | 'resume_error'>(
-    routeSessionId ? 'connecting' : 'setup',
-  )
+  const [phase, setPhase] = useState<
+    'setup' | 'connecting' | 'live' | 'completed' | 'resume_error' | 'doubao_card'
+  >(routeSessionId ? 'connecting' : 'setup')
   const [position, setPosition] = useState('')
   const [company, setCompany] = useState('')
-  const [branchId, setBranchId] = useState<string>('')
   const [sessionId, setSessionId] = useState<string | null>(routeSessionId || null)
-  const [setupError, setSetupError] = useState<string | null>(null)
   const [resumedNotice, setResumedNotice] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(urlJobId)
-  const [requirementsOpen, setRequirementsOpen] = useState(false)
-
-  // 019 — prefill from source job (position / company / branch / base_location)
-  useEffect(() => {
-    if (!sourceJob) return
-    if (position === '') setPosition(sourceJob.position || '')
-    if (company === '') setCompany(sourceJob.company || '')
-    if (branchId === '' && urlBranchId) setBranchId(urlBranchId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceJob?.id])
 
   // ---- interview state ----
   const [input, setInput] = useState('')
@@ -123,6 +124,13 @@ export default function InterviewLive() {
   const [questions, setQuestions] = useState<QuestionData[]>([])
   const [scores, setScores] = useState<ScoreData[]>([])
   const [report, setReport] = useState<ReportData | null>(null)
+  const [interviewPlan, setInterviewPlan] = useState<InterviewPlan | null>(null)
+  const [webResearch, setWebResearch] = useState<InterviewWebResearch | null>(null)
+  const [planOpen, setPlanOpen] = useState(false)
+  // REQ-048 US3 T071 — session metadata that drives the progress bar.
+  const [sessionMode, setSessionMode] = useState<string | null>(null)
+  const [sessionMaxQuestions, setSessionMaxQuestions] = useState<number | null>(null)
+  const [sessionEffectiveMax, setSessionEffectiveMax] = useState<number | null>(null)
 
   // track user answers locally
   const [userAnswers, setUserAnswers] = useState<Array<{ content: string; seqNo: number }>>([])
@@ -132,8 +140,20 @@ export default function InterviewLive() {
   // ---- WebSocket ----
   const ws = useInterviewWS(token || '')
 
-  // ---- resume branches (setup picker) ----
-  const { data: branches = [] } = useResumeBranches()
+  const syncPlannerOutputs = useCallback(async (id: string) => {
+    const sess = await interviewSessionRepo.getById(id)
+    setInterviewPlan(sess.interview_plan ?? null)
+    setWebResearch(sess.web_research ?? null)
+    // REQ-048 US3 T071 — capture session mode + max_questions for the
+    // progress-bar counter. The backend's effective_max lands via
+    // ``effective_max`` once the planner subgraph runs; we read both
+    // shapes here so the bar is correct from the very first render.
+    setSessionMode((sess as any).mode ?? null)
+    setSessionMaxQuestions((sess as any).max_questions ?? null)
+    setSessionEffectiveMax((sess as any).effective_max ?? null)
+    if (sess.interview_plan) setPlanOpen((open) => open || questions.length === 0)
+    return sess
+  }, [questions.length])
 
   // ---- accumulate WS events into interview state ----
   const lastProcessedRef = useRef(0)
@@ -204,32 +224,6 @@ export default function InterviewLive() {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' })
   }, [questions, scores, ws.state.streamingText, userAnswers, aiThinking])
 
-  // ---- setup: create session + start + connect WS ----
-  const handleSetup = async () => {
-    if (!position.trim() || !company.trim()) return
-    setSetupError(null)
-    setPhase('connecting')
-
-    try {
-      const created = await interviewSessionRepo.create({
-        position: position.trim(),
-        company: company.trim(),
-        branch_id: branchId || undefined,
-        mode: 'text',
-        job_id: jobId || undefined,
-      })
-      const sid = created.data.id
-
-      await interviewSessionRepo.start(sid)
-      setSessionId(sid)
-      ws.connect()
-      setPhase('live')
-    } catch (err: any) {
-      setSetupError(err?.message || '创建面试失败')
-      setPhase('setup')
-    }
-  }
-
   // ---- resume: when /interview/:id/live, restore state and connect WS ----
   const resumeRanRef = useRef(false)
   useEffect(() => {
@@ -238,7 +232,7 @@ export default function InterviewLive() {
 
     const restore = async () => {
       try {
-        const sess = await interviewSessionRepo.getById(routeSessionId)
+        const sess = await syncPlannerOutputs(routeSessionId)
         if (sess.status === 'completed') {
           // Already finished — go straight to report view
           setPosition(sess.position || '')
@@ -246,6 +240,28 @@ export default function InterviewLive() {
           setSessionId(routeSessionId)
           setPhase('completed')
           setReport({ overall_score: Number(sess.overall_score || 0), report_id: '' })
+          return
+        }
+
+        if (sess.mode === 'doubao') {
+          setPosition(sess.position || '')
+          setCompany(sess.company || '')
+          setSessionId(routeSessionId)
+          if (!sess.interview_plan) {
+            await interviewSessionRepo.generatePlan(routeSessionId)
+            await syncPlannerOutputs(routeSessionId)
+          }
+          setPhase('doubao_card')
+          return
+        }
+
+        if (isInterviewWsMockMode()) {
+          setPosition(sess.position || '')
+          setCompany(sess.company || '')
+          setSessionId(routeSessionId)
+          setResumedNotice(true)
+          ws.connect()
+          setPhase('live')
           return
         }
 
@@ -266,6 +282,8 @@ export default function InterviewLive() {
 
         setPosition(sess.position || '')
         setCompany(sess.company || '')
+        setInterviewPlan(sess.interview_plan ?? values.interview_plan ?? null)
+        setWebResearch(sess.web_research ?? values.web_research ?? null)
 
         setQuestions(
           uniqueBy(restoredQuestions, (q: any) => q?.question || '').map((q: any) => ({
@@ -311,6 +329,16 @@ export default function InterviewLive() {
     restore()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeSessionId])
+
+  const planFetchAttemptedRef = useRef(false)
+  useEffect(() => {
+    if (!sessionId || interviewPlan || !ws.state.lastCheckpointId || planFetchAttemptedRef.current) return
+    planFetchAttemptedRef.current = true
+    syncPlannerOutputs(sessionId).catch((err) => {
+      planFetchAttemptedRef.current = false
+      console.warn('[interview-live] planner output sync failed', err)
+    })
+  }, [interviewPlan, sessionId, syncPlannerOutputs, ws.state.lastCheckpointId])
 
   const [resumeErrorMsg, setResumeErrorMsg] = useState<string | null>(null)
   const [resumeRetrying, setResumeRetrying] = useState(false)
@@ -419,148 +447,63 @@ export default function InterviewLive() {
     )
   }
 
-  // ---- setup phase ----
-  if (phase === 'setup' || phase === 'connecting') {
+  if (!routeSessionId && phase === 'setup') {
+    const search = searchParams.toString()
     return (
-      <div className="h-full flex items-center justify-center bg-surface-subtle dark:bg-dark-surface-subtle">
-        <div className="w-full max-w-md mx-auto p-6">
-          <div className="text-center mb-6">
-            <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-brand-900 to-brand-600 dark:from-brand-500 dark:to-brand-300 flex items-center justify-center mx-auto mb-3 shadow-notion">
-              <Sparkles className="h-6 w-6 text-white" />
-            </div>
-            <h1 className="text-xl font-semibold text-ink-1">开始模拟面试</h1>
-            <p className="text-sm text-ink-3 mt-1">AI 将根据你的目标岗位生成结构化面试</p>
-          </div>
+      <Navigate
+        to={{
+          pathname: '/interview/mode',
+          search: search ? `?${search}` : '',
+        }}
+        replace
+      />
+    )
+  }
 
-          <div className="space-y-4">
-            {sourceJob && (
-              <div
-                data-testid="intake-prefill-card"
-                className="rounded-md border border-brand-200 dark:border-brand-500/30 bg-brand-50/50 dark:bg-brand-500/10 px-3 py-2 flex items-center gap-2"
-              >
-                <Briefcase className="h-3.5 w-3.5 text-brand-600 dark:text-brand-300 flex-shrink-0" />
-                <div className="text-xs text-ink-2 dark:text-dark-ink-secondary min-w-0">
-                  <span className="font-medium">来源岗位：</span>
-                  <span className="truncate">{sourceJob.company} · {sourceJob.position}</span>
-                  {sourceJob.base_location && (
-                    <span className="text-ink-3 ml-1 inline-flex items-center gap-0.5">
-                      <MapPin className="h-2.5 w-2.5" />{sourceJob.base_location}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
+  if (phase === 'connecting') {
+    return (
+      <div className="flex h-full items-center justify-center bg-surface-subtle p-6 dark:bg-dark-surface-subtle">
+        <div className="flex items-center gap-2 rounded-md border border-line-2 bg-bg-1 px-4 py-3 text-sm text-ink-3 shadow-sm">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          正在恢复面试会话
+        </div>
+      </div>
+    )
+  }
+
+  if (phase === 'doubao_card' && sessionId) {
+    return (
+      <div
+        className="fixed inset-0 z-50 overflow-y-auto bg-surface-subtle px-2 py-3 sm:px-6 sm:py-5 dark:bg-dark-surface-subtle"
+        data-testid="doubao-card-page"
+      >
+        <div className="mx-auto flex max-w-[560px] flex-col gap-3">
+          <div className="flex items-center justify-between gap-3 px-1">
             <div>
-              <label className="block text-sm font-medium text-ink-1 mb-1.5">
-                <Briefcase className="h-3.5 w-3.5 inline mr-1.5" />
-                目标岗位
-              </label>
-              <input
-                name="position"
-                value={position}
-                onChange={(e) => setPosition(e.target.value)}
-                placeholder="例如：高级前端工程师"
-                className="w-full px-3 py-2 text-sm rounded-md bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border text-ink-1 placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-                disabled={phase === 'connecting'}
-                data-testid="setup-position-input"
-              />
+              <h1 className="text-lg font-semibold text-ink-1">豆包 Prompt</h1>
+              <p className="mt-0.5 text-xs text-ink-3">
+                {company} · {position}
+              </p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-ink-1 mb-1.5">
-                <Building2 className="h-3.5 w-3.5 inline mr-1.5" />
-                目标公司
-              </label>
-              <input
-                name="company"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                placeholder="例如：字节跳动"
-                className="w-full px-3 py-2 text-sm rounded-md bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border text-ink-1 placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-                disabled={phase === 'connecting'}
-                data-testid="setup-company-input"
-              />
-            </div>
-            {sourceJob?.requirements_md && sourceJob.requirements_md.length >= 50 && (
-              <div
-                data-testid="intake-requirements-card"
-                className="rounded-md border border-surface-border dark:border-dark-surface-border overflow-hidden"
-              >
-                <button
-                  type="button"
-                  onClick={() => setRequirementsOpen((v) => !v)}
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-ink-2 hover:bg-surface-muted dark:hover:bg-dark-surface-muted transition-colors"
-                  aria-expanded={requirementsOpen}
-                >
-                  <span>岗位招聘需求（{sourceJob.requirements_md.length} 字）</span>
-                  {requirementsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
-                {requirementsOpen && (
-                  <div className="px-3 py-2 text-2xs text-ink-3 leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap border-t border-surface-border dark:border-dark-surface-border">
-                    {sourceJob.requirements_md}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div data-testid="setup-resume-picker">
-              <label className="block text-sm font-medium text-ink-1 mb-1.5">
-                <FileText className="h-3.5 w-3.5 inline mr-1.5" />
-                {zhCN.interview.setup.resumeLabel}
-              </label>
-              <select
-                disabled={branches.length === 0 || phase === 'connecting'}
-                value={branchId}
-                onChange={(e) => setBranchId(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-md bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border text-ink-1 disabled:text-ink-muted disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-              >
-                <option value="">
-                  {branches.length === 0
-                    ? zhCN.interview.setup.noResume
-                    : zhCN.interview.setup.resumePlaceholder}
-                </option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                    {b.is_main ? '（主分支）' : ''}
-                  </option>
-                ))}
-              </select>
-              {branches.length === 0 && (
-                <div className="text-xs text-ink-3 mt-1.5">
-                  {zhCN.interview.setup.createResumeCta}:{' '}
-                  <Link
-                    to="/resume/new"
-                    className="text-brand-600 dark:text-brand-300 hover:underline"
-                  >
-                    /resume/new
-                  </Link>
-                </div>
-              )}
-            </div>
-
-            {setupError && (
-              <div className="p-3 rounded-md bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-sm text-red-600">
-                {setupError}
-              </div>
-            )}
-
-            <Button
-              variant="primary"
-              size="lg"
-              className="w-full"
-              onClick={handleSetup}
-              disabled={phase === 'connecting' || !position.trim() || !company.trim()}
-              leftIcon={phase === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            >
-              {phase === 'connecting' ? '正在创建面试...' : '开始面试'}
-            </Button>
+            <Link to="/interview">
+              <Button variant="ghost" size="sm" leftIcon={<ArrowLeft className="h-3.5 w-3.5" />}>
+                返回列表
+              </Button>
+            </Link>
           </div>
+          <DoubaoCardWorkspace sessionId={sessionId} />
         </div>
       </div>
     )
   }
 
   // ---- live / completed phase ----
+  const effectiveQuestionTotal = resolveEffectiveMax({
+    effectiveMax: sessionEffectiveMax,
+    maxQuestions: sessionMaxQuestions,
+    mode: sessionMode,
+  })
+
   return (
     <div className="h-full flex bg-surface-subtle dark:bg-dark-surface-subtle">
       {/* 主对话区 */}
@@ -608,8 +551,11 @@ export default function InterviewLive() {
 
             <div className="flex-1 max-w-md mx-4">
               <ProgressBar
-                currentQuestion={Math.min(scores.length, TOTAL_QUESTIONS)}
-                totalQuestions={TOTAL_QUESTIONS}
+                currentQuestion={Math.min(
+                  scores.length,
+                  effectiveQuestionTotal,
+                )}
+                totalQuestions={effectiveQuestionTotal}
                 currentNode={ws.state.currentNode}
               />
             </div>
@@ -647,6 +593,18 @@ export default function InterviewLive() {
 
         {/* 消息流 */}
         <div ref={messagesRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+          {interviewPlan && (
+            <div className="max-w-3xl">
+              <InterviewPlanPanel
+                plan={interviewPlan}
+                webResearch={webResearch}
+                open={planOpen}
+                onToggle={() => setPlanOpen((open) => !open)}
+                compact
+              />
+            </div>
+          )}
+
           {resumedNotice && phase === 'live' && (
             <div
               data-testid="resume-summary"
@@ -662,7 +620,7 @@ export default function InterviewLive() {
             <div className="flex-1 min-w-0">
               <div className="text-xs text-ink-3 mb-1.5">{INTERVIEWER_NAME} · 开场</div>
               <div className="inline-block px-4 py-3 rounded-lg rounded-tl-sm bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border text-sm text-ink-1 leading-relaxed shadow-notion-sm">
-                你好，我是 AI 面试官。本次面试共 {TOTAL_QUESTIONS} 道题，覆盖技术深度、系统架构、工程实践、沟通协作和算法能力五个维度。请先简单介绍一下你自己，包括你的项目经验和目标岗位。
+                你好，我是 AI 面试官。本次面试共 {effectiveQuestionTotal} 道题，覆盖技术深度、系统架构、工程实践、沟通协作和算法能力五个维度。请先简单介绍一下你自己，包括你的项目经验和目标岗位。
               </div>
             </div>
           </div>
@@ -852,7 +810,11 @@ export default function InterviewLive() {
               <div className="mb-2 flex items-center gap-2 text-2xs text-ink-3">
                 <Lightbulb className="h-3 w-3 text-amber-500" />
                 <span>
-                  当前考察维度「{lastQuestion.dimension}」· 第 {currentQuestionIndex}/{TOTAL_QUESTIONS} 题
+                  当前考察维度「{lastQuestion.dimension}」· 第 {currentQuestionIndex}/{resolveEffectiveMax({
+                    effectiveMax: sessionEffectiveMax,
+                    maxQuestions: sessionMaxQuestions,
+                    mode: sessionMode,
+                  })} 题
                 </span>
                 {lastQuestion.hints.length > 0 && (
                   <span className="text-brand-600 dark:text-brand-300 ml-2">

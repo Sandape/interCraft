@@ -279,12 +279,31 @@ async def test_mark_complete_cross_agent_routing_interview() -> None:
 
     # Case 3: regression guard — ``_mark_complete=False`` + low raw_score
     # must still route to ``sink_error`` (front-branch is *opt-in*).
+    from app.agents.interview.config import ERROR_THRESHOLD
+
     state_sink = {
-        "raw_score": 10,
+        "raw_score": ERROR_THRESHOLD - 1,
         "current_question": 1,
         "_mark_complete": False,
     }
     assert _route_after_score_llm(state_sink) == "sink_error", (
         "interview router must still route to sink_error when _mark_complete "
         "is False (front-branch is opt-in via the LLM MarkComplete signal)."
+    )
+
+
+async def test_final_question_low_score_routes_to_report() -> None:
+    """The final answer must terminate in report even when the score is low."""
+    from app.agents.interview.config import MAX_QUESTIONS
+    from app.agents.interview.graph import _route_after_score_llm
+
+    assert (
+        _route_after_score_llm(
+            {
+                "raw_score": 0,
+                "current_question": MAX_QUESTIONS,
+                "_mark_complete": False,
+            }
+        )
+        == "report"
     )

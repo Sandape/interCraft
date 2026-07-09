@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.interviews.models import InterviewSession
@@ -36,12 +36,16 @@ class InterviewSessionRepository:
     async def create(
         self,
         user_id: UUID,
-        position: str,
-        company: str,
+        position: str | None,
+        company: str | None,
         branch_id: UUID | None = None,
         mode: str = "text",
         job_id: UUID | None = None,
     ) -> InterviewSession:
+        await self.session.execute(
+            text("SELECT set_config('app.user_id', :uid, true)"),
+            {"uid": str(user_id)},
+        )
         session = InterviewSession(
             id=uuid4(),
             user_id=user_id,
@@ -81,6 +85,44 @@ class InterviewSessionRepository:
 
         await self.session.execute(
             update(InterviewSession).where(InterviewSession.id == id).values(**values)
+        )
+        await self.session.flush()
+
+    async def update_planner_outputs(
+        self,
+        id: UUID,
+        *,
+        interview_plan: dict | None = None,
+        web_research: dict | None = None,
+    ) -> None:
+        values = {"updated_at": datetime.now(UTC)}
+        if interview_plan is not None:
+            values["interview_plan"] = interview_plan
+        if web_research is not None:
+            values["web_research"] = web_research
+        if len(values) == 1:
+            return
+
+        await self.session.execute(
+            update(InterviewSession).where(InterviewSession.id == id).values(**values)
+        )
+        await self.session.flush()
+
+    async def update_max_questions(self, id: UUID, max_questions: int) -> None:
+        """REQ-048 — set the user-chosen question count for full mode."""
+        await self.session.execute(
+            update(InterviewSession)
+            .where(InterviewSession.id == id)
+            .values(max_questions=max_questions, updated_at=datetime.now(UTC))
+        )
+        await self.session.flush()
+
+    async def update_error_question_ids(self, id: UUID, error_question_ids: list[str]) -> None:
+        """REQ-048 — set the source_question_id list for quick_drill mode."""
+        await self.session.execute(
+            update(InterviewSession)
+            .where(InterviewSession.id == id)
+            .values(error_question_ids=error_question_ids, updated_at=datetime.now(UTC))
         )
         await self.session.flush()
 

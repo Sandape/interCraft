@@ -14,6 +14,18 @@ from app.agents.tools._clients import (
     TavilyAPIKeyMissingError,
     TavilyClient,
 )
+from app.core.config import get_settings
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _settings_value(name: str, default: object = None) -> object:
+    try:
+        return getattr(get_settings(), name)
+    except Exception:
+        return default
 
 
 def _resolve_tavily_api_key() -> str | None:
@@ -24,14 +36,18 @@ def _resolve_tavily_api_key() -> str | None:
     (e.g. ``pytest --collect-only``).
     """
     try:
-        from app.core.config import get_settings
-
-        value = get_settings().tavily_api_key
+        value = str(_settings_value("tavily_api_key", "") or "")
         if value:
             return value
     except Exception:
         pass
     return os.environ.get("TAVILY_API_KEY") or None
+
+
+def _resolve_mock_mode() -> bool:
+    return bool(_settings_value("tavily_mock_mode", False)) or _truthy(
+        os.environ.get("TAVILY_MOCK_MODE")
+    )
 
 
 @tool
@@ -58,6 +74,17 @@ async def tavily_search(
     import structlog
 
     logger = structlog.get_logger("agents.tools.tavily_search")
+
+    if _resolve_mock_mode():
+        from app.agents.tools.tavily_client_mock import MockTavilyClient
+
+        scenario_path = os.environ.get("TAVILY_MOCK_SCENARIO_PATH", "")
+        client = MockTavilyClient.from_scenario_file(scenario_path)
+        aggregated: list[dict] = []
+        for query in queries:
+            response = client.search(query=query, max_results=max_results)
+            aggregated.extend(response.get("results", []))
+        return aggregated
 
     api_key = _resolve_tavily_api_key()
     if not api_key:

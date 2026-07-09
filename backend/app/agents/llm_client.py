@@ -11,6 +11,7 @@ import os
 import time
 import uuid
 from decimal import Decimal
+from uuid import UUID
 
 import openai
 import structlog
@@ -40,8 +41,24 @@ from app.core.config import get_settings
 from app.eval.prompt_fingerprint import compute_prompt_fingerprint
 from app.modules.telemetry_contracts.costs import estimate_cost
 from app.modules.telemetry_contracts.schemas import AIInvocationSummary
+from app.observability.tracing import get_trace_context, record_llm_span_attributes, span
 
 logger = structlog.get_logger("agents.llm_client")
+
+_INTERVIEW_LLM_NODES = {
+    "intake",
+    "planner_generate",
+    "question_gen",
+    "score_llm",
+    "report",
+}
+
+
+def _infer_graph_name(node_name: str) -> str:
+    normalized = (node_name or "").strip()
+    if normalized in _INTERVIEW_LLM_NODES or normalized.startswith("interview."):
+        return "interview"
+    return "unknown"
 
 # ---------------------------------------------------------------------------
 # Prometheus metrics
@@ -198,15 +215,39 @@ class LLMClient:
         # 2. Call with retries
         start_ms = int(time.time() * 1000)
         retry_count = 0
+        trace_context = get_trace_context()
+        invocation_run_id = trace_context.run_id or thread_id
+        invocation_trace_id = trace_context.trace_id
 
         for attempt in range(max_retries + 1):
             try:
-                response = await self._call_deepseek(
-                    messages=messages,
-                    model=model,
-                    stream=stream,
-                    timeout_ms=timeout_ms,
-                )
+                attempt_start_ms = int(time.time() * 1000)
+                with span(
+                    f"llm.{node_name}",
+                    **{
+                        "llm.provider": "deepseek",
+                        "llm.model": model,
+                        "llm.node": node_name,
+                        "llm.attempt": attempt + 1,
+                        "run.id": invocation_run_id,
+                        "trace.id": invocation_trace_id,
+                    },
+                ) as llm_span:
+                    response = await self._call_deepseek(
+                        messages=messages,
+                        model=model,
+                        stream=stream,
+                        timeout_ms=timeout_ms,
+                    )
+                    record_llm_span_attributes(
+                        llm_span,
+                        **{
+                            "llm.prompt_tokens": response.usage.prompt_tokens,
+                            "llm.completion_tokens": response.usage.completion_tokens,
+                            "llm.duration_ms": int(time.time() * 1000) - attempt_start_ms,
+                            "llm.result": "success",
+                        },
+                    )
                 break
             except (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError) as exc:
                 retry_count = attempt + 1
@@ -227,7 +268,8 @@ class LLMClient:
                     _extract_and_record_ai_invocation(
                         _build_ai_invocation_summary(
                             invocation_id=str(uuid.uuid4()),
-                            graph="",  # graph unknown at this scope; node carries context
+                            user_id=user_id,
+                            graph=_infer_graph_name(node_name),
                             node=node_name,
                             model=model,
                             system_prompt="",
@@ -239,6 +281,8 @@ class LLMClient:
                             retry_count=retry_count,
                             status="FAILURE",
                             error_category=_classify_error(exc),
+                            run_id=invocation_run_id,
+                            trace_id=invocation_trace_id,
                         )
                     )
                     raise LLMInvokeError(
@@ -273,7 +317,8 @@ class LLMClient:
                 _extract_and_record_ai_invocation(
                     _build_ai_invocation_summary(
                         invocation_id=str(uuid.uuid4()),
-                        graph="",
+                        user_id=user_id,
+                        graph=_infer_graph_name(node_name),
                         node=node_name,
                         model=model,
                         system_prompt="",
@@ -285,6 +330,8 @@ class LLMClient:
                         retry_count=0,
                         status="FAILURE",
                         error_category=_classify_error(exc),
+                        run_id=invocation_run_id,
+                        trace_id=invocation_trace_id,
                     )
                 )
                 raise LLMInvokeError(
@@ -339,7 +386,8 @@ class LLMClient:
         _extract_and_record_ai_invocation(
             _build_ai_invocation_summary(
                 invocation_id=str(uuid.uuid4()),
-                graph="",
+                user_id=user_id,
+                graph=_infer_graph_name(node_name),
                 node=node_name,
                 model=model,
                 system_prompt="",
@@ -351,6 +399,8 @@ class LLMClient:
                 retry_count=retry_count,
                 status="SUCCESS",
                 error_category=None,
+                run_id=invocation_run_id,
+                trace_id=invocation_trace_id,
             )
         )
 
@@ -474,6 +524,7 @@ class LLMClient:
         from sqlalchemy import text
 
         from app.core.db import get_session_factory
+        from app.domain.rls import set_user_context
 
         # Non-fatal: if user_id is not a valid UUID (e.g. "unknown"), skip quota check
         try:
@@ -522,6 +573,34 @@ class LLMClient:
         if delta == 0:
             return
 
+        # REQ-053: skip DB adjustment when user_id is not a UUID (e.g. for
+        # background pipelines using a synthetic id like
+        # "research-pipeline"). Otherwise asyncpg raises
+        # "badly formed hexadecimal UUID string" and the caller sees a
+        # confusing failure.
+        try:
+            parsed_uid = _UUID(user_id)
+        except (ValueError, AttributeError, TypeError):
+            logger.debug(
+                "_actual_adjust: skipping quota update (user_id=%r is not a UUID)",
+                user_id,
+            )
+            return
+
+        # REQ-053: skip DB adjustment when user_id is not a UUID (e.g. for
+        # background pipelines that use a synthetic user_id like
+        # "research-pipeline"). Otherwise asyncpg raises
+        # "badly formed hexadecimal UUID string" and the caller sees a
+        # confusing failure.
+        try:
+            parsed_uid = _UUID(user_id)
+        except (ValueError, AttributeError, TypeError):
+            logger.debug(
+                "_actual_adjust: skipping quota update (user_id=%r is not a UUID)",
+                user_id,
+            )
+            return
+
         factory = get_session_factory()
         async with factory() as session:
             await session.execute(
@@ -554,6 +633,18 @@ class LLMClient:
 
         from app.core.db import get_session_factory
 
+        # REQ-053: skip audit when user_id is not a UUID (e.g. background
+        # pipeline with synthetic id). Otherwise asyncpg raises "badly
+        # formed hexadecimal UUID string".
+        try:
+            parsed_uid = _UUID(user_id)
+        except (ValueError, AttributeError, TypeError):
+            logger.debug(
+                "_write_ai_message: skipping audit (user_id=%r is not a UUID)",
+                user_id,
+            )
+            return
+
         factory = get_session_factory()
         async with factory() as session:
             await session.execute(
@@ -568,7 +659,7 @@ class LLMClient:
                 ),
                 {
                     "id": uuid4(),
-                    "uid": _UUID(user_id),
+                    "uid": parsed_uid,
                     "tid": thread_id,
                     "cns": "",
                     "cid": checkpoint_id,
@@ -693,6 +784,7 @@ def _build_ai_invocation_summary(
     error_category: str | None = None,
     run_id: Any | None = None,
     trace_id: str | None = None,
+    user_id: Any | None = None,
 ) -> AIInvocationSummary:
     """Build an ``AIInvocationSummary`` for a completed LLM call.
 
@@ -721,9 +813,24 @@ def _build_ai_invocation_summary(
         model=model,
     )
 
+    normalized_run_id: Any | None = run_id
+    if run_id is not None:
+        try:
+            normalized_run_id = UUID(str(run_id))
+        except (TypeError, ValueError):
+            normalized_run_id = None
+
+    normalized_user_id: Any | None = user_id
+    if user_id is not None:
+        try:
+            normalized_user_id = UUID(str(user_id))
+        except (TypeError, ValueError):
+            normalized_user_id = None
+
     return AIInvocationSummary(
         invocation_id=invocation_id,
-        run_id=run_id,
+        user_id=normalized_user_id,
+        run_id=normalized_run_id,
         trace_id=trace_id,
         graph=graph,
         node=node,
@@ -786,24 +893,28 @@ def _extract_and_record_ai_invocation(summary: AIInvocationSummary) -> None:
         import asyncio
 
         from app.core.db import get_session_factory
+        from app.domain.rls import set_user_context
         from uuid import UUID as _UUID
 
         from app.modules.telemetry_contracts.repository import (
             insert_ai_invocation,
         )
 
-        # Resolve a user_id from run_id or fall back to a sentinel zero
-        # UUID. The repository requires a non-null user_id — we use a
-        # deterministic system-actor UUID when the call site didn't pass one.
-        SYSTEM_USER_ID = _UUID("00000000-0000-0000-0000-000000000000")
-        user_id = SYSTEM_USER_ID
+        if summary.user_id is None:
+            logger.warning(
+                "ai_invocation.persist_skipped",
+                invocation_id=summary.invocation_id,
+                reason="missing_user_id",
+            )
+            return
 
         async def _persist() -> None:
             factory = get_session_factory()
             async with factory() as session:
+                await set_user_context(session, str(summary.user_id))
                 await insert_ai_invocation(
                     session,
-                    user_id=user_id,
+                    user_id=_UUID(str(summary.user_id)),
                     invocation_id=_UUID(summary.invocation_id),
                     graph=summary.graph,
                     node=summary.node,
@@ -823,6 +934,7 @@ def _extract_and_record_ai_invocation(summary: AIInvocationSummary) -> None:
                     run_id=summary.run_id,
                     trace_id=summary.trace_id,
                 )
+                await session.commit()
 
         # Try to run the async persist. In a sync context (which the
         # LLMClient callsite is not — invoke is async), this would

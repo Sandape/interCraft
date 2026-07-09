@@ -57,9 +57,7 @@ async def report_node(state: InterviewGraphState) -> dict:
     except Exception:
         pass
 
-    # Fallback: compute simple averages from scores
-    if not report_data:
-        report_data = _fallback_report(scores, questions)
+    report_data = _normalize_report(report_data, scores, questions)
 
     # 019 — append a requirements_summary block when the interview was
     # launched from a job that has requirements_md. We append instead of
@@ -79,6 +77,51 @@ async def report_node(state: InterviewGraphState) -> dict:
         "overall_score": overall_score,
         "interview_report": report_data,
     }
+
+
+def _normalize_report(report_data: dict, scores: list, questions: list) -> dict:
+    """Ensure the report contract is complete even when the LLM returns partial JSON."""
+    fallback = _fallback_report(scores, questions)
+    if not isinstance(report_data, dict) or not report_data:
+        return fallback
+
+    normalized = {**fallback, **report_data}
+
+    per_question = report_data.get("per_question_score")
+    if scores and (
+        not isinstance(per_question, list)
+        or len(per_question) != len(scores)
+    ):
+        normalized["per_question_score"] = fallback["per_question_score"]
+        normalized["overall_score"] = fallback["overall_score"]
+
+    normalized["overall_score"] = _coerce_score(
+        normalized.get("overall_score"),
+        fallback["overall_score"],
+    )
+
+    if not isinstance(normalized.get("dimension_scores"), dict):
+        normalized["dimension_scores"] = fallback["dimension_scores"]
+    if not isinstance(normalized.get("strengths"), list):
+        normalized["strengths"] = fallback["strengths"]
+    if not isinstance(normalized.get("improvements"), list):
+        normalized["improvements"] = fallback["improvements"]
+    if not isinstance(normalized.get("summary_md"), str) or not normalized["summary_md"].strip():
+        normalized["summary_md"] = fallback["summary_md"]
+
+    return normalized
+
+
+def _coerce_score(value: object, fallback: float | int) -> float | int:
+    if isinstance(value, bool):
+        return fallback
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if score < 0 or score > 10:
+        return fallback
+    return round(score, 2)
 
 
 def _fallback_report(scores: list, questions: list) -> dict:

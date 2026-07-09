@@ -26,6 +26,7 @@ from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 
 from app.agents.llm_client import LLMClient, LLMResponse
+from app.observability.tracing import get_trace_context, record_llm_span_attributes, span
 
 logger = structlog.get_logger("agents.llm_client_mock")
 
@@ -139,13 +140,34 @@ class MockLLMClient(LLMClient):
         stream: bool = False,
     ) -> LLMResponse:
         """Return a deterministic response based on node_name."""
-        content = self._content_for(node_name, messages)
-        logger.info(
-            "llm.mock_invoke",
-            user_id=user_id,
-            thread_id=thread_id,
-            node_name=node_name,
-        )
+        trace_context = get_trace_context()
+        with span(
+            f"llm.mock.{node_name}",
+            **{
+                "llm.provider": "mock",
+                "llm.model": "mock-llm",
+                "llm.node": node_name,
+                "llm.mock": True,
+                "run.id": trace_context.run_id or thread_id,
+                "trace.id": trace_context.trace_id,
+            },
+        ) as mock_span:
+            content = self._content_for(node_name, messages)
+            record_llm_span_attributes(
+                mock_span,
+                **{
+                    "llm.prompt_tokens": 0,
+                    "llm.completion_tokens": 0,
+                    "llm.duration_ms": 0,
+                    "llm.result": "success",
+                },
+            )
+            logger.info(
+                "llm.mock_invoke",
+                user_id=user_id,
+                thread_id=thread_id,
+                node_name=node_name,
+            )
         return LLMResponse(
             content=content,
             model="mock-llm",
@@ -174,15 +196,46 @@ class MockLLMClient(LLMClient):
         Each call advances ``call_count`` so AC-E2E-US2-1 can assert the
         exact number of LLM invocations (no off-by-one).
         """
-        self.call_count += 1
-        msg = self._planned_message()
-        # If we exhausted planned tool calls, fall back to text content shaped
-        # by node_name (preserves existing evaluate_scores / hint_contents
-        # behaviour for non-tool nodes).
-        if not msg.tool_calls and not self.planned_tool_calls:
-            text = self._content_for(node_name, messages or [])
-            return AIMessage(content=text, tool_calls=[])
-        return msg
+        trace_context = get_trace_context()
+        with span(
+            f"llm.mock.{node_name}",
+            **{
+                "llm.provider": "mock",
+                "llm.model": "mock-llm",
+                "llm.node": node_name,
+                "llm.mock": True,
+                "run.id": trace_context.run_id or thread_id,
+                "trace.id": trace_context.trace_id,
+            },
+        ) as mock_span:
+            self.call_count += 1
+            msg = self._planned_message()
+            # If we exhausted planned tool calls, fall back to text content shaped
+            # by node_name (preserves existing evaluate_scores / hint_contents
+            # behaviour for non-tool nodes).
+            if not msg.tool_calls and not self.planned_tool_calls:
+                text = self._content_for(node_name, messages or [])
+                record_llm_span_attributes(
+                    mock_span,
+                    **{
+                        "llm.prompt_tokens": 0,
+                        "llm.completion_tokens": 0,
+                        "llm.duration_ms": 0,
+                        "llm.result": "success",
+                    },
+                )
+                return AIMessage(content=text, tool_calls=[])
+            record_llm_span_attributes(
+                mock_span,
+                **{
+                    "llm.prompt_tokens": 0,
+                    "llm.completion_tokens": 0,
+                    "llm.duration_ms": 0,
+                    "llm.result": "success",
+                    "llm.tool_call_count": len(msg.tool_calls or []),
+                },
+            )
+            return msg
 
     async def invoke_stream(self, **kwargs):  # pragma: no cover - unused in Error Coach
         yield ""

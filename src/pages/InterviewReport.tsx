@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Progress } from '@/components/ui/Progress'
 import { Avatar } from '@/components/ui/Avatar'
+import { InterviewPlanPanel } from '@/components/interview/InterviewPlanPanel'
 import { useInterviewSession } from '@/hooks/queries/useInterviewSessions'
 import { useQuery } from '@tanstack/react-query'
 import { interviewSessionRepo, type InterviewReport as ReportData } from '@/repositories/interviewSessionRepo'
@@ -44,6 +45,7 @@ export default function InterviewReport() {
   const isLoading = sessionLoading || reportLoading
 
   const [openSet, setOpenSet] = useState<Set<number>>(() => new Set())
+  const [planOpen, setPlanOpen] = useState(true)
   const toggle = (n: number) =>
     setOpenSet((prev) => {
       const next = new Set(prev)
@@ -76,6 +78,8 @@ export default function InterviewReport() {
   const displayScore = report?.overall_score || session.overall_score || session.score || 0
   const displayMode = session.mode === 'voice' ? '语音面试' : '文字面试'
   const scoreLabel = displayScore >= 8 ? '优秀' : displayScore >= 6 ? '良好' : '待提升'
+  const interviewPlan = report?.interview_plan ?? session.interview_plan ?? null
+  const webResearch = report?.web_research ?? session.web_research ?? null
 
   const dimensionScores = report?.dimension_scores || {}
   const dimensionEntries = Object.entries(dimensionScores)
@@ -165,6 +169,17 @@ export default function InterviewReport() {
           </Button>
         </div>
       </div>
+
+      {interviewPlan && (
+        <InterviewPlanPanel
+          plan={interviewPlan}
+          webResearch={webResearch}
+          open={planOpen}
+          onToggle={() => setPlanOpen((open) => !open)}
+          className="mb-6"
+          testId="interview-report-plan-toggle"
+        />
+      )}
 
       {/* 总览卡 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">

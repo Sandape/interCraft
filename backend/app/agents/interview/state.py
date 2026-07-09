@@ -87,6 +87,16 @@ class InterviewGraphState(TypedDict, total=False):
     requirements_provided: bool
     requirements_truncated: bool
     requirements_original_chars: int
+    planner_context: dict[str, Any] | None
+    web_research: dict[str, Any] | None
+    interview_plan: dict[str, Any] | None
+    # REQ-048 — mode / max_questions / error_question_ids.
+    mode: str | None
+    max_questions: int | None
+    error_question_ids: list[str] | None
+    # REQ-048 US5 — use_variants toggle. Default False per AC-25 R22:
+    # 不传 or false 必须走原题重考（question_text 一字不差，非变体）。
+    use_variants: bool
     # REQ-041 US-2 AC-5.4a — MarkComplete cross-agent router compatibility.
     # When the LLM calls the ``MarkComplete`` @tool from ANY agent bound to
     # the interview graph (e.g. planner_search_node, score_llm), the wrapping
@@ -163,6 +173,8 @@ class InterviewOverallState(TypedDict, total=False):
     requirements_provided: bool
     requirements_truncated: bool
     requirements_original_chars: int
+    planner_context: dict[str, Any] | None
+    web_research: dict[str, Any] | None
     # v2 addition (US-1 / FR-002): unified field name shared with the
     # planner subgraph. AC-2.2 references the 20 legacy fields above; the
     # ``interview_plan`` field is a Phase 2 implementation extension
@@ -170,6 +182,11 @@ class InterviewOverallState(TypedDict, total=False):
     # declared state field; the legacy 20-field set has no slot for the
     # unified name). This 21st field is the minimal addition needed.
     interview_plan: dict[str, Any] | None
+    # REQ-048 — mode / max_questions / error_question_ids. Phase 1+2
+    # minimal additions; preserves the 20+1 schema baseline from US1.
+    mode: str | None
+    max_questions: int | None
+    error_question_ids: list[str] | None
     # REQ-041 US-2 AC-5.4a — MarkComplete cross-agent router compatibility.
     # When the LLM calls the ``MarkComplete`` @tool from ANY agent bound to
     # the interview graph (e.g. planner_search_node, score_llm), the wrapping

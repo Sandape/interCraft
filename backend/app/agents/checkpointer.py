@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from app.agents.exceptions import CheckpointerUnavailableError
+from app.observability.tracing import record_req035_capture_event
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -254,49 +255,31 @@ async def retry_graph_op(
     """
     from app.core.metrics import checkpointer_reconnect_total
 
-    # US2 AC-4.7b: route ``aget_state`` through the checkpointer singleton
-    # so tests / callers can mock the checkpointer's ``aget_state``
-    # surface directly. This makes the retry path observable even when
-    # the caller's ``build_graph_fn`` returns a non-real graph.
-    if op_name == "aget_state":
-        last_exc = None
-        for attempt in range(max_retries + 1):
-            cp = await get_checkpointer()
-            try:
-                return await cp.aget_state(config, *args, **kwargs)
-            except Exception as exc:
-                if not _is_reconnectable(exc):
-                    raise
-                if attempt == max_retries:
-                    raise CheckpointerUnavailableError(
-                        f"Graph operation {op_name} failed after {max_retries + 1} attempts: {exc}",
-                        retry_after=30,
-                    ) from exc
-                last_exc = exc
-                logger.warning(
-                    "checkpointer.retry_graph_op",
-                    op=op_name,
-                    attempt=attempt + 1,
-                    max_retries=max_retries,
-                    exc_info=True,
-                )
-                checkpointer_reconnect_total.inc()
-                await asyncio.sleep(1.0 * (attempt + 1))
-                await _force_rebuild()
-        raise CheckpointerUnavailableError(
-            f"Graph operation {op_name} failed after {max_retries + 1} attempts: {last_exc}",
-            retry_after=30,
-        )
-
     last_exc = None
+    target_id = config.get("configurable", {}).get("thread_id", "unknown")
     for attempt in range(max_retries + 1):
         graph = await build_graph_fn()
         try:
             op = getattr(graph, op_name)
             if state_first:
-                return await op(*args, config, **kwargs)
-            return await op(config, *args, **kwargs)
+                result = await op(*args, config, **kwargs)
+            else:
+                result = await op(config, *args, **kwargs)
+            record_req035_capture_event(
+                target_type="checkpointer_graph_op",
+                target_id=target_id,
+                operation=op_name,
+                status="success",
+            )
+            return result
         except Exception as exc:
+            record_req035_capture_event(
+                target_type="checkpointer_graph_op",
+                target_id=target_id,
+                operation=op_name,
+                status="error",
+                error=str(exc),
+            )
             # Non-reconnectable errors propagate immediately, no retry.
             if not _is_reconnectable(exc):
                 raise

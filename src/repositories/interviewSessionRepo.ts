@@ -4,20 +4,58 @@ Supports: list, getById, create, start, getReport, submitAnswer, resume.
 */
 import { request } from '../api/client'
 
+export interface InterviewFocusArea {
+  area: string
+  weight?: number | null
+  reason?: string | null
+}
+
+export interface InterviewPlan {
+  target_company?: string | null
+  target_position?: string | null
+  job_requirements?: string | null
+  tech_stack?: string[]
+  interview_difficulty?: string | null
+  focus_areas?: InterviewFocusArea[]
+  suggested_questions?: string[]
+  web_research_summary?: string | null
+  tips?: string[]
+}
+
+export interface WebResearchResult {
+  title?: string | null
+  content?: string | null
+  url?: string | null
+}
+
+export interface InterviewWebResearch {
+  interview_experience?: WebResearchResult[]
+  company_tech_stack?: WebResearchResult[]
+  common_questions?: WebResearchResult[]
+}
+
 export interface InterviewSession {
   id: string
   branch_id: string | null
+  job_id: string | null
   position: string | null
   company: string | null
   mode: string | null
+  max_questions: number | null
+  error_question_ids?: string[] | null
   status: string
   thread_id: string | null
   started_at: string | null
   ended_at: string | null
   duration_sec: number | null
   overall_score: number | null
+  score?: number | null
+  duration_seconds?: number | null
+  question_count?: number | null
   created_at: string
   updated_at: string
+  interview_plan: InterviewPlan | null
+  web_research: InterviewWebResearch | null
 }
 
 export interface InterviewReport {
@@ -37,6 +75,8 @@ export interface InterviewReport {
   improvements: Array<{ dimension: string; score: number; detail: string; suggestions: string[] }>
   summary_md: string
   generated_at: string
+  interview_plan: InterviewPlan | null
+  web_research: InterviewWebResearch | null
 }
 
 export interface PaginatedResponse<T> {
@@ -67,17 +107,27 @@ export const interviewSessionRepo = {
   },
 
   async create(data: {
-    position: string
-    company: string
+    position?: string
+    company?: string
     branch_id?: string
     job_id?: string
     mode?: string
+    // REQ-048 (US1 / US3) — only when mode='full'; ignored for quick_drill/doubao.
+    max_questions?: number | null
+    // REQ-048 (US1 / US2) — only when mode='quick_drill'.
+    error_question_ids?: string[] | null
+    // REQ-048 (US5) — only when mode='quick_drill'; default false (AC-25).
+    use_variants?: boolean
   }): Promise<{ data: InterviewSession }> {
     return request('POST', BASE, data)
   },
 
-  async start(id: string): Promise<{ data: { id: string; status: string; started_at: string } }> {
+  async start(id: string): Promise<{ data: { id: string; status: string; thread_id?: string; started_at: string } }> {
     return request('POST', `${BASE}/${id}/start`)
+  },
+
+  async generatePlan(id: string): Promise<{ data: { id: string; interview_plan: InterviewPlan | null; web_research: InterviewWebResearch | null } }> {
+    return request('POST', `${BASE}/${id}/plan`)
   },
 
   async getReport(id: string): Promise<{ data: InterviewReport }> {

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Any
+import uuid
 from uuid import UUID
 
 import structlog
@@ -34,10 +36,33 @@ from app.domain.rls import set_user_context
 from app.modules.interviews.repository import InterviewSessionRepository
 from app.modules.interviews.service import sync_ability_dimensions
 from app.repositories.interview_report_repo import InterviewReportRepo
+from app.observability.tracing import TraceContext, bind_trace_context
 
 logger = structlog.get_logger("interview.ws")
 
 router = APIRouter()
+
+
+def _extract_planner_outputs(payload: object) -> dict[str, dict | None]:
+    if hasattr(payload, "model_dump"):
+        payload = payload.model_dump()
+    if not isinstance(payload, dict):
+        return {"interview_plan": None, "web_research": None}
+    values = payload.get("values")
+    if isinstance(values, dict):
+        payload = values
+    return {
+        "interview_plan": payload.get("interview_plan"),
+        "web_research": payload.get("web_research"),
+    }
+
+
+def build_ws_trace_context(msg: dict, *, fallback_run_id: str) -> TraceContext:
+    trace_id = msg.get("trace_id") or msg.get("traceId") or uuid.uuid4().hex
+    if not isinstance(trace_id, str) or len(trace_id) != 32:
+        trace_id = uuid.uuid4().hex
+    run_id = msg.get("run_id") or msg.get("runId") or fallback_run_id
+    return TraceContext(run_id=str(run_id), trace_id=trace_id)
 
 
 @router.websocket("/ws/interview")
@@ -105,6 +130,8 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
     session_id = msg.get("session_id", "")
     answer = msg.get("content", "")
     sequence_no = msg.get("sequence_no", 0)
+    ctx = build_ws_trace_context(msg, fallback_run_id=session_id or "ws-submit")
+    bind_trace_context(run_id=ctx.run_id, trace_id=ctx.trace_id, span_id=ctx.span_id)
 
     if not session_id or not answer:
         await websocket.send_text(
@@ -120,6 +147,34 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
         return
 
     graph = get_interview_graph()
+    session_context: dict[str, Any] = {
+        "position": None,
+        "company": None,
+        "branch_id": None,
+        "job_id": None,
+        "mode": None,
+        "max_questions": None,
+        "error_question_ids": None,
+    }
+    try:
+        session_uuid = UUID(session_id)
+        user_uuid = UUID(user_id)
+        factory = get_session_factory()
+        async with factory() as db:
+            await set_user_context(db, user_id)
+            session = await InterviewSessionRepository(db).get(session_uuid, user_uuid)
+            if session:
+                session_context = {
+                    "position": session.position,
+                    "company": session.company,
+                    "branch_id": str(session.branch_id) if session.branch_id else None,
+                    "job_id": str(session.job_id) if session.job_id else None,
+                    "mode": session.mode,
+                    "max_questions": session.max_questions,
+                    "error_question_ids": [str(x) for x in session.error_question_ids or []],
+                }
+    except Exception:
+        logger.warning("ws.session_context_lookup_failed", session_id=session_id, exc_info=True)
 
     # Notify scoring started
     await websocket.send_text(
@@ -134,29 +189,67 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
             answer=answer,
             sequence_no=sequence_no,
             user_id=user_id,
+            position=session_context.get("position"),
+            company=session_context.get("company"),
+            branch_id=session_context.get("branch_id"),
+            job_id=session_context.get("job_id"),
+            mode=session_context.get("mode"),
+            max_questions=session_context.get("max_questions"),
+            error_question_ids=session_context.get("error_question_ids"),
         )
+        planner_values = _extract_planner_outputs(result)
+        if not planner_values.get("interview_plan"):
+            try:
+                graph_state = await graph.get_current_state(session_id)
+                planner_values = _extract_planner_outputs(graph_state.get("values", {}))
+            except Exception:
+                logger.warning(
+                    "ws.planner_outputs.lookup_failed",
+                    session_id=session_id,
+                    exc_info=True,
+                )
+        if planner_values.get("interview_plan") or planner_values.get("web_research"):
+            try:
+                session_uuid = UUID(session_id)
+                factory = get_session_factory()
+                async with factory() as db:
+                    await set_user_context(db, user_id)
+                    await InterviewSessionRepository(db).update_planner_outputs(
+                        session_uuid,
+                        interview_plan=planner_values.get("interview_plan"),
+                        web_research=planner_values.get("web_research"),
+                    )
+                    await db.commit()
+            except Exception:
+                logger.warning(
+                    "ws.planner_outputs.persist_failed",
+                    session_id=session_id,
+                    exc_info=True,
+                )
 
         current_q = result.get("current_question", 0)
         scores = result.get("scores", [])
 
-        # Notify score completed
+        # Opening/intake turns can generate the first interview question without
+        # producing a score. Do not emit a fake 0-point score event.
         latest_score = scores[-1] if scores else {}
-        await websocket.send_text(
-            serialize_event(
-                make_node_completed(
-                    session_id,
-                    "score",
-                    checkpoint_id=result.get("checkpoint_id", ""),
-                    summary={
-                        "question_no": sequence_no,
-                        "score": latest_score.get("score", 0),
-                        "dimension": latest_score.get("dimension", ""),
-                        "feedback": latest_score.get("feedback", ""),
-                        "sub_scores": latest_score.get("sub_scores", {}),
-                    },
+        if latest_score:
+            await websocket.send_text(
+                serialize_event(
+                    make_node_completed(
+                        session_id,
+                        "score",
+                        checkpoint_id=result.get("checkpoint_id", ""),
+                        summary={
+                            "question_no": sequence_no,
+                            "score": latest_score.get("score", 0),
+                            "dimension": latest_score.get("dimension", ""),
+                            "feedback": latest_score.get("feedback", ""),
+                            "sub_scores": latest_score.get("sub_scores", {}),
+                        },
+                    )
                 )
             )
-        )
 
         if len(scores) >= 5:
             # Interview complete → report
@@ -260,6 +353,14 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
                     )
                 )
             )
+    except WebSocketDisconnect:
+        logger.info("ws.submit_answer_client_disconnected", session_id=session_id)
+        raise
+    except RuntimeError as exc:
+        if 'Cannot call "send" once a close message has been sent' in str(exc):
+            logger.info("ws.submit_answer_client_disconnected", session_id=session_id)
+            raise WebSocketDisconnect(code=1006) from exc
+        raise
     except Exception as exc:
         logger.error("ws.submit_answer_error", error=str(exc), session_id=session_id)
         await websocket.send_text(
@@ -279,6 +380,8 @@ async def _handle_reconnect(websocket: WebSocket, user_id: str, msg: dict) -> No
     """Process a reconnect message."""
     session_id = msg.get("session_id", "")
     last_checkpoint_id = msg.get("last_seen_checkpoint_id")
+    ctx = build_ws_trace_context(msg, fallback_run_id=session_id or "ws-reconnect")
+    bind_trace_context(run_id=ctx.run_id, trace_id=ctx.trace_id, span_id=ctx.span_id)
 
     if not session_id:
         await websocket.send_text(
@@ -349,4 +452,4 @@ async def _handle_reconnect(websocket: WebSocket, user_id: str, msg: dict) -> No
         )
 
 
-__all__ = ["router"]
+__all__ = ["build_ws_trace_context", "router"]

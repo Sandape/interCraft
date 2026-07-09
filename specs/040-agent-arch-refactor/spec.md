@@ -2,7 +2,7 @@
 
 **Feature Branch**: `040-agent-arch-refactor`
 **Created**: 2026-07-03
-**Status**: Draft
+**Status**: done (merged 2026-07-03 commit 72b9263, US1+US2 done, terminal_status=merged per .claude/teams/req040/state.json)
 **Input**: User description: "把 LangGraph Agent 8 个维度全部向 openDeepResearch 靠齐,4 个 REQ × 2 US 折中分组"
 
 **所属路线图**: 040-043 4 个 REQ 协同实现 "LangGraph 范式现代化" 大特性,本文档为架构层 P1
