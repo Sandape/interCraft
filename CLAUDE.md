@@ -21,3 +21,9 @@ agent routing is [AGENTS.md](./AGENTS.md).
 - Do not move source directories during documentation cleanup.
 - Keep generated screenshots, logs, and manual verification artifacts out of the
   repository root; use `docs/evidence/`.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/055-resume-root-derive/plan.md
+<!-- SPECKIT END -->

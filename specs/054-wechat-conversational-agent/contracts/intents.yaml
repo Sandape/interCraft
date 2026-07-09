@@ -1,0 +1,135 @@
+# Intent Contracts — WeChat Conversational Agent
+
+**Feature**: REQ-054  
+**Consumer**: `intent_parser` → `ConversationOrchestrator`
+
+## Intent Enum
+
+| intent | Kind | Confirmation required |
+|--------|------|------------------------|
+| `create_job` | write | yes |
+| `update_status` | write | yes |
+| `update_job_fields` | write | yes |
+| `query_jobs` | read | no |
+| `query_reports` | read | no |
+| `query_ability` | read | no |
+| `start_interview` | interview | mode/job selection may multi-turn |
+| `continue_interview` | interview | no |
+| `pause_interview` | interview | no |
+| `end_interview` | interview | no |
+| `help` | meta | no |
+| `unknown` | meta | no |
+| `confirm` | meta | n/a (state-driven) |
+| `cancel` | meta | n/a (state-driven) |
+
+> `confirm` / `cancel` 可由规则词表优先识别（在 `awaiting_confirmation`），无需 LLM。
+
+## Entity Schemas
+
+### create_job
+
+```yaml
+entities:
+  company: { type: string, required: true }
+  position: { type: string, required: true }
+  base_location: { type: string, required: false }
+  jd_url: { type: string, format: uri, required: false }
+  notes_md: { type: string, required: false }
+  employment_type: { type: string, required: false }
+  salary_range_text: { type: string, required: false }
+```
+
+### update_status
+
+```yaml
+entities:
+  company: { type: string, required: false }
+  position: { type: string, required: false }
+  job_id: { type: uuid, required: false }
+  target_status:
+    type: enum
+    values: [applied, test, interview_1, interview_2, interview_3, failed, passed]
+    required: true
+  interview_time_raw: { type: string, required: false, description: "用户原文时间表达" }
+  interview_time: { type: datetime, required: false, description: "解析后 Asia/Shanghai 绝对时间" }
+  failure_note: { type: string, required: false }
+```
+
+### update_job_fields
+
+```yaml
+entities:
+  company: { type: string, required: false }
+  position: { type: string, required: false }
+  job_id: { type: uuid, required: false }
+  base_location: { type: string, required: false }
+  jd_url: { type: string, required: false }
+  notes_md: { type: string, required: false }
+# At least one of base_location | jd_url | notes_md required
+```
+
+### query_jobs
+
+```yaml
+entities:
+  filter_status: { type: enum, required: false }
+  company: { type: string, required: false }
+  horizon_days: { type: integer, required: false, default: 7, description: "最近面试查询窗口" }
+```
+
+### query_reports
+
+```yaml
+entities:
+  limit: { type: integer, default: 5, maximum: 5 }
+  company: { type: string, required: false }
+```
+
+### query_ability
+
+```yaml
+entities: {}
+```
+
+### start_interview
+
+```yaml
+entities:
+  mode: { type: enum, values: [full, quick_drill], required: false }
+  job_id: { type: uuid, required: false }
+  company: { type: string, required: false }
+  general: { type: boolean, required: false, description: "true = 不关联岗位" }
+```
+
+### continue_interview / pause_interview / end_interview / help / unknown
+
+```yaml
+entities: {}
+```
+
+## Parser Output
+
+```yaml
+IntentParseResult:
+  intent: string
+  entities: object
+  confidence: number  # 0..1
+  alternatives:
+    type: array
+    items:
+      intent: string
+      confidence: number
+  error: { type: string, enum: [null, llm_unavailable, parse_error] }
+```
+
+## Confidence Gate
+
+- `confidence < 0.6` → 不执行；回复 alternatives（2–3）
+- `error = llm_unavailable` → 重试策略见 FR-003a；不执行写工具
+
+## Out-of-scope Intents (guide to Web)
+
+若 LLM 抽到删除/归档/Offer 相关，映射为 `unknown` 或专用拒绝文案（不执行）：
+
+- delete_job / archive_job
+- update_offer / set_salary / set_hr_contact

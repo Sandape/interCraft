@@ -1,0 +1,128 @@
+# Tool Contracts — WeChat Conversational Agent
+
+**Feature**: REQ-054  
+**Invocation**: in-process Python callables（非 HTTP）  
+**Auth**: 调用方已解析 `user_id`；Service 层强制 RLS / user scope
+
+## Common
+
+```yaml
+ToolResult:
+  ok: boolean
+  reply_text: string          # 已格式化、适合微信（可多段由上层 split）
+  data: object | null
+  error_code: string | null   # e.g. validation_error, invalid_status_transition, not_found, mutex_blocked
+```
+
+所有 **write** 工具在 Orchestrator 层拆成两阶段：
+
+1. `prepare(user_id, entities) -> PendingAction | ClarifyPrompt`
+2. `execute(user_id, pending_action.params) -> ToolResult`（仅确认后）
+
+## create_job
+
+```yaml
+prepare:
+  input: create_job entities
+  missing_required: ask for company and/or position
+  output_pending:
+    type: create_job
+    params: { company, position, base_location?, jd_url?, notes_md?, ... }
+execute:
+  calls: JobService.create(...)
+  success_reply: "✅ 已创建：{company} · {position}（已投递）。..."
+```
+
+## update_job_status
+
+```yaml
+prepare:
+  steps:
+    - resolve job via job_matcher (FR-007)
+    - validate transition via JOB_TRANSITIONS
+    - if target in INTERVIEW_STATUSES: require interview_time (parse Asia/Shanghai)
+    - build confirmation card
+execute:
+  calls: JobService.update_status(job_id, status, interview_time=...)
+  on_illegal_transition: error_code=invalid_status_transition, guide Web for rollback
+```
+
+## update_job_fields
+
+```yaml
+prepare:
+  allowed_fields: [base_location, jd_url, notes_md]
+  reject: delete, offer fields → reply guide Web
+execute:
+  calls: JobService.patch(job_id, only allowed fields)
+```
+
+## query_jobs
+
+```yaml
+execute_immediate:
+  calls: JobService.list(user_id)
+  format: status histogram + recent update ≤300 chars
+```
+
+## query_reports
+
+```yaml
+execute_immediate:
+  calls: InterviewSessionService / report repo (recent completed)
+  limit: 5
+  format: date + job + score ≤400 chars per item
+```
+
+## query_ability
+
+```yaml
+execute_immediate:
+  calls: AbilityProfile dashboard service
+  format: "维度 分 ↑↓→" ; empty → guide start_interview
+```
+
+## Interview adapter (not a single tool)
+
+```yaml
+start_interview:
+  mutex: reject if pending|in_progress exists
+  create+start session via InterviewSessionService
+  set ConversationContext.state=in_interview
+  reply: mode/job confirm then first question after user「开始」
+
+continue_interview:
+  bind existing mutex session; cross-channel OK
+  resume via graph get_current_state / submit path
+
+pause_interview:
+  keep session in_progress; context → idle or flagged paused
+
+end_interview:
+  rounds >= 3 → partial report
+  rounds < 3 → status=expired, no report
+
+submit_answer (implicit when in_interview):
+  InterviewGraph.submit_answer(thread_id, answer_text)
+  format score + next question ≤500 chars
+  if score latency > 30s: first send "评分中，请稍候…"
+```
+
+## Confirmation Card Format
+
+```text
+即将{操作}：{对象摘要}
+{关键参数行}
+确认？回复「确认」或「取消」
+```
+
+## Error Mapping (user-visible)
+
+| error_code | User hint |
+|------------|-----------|
+| validation_error | 字段过长/缺失等中文原因 |
+| invalid_status_transition | 无法从 X 到 Y；回退请用 Web |
+| not_found | 未找到岗位；列出或追问 |
+| mutex_blocked | 已有进行中面试；继续或结束 |
+| llm_unavailable | 暂时无法理解；稍后/帮助/Web |
+| redis_unavailable | 暂时无法确认操作；稍后重试 |

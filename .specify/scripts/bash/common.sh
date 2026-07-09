@@ -74,6 +74,13 @@ read_feature_json_feature_directory() {
         if ! _fd=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); v=d.get('feature_directory'); print(v if v else '')" "$fj" 2>/dev/null); then
             _fd=''
         fi
+        # Fallback: if python3 is a Windows stub that cannot actually run (exit 49),
+        # _fd will be empty. Try grep/sed before giving up.
+        if [[ -z "$_fd" ]]; then
+            _fd=$( { grep -E '"feature_directory"[[:space:]]*:' "$fj" 2>/dev/null || true; } \
+                | head -n 1 \
+                | sed -E 's/^[^:]*:[[:space:]]*"([^"]*)".*$/\1/' )
+        fi
     else
         # Last-resort single-line grep/sed fallback. The `|| true` guards against
         # grep returning 1 (no match) aborting under `set -e` / `pipefail`.
