@@ -47,6 +47,8 @@ export function useCurrentUser() {
   useEffect(() => {
     if (query.data) {
       setUser(query.data)
+      setStatus('authenticated')
+      return
     }
     if (query.isError) {
       setUser(null)
@@ -58,10 +60,17 @@ export function useCurrentUser() {
           useAuthStore.getState().setEvicted(true)
         }
       }
-    } else if (query.isFetching) {
+      return
+    }
+    // REQ-037 / REQ-057: do not flip a confirmed session back to `unknown`
+    // solely because a background refetch is in flight.
+    const existing = useAuthStore.getState().user
+    if (query.isFetching && !existing && !hasTokens()) {
       setStatus('unknown')
-    } else if (query.data) {
-      setStatus('authenticated')
+    } else if (query.isFetching && existing && hasTokens()) {
+      // keep authenticated — silent refresh
+    } else if (!query.data && !existing) {
+      setStatus('unknown')
     }
   }, [query.data, query.error, query.isError, query.isFetching, setUser, setStatus])
 

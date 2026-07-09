@@ -28,6 +28,10 @@ router = APIRouter()
 router.include_router(auth_router, prefix="/auth", tags=["auth"])
 router.include_router(users_router, prefix="/users", tags=["users"])
 router.include_router(sessions_router, prefix="/users/me/sessions", tags=["sessions"])
+# REQ-057 — Dashboard command-center summary (GET /me/dashboard-summary)
+from app.modules.dashboard.api import router as dashboard_router
+
+router.include_router(dashboard_router)
 router.include_router(resumes_router, tags=["resumes"])
 router.include_router(resumes_avatar_router, tags=["resumes-avatar"])
 router.include_router(versions_router, tags=["versions"])
@@ -70,6 +74,13 @@ router.include_router(general_coach_router)
 from app.modules.search import router as search_router
 
 router.include_router(search_router, tags=["search"])
+
+# REQ-055 — Resume root / derive
+# MUST mount before resumes_v2 so literal paths like /v2/resumes/root and
+# /v2/resumes/derive are not swallowed by /v2/resumes/{resume_id}.
+from app.modules.resume_derive.api import router as resume_derive_router
+
+router.include_router(resume_derive_router, tags=["resume-derive"])
 
 # Feature 032 — Resume v2 (renderer + editor)
 from app.modules.resumes_v2.api import router as resumes_v2_router

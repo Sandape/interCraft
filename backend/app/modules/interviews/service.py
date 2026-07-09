@@ -214,6 +214,7 @@ class InterviewSessionService:
         thread_id = str(session.id)
 
         await self.repo.update_status(session.id, "pending", thread_id=thread_id)
+        await self._invalidate_dashboard(user_id)
         return await self.repo.get(session.id, user_id)
 
     async def _count_active_errors(self, user_id: UUID) -> int:
@@ -273,6 +274,7 @@ class InterviewSessionService:
         now = datetime.now(UTC)
         thread_id = str(session.id)
         await self.repo.update_status(id, "in_progress", thread_id=thread_id, started_at=now)
+        await self._invalidate_dashboard(user_id)
 
         return {
             "id": str(session.id),
@@ -747,6 +749,15 @@ class InterviewSessionService:
                 return state
         # No state found under either key — return empty state with current key
         return await graph.get_current_state(candidate_keys[0])
+
+    @staticmethod
+    async def _invalidate_dashboard(user_id: UUID) -> None:
+        try:
+            from app.modules.dashboard.cache import cache_invalidate
+
+            await cache_invalidate(user_id)
+        except Exception:
+            pass
 
 
 __all__ = ["InterviewSessionService"]

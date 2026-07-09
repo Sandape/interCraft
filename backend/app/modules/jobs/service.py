@@ -63,6 +63,7 @@ class JobService:
 
         # Log activity
         await self._log(user_id, "job_created", {"job_id": str(job.id), "company": job.company, "position": job.position})
+        await self._invalidate_dashboard(user_id)
 
         return job
 
@@ -84,7 +85,9 @@ class JobService:
                 data["interview_time"],
                 current_status=job.status,
             )
-        return await self.repo.patch(id, user_id, data) or job
+        patched = await self.repo.patch(id, user_id, data) or job
+        await self._invalidate_dashboard(user_id)
+        return patched
 
     async def update_status(
         self,
@@ -172,6 +175,7 @@ class JobService:
 
         await self.session.flush()
         await self.session.refresh(job)
+        await self._invalidate_dashboard(user_id)
         return job
 
     async def delete(self, id: UUID, user_id: UUID) -> None:
@@ -188,6 +192,7 @@ class JobService:
         except Exception:
             pass
         await self.repo.soft_delete(id, user_id)
+        await self._invalidate_dashboard(user_id)
 
     async def stats(self, user_id: UUID) -> dict:
         return await self.repo.stats(user_id)
@@ -201,6 +206,15 @@ class JobService:
         from app.modules.activities.models import Activity
         activity = Activity(user_id=user_id, type=type, actor_type="user", payload_json=payload)
         await self.activity_repo.log(activity)
+
+    @staticmethod
+    async def _invalidate_dashboard(user_id: UUID) -> None:
+        try:
+            from app.modules.dashboard.cache import cache_invalidate
+
+            await cache_invalidate(user_id)
+        except Exception:
+            pass
 
     @staticmethod
     def _validate_interview_time(

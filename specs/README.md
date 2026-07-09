@@ -30,15 +30,19 @@ git history only for old context if specifically needed.
 
 ## Active
 
-**Current milestone (2026-07-09):** REQ-001 through REQ-052 are done. Active
-specs are REQ-053, REQ-054 (Personal AI Career Agent triad with REQ-052), and
-REQ-055 (Resume Center root/derive upgrade).
+**Current milestone (2026-07-10):** REQ-057 (求职训练指挥台) is the current
+SpecKit focus — spec + plan + tasks ready; next `/speckit-implement`. REQ-001 through REQ-052 are done. REQ-055 MVP and
+REQ-056 (Derive Production Hardening) are **done** (guarded-rollout bar;
+T034/T097 still deferred on 055). REQ-053/054 remain draft in the Personal AI
+Career Agent triad.
 
 | ID | Feature | Status | Source Of Truth | Notes |
 |---|---|---|---|---|
+| 057 | 求职训练指挥台（工作台首页） | in_progress | [spec.md](./057-dashboard-home-optimize/spec.md) | MVP shipped: summary BFF + Dashboard rewrite; browser-harness accepted. See [requirements-status.md](./057-dashboard-home-optimize/requirements-status.md) + evidence. |
+| 056 | Derive Production Hardening | done | [spec.md](./056-derive-prod-hardening/spec.md) | Closes REQ-055 MVP→production gap layers 2–3. Evidence in `docs/evidence/056-derive-prod-hardening/`. See [requirements-status.md](./056-derive-prod-hardening/requirements-status.md). |
 | 053 | Interview Intelligence Engine | draft | [spec.md](./053-interview-intelligence/spec.md) | Second of the Personal AI Career Agent triad. New 7-state job model with interview time tracking, 5-hours-before deep web search research, report generation, and WeChat push via REQ-052. Depends on REQ-052. |
 | 054 | WeChat Conversational Agent | draft | [spec.md](./054-wechat-conversational-agent/spec.md) | Third of the Personal AI Career Agent triad. Natural language job tracking CRUD, text mock interviews, interview report viewing, and ability profile viewing — all via WeChat conversation. Depends on REQ-052 + REQ-053. |
-| 055 | Resume Root & Derive | draft | [spec.md](./055-resume-root-derive/spec.md) | Root resume as career vault + job-bound derived snapshots + one-click derive from Job Tracker JD + strict 1/2/3-page PDF + AI suggestions without fabrication. Product/UX focused. |
+| 055 | Resume Root & Derive | done | [spec.md](./055-resume-root-derive/spec.md) | Root resume as career vault + job-bound derived snapshots + one-click derive from Job Tracker JD + strict 1/2/3-page PDF + AI suggestions without fabrication. See [requirements-status.md](./055-resume-root-derive/requirements-status.md). |
 
 ## In Progress
 

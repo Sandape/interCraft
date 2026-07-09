@@ -21,6 +21,7 @@ export function useCreateJob() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['jobStats'] })
+      qc.invalidateQueries({ queryKey: ['me', 'dashboard-summary'] })
     },
   })
 }
@@ -34,6 +35,7 @@ export function useBindBranchToJob() {
     onSuccess: (data: Job) => {
       qc.setQueryData(['job', data.id], data)
       qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['me', 'dashboard-summary'] })
     },
   })
 }
@@ -59,6 +61,7 @@ export function useUpdateJobStatus() {
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['jobStats'] })
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['me', 'dashboard-summary'] })
     },
   })
 }
@@ -71,6 +74,7 @@ export function useDeleteJob() {
       qc.removeQueries({ queryKey: ['job', id] })
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['jobStats'] })
+      qc.invalidateQueries({ queryKey: ['me', 'dashboard-summary'] })
     },
   })
 }
