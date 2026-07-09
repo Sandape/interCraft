@@ -11,6 +11,7 @@ import { full as emoji } from 'markdown-it-emoji'
 import headingBlockPlugin from './markdown-it-plugins/heading-block'
 import blankLinePlugin from './markdown-it-plugins/blank-line'
 import containersPlugin from './markdown-it-plugins/containers'
+import contactRowsPlugin from './markdown-it-plugins/contact-rows'
 import svgMap from './icons/svg-map'
 
 /** Build the shortcut map: each icon name → `icon:<name>`. */
@@ -47,6 +48,7 @@ markdownParserResume
   })
   .use(headingBlockPlugin)
   .use(containersPlugin)
+  .use(contactRowsPlugin)
   .use(blankLinePlugin)
 
 /** Article parser (no plugins) — for rendering tutorial / changelog modals. */

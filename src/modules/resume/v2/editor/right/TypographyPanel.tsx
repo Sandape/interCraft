@@ -20,26 +20,50 @@
 //     so Playwright tests can address controls by role.
 
 import { useResumeV2Store } from "../../store";
-import type { FontWeight, TypographyItem } from "../../schema/data";
+import type { FontWeight, ResumeDataV2, TypographyItem } from "../../schema/data";
+
+export interface TypographyPanelProps {
+  data?: ResumeDataV2;
+  onChange?: (next: ResumeDataV2) => void;
+}
 
 // ── constants ─────────────────────────────────────────────────────────────
 
 const FONT_FAMILIES: readonly string[] = [
+  "IBM Plex Sans",
+  "IBM Plex Serif",
+  "Fira Sans",
+  "Fira Serif",
+  "Fira Sans Condensed",
+  "Montserrat",
+  "Raleway",
+  "PT Sans",
+  "Noto Sans",
+  "JetBrains Mono",
   "Inter",
   "Roboto",
   "Open Sans",
   "Lato",
   "Source Sans Pro",
+  "Merriweather",
+  "Nunito",
+  "Work Sans",
+  "DM Sans",
+  "Manrope",
+  "Source Serif Pro",
   "system-ui",
 ];
 
 const FONT_WEIGHT_OPTIONS: readonly FontWeight[] = [
+  "100",
+  "200",
   "300",
   "400",
   "500",
   "600",
   "700",
   "800",
+  "900",
 ];
 
 const FONT_SIZE_MIN = 6;
@@ -48,6 +72,10 @@ const LINE_HEIGHT_MIN = 0.5;
 const LINE_HEIGHT_MAX = 4.0;
 const LINE_HEIGHT_STEP = 0.1;
 
+function cloneData(data: ResumeDataV2): ResumeDataV2 {
+  return JSON.parse(JSON.stringify(data)) as ResumeDataV2;
+}
+
 // ── shared row ────────────────────────────────────────────────────────────
 
 interface TypographyRowProps {
@@ -55,15 +83,12 @@ interface TypographyRowProps {
   scope: "body" | "heading";
   /** The slice of `data.metadata.typography.{scope}` to bind to. */
   value: TypographyItem;
+  onPatch: (scope: "body" | "heading", mutator: (draft: TypographyItem) => void) => void;
 }
 
-function TypographyRow({ scope, value }: TypographyRowProps): JSX.Element {
-  const setDataMut = useResumeV2Store((s) => s.setDataMut);
-
+function TypographyRow({ scope, value, onPatch }: TypographyRowProps): JSX.Element {
   const patch = (mutator: (draft: TypographyItem) => void) => {
-    setDataMut((draft) => {
-      mutator(draft.metadata.typography[scope]);
-    });
+    onPatch(scope, mutator);
   };
 
   const handleFamilyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -104,9 +129,16 @@ function TypographyRow({ scope, value }: TypographyRowProps): JSX.Element {
     });
   };
 
+  const handleWeightsChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selected = Array.from(e.target.selectedOptions).map((option) => option.value as FontWeight);
+    patch((d) => {
+      d.fontWeights = selected;
+    });
+  };
+
   return (
     <section
-      data-testid={`typography-${scope}-section`}
+      data-testid={`typography-${scope}`}
       className="space-y-3 rounded border border-surface-border bg-surface-base p-3"
     >
       <div className="text-xs font-semibold uppercase tracking-wide text-ink-3">
@@ -116,7 +148,7 @@ function TypographyRow({ scope, value }: TypographyRowProps): JSX.Element {
       <label className="block space-y-1">
         <span className="text-xs text-ink-2">Font family</span>
         <select
-          data-testid={`typography-${scope}-family`}
+          data-testid={`typography-${scope}-font-family`}
           value={value.fontFamily}
           onChange={handleFamilyChange}
           className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
@@ -139,7 +171,7 @@ function TypographyRow({ scope, value }: TypographyRowProps): JSX.Element {
             step={1}
             value={value.fontSize}
             onChange={handleFontSizeChange}
-            data-testid={`typography-${scope}-fontSize`}
+            data-testid={`typography-${scope}-font-size`}
             className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
           />
           <span className="text-xs text-ink-3">pt</span>
@@ -153,19 +185,29 @@ function TypographyRow({ scope, value }: TypographyRowProps): JSX.Element {
           min={LINE_HEIGHT_MIN}
           max={LINE_HEIGHT_MAX}
           step={LINE_HEIGHT_STEP}
-          value={value.lineHeight}
+          value={value.lineHeight.toFixed(2)}
           onChange={handleLineHeightChange}
-          data-testid={`typography-${scope}-lineHeight`}
+          data-testid={`typography-${scope}-line-height`}
           className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
         />
       </label>
 
       <div className="space-y-1">
         <span className="text-xs text-ink-2">Font weights</span>
-        <div
-          className="flex flex-wrap gap-1"
-          data-testid={`typography-${scope}-weights`}
+        <select
+          multiple
+          value={value.fontWeights}
+          onChange={handleWeightsChange}
+          data-testid={`typography-${scope}-font-weights`}
+          className="h-24 w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
         >
+          {FONT_WEIGHT_OPTIONS.map((w) => (
+            <option key={w} value={w}>
+              {w}
+            </option>
+          ))}
+        </select>
+        <div className="flex flex-wrap gap-1">
           {FONT_WEIGHT_OPTIONS.map((w) => {
             const active = value.fontWeights.includes(w);
             return (
@@ -194,8 +236,26 @@ function TypographyRow({ scope, value }: TypographyRowProps): JSX.Element {
 
 // ── main panel ────────────────────────────────────────────────────────────
 
-export default function TypographyPanel(): JSX.Element {
-  const typography = useResumeV2Store((s) => s.data.metadata.typography);
+export function TypographyPanel(props: TypographyPanelProps = {}): JSX.Element {
+  const storeData = useResumeV2Store((s) => s.data);
+  const setDataMut = useResumeV2Store((s) => s.setDataMut);
+  const data = props.data ?? storeData;
+  const typography = data.metadata.typography;
+
+  const patchTypography = (
+    scope: "body" | "heading",
+    mutator: (draft: TypographyItem) => void,
+  ) => {
+    if (props.data && props.onChange) {
+      const next = cloneData(props.data);
+      mutator(next.metadata.typography[scope]);
+      props.onChange(next);
+      return;
+    }
+    setDataMut((draft) => {
+      mutator(draft.metadata.typography[scope]);
+    });
+  };
 
   return (
     <div
@@ -203,8 +263,10 @@ export default function TypographyPanel(): JSX.Element {
       className="flex h-full flex-col gap-3 overflow-y-auto p-3"
     >
       <div className="text-xs font-semibold text-ink-3">Typography</div>
-      <TypographyRow scope="body" value={typography.body} />
-      <TypographyRow scope="heading" value={typography.heading} />
+      <TypographyRow scope="body" value={typography.body} onPatch={patchTypography} />
+      <TypographyRow scope="heading" value={typography.heading} onPatch={patchTypography} />
     </div>
   );
 }
+
+export default TypographyPanel;

@@ -1,0 +1,61 @@
+/* T036 — Azurill template CSS.
+ *
+ * Visual signature: 2-column flex (left sidebar, right main). Header is
+ * full-width with horizontal contact row. Section headings are normal
+ * weight, primary color, no border.
+ */
+
+.rs-tpl-azurill .rs-tpl__header {
+  display: flex;
+  gap: 12pt;
+  align-items: center;
+  padding-bottom: 8pt;
+  margin-bottom: 12pt;
+}
+
+.rs-tpl-azurill .rs-tpl__picture {
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+}
+
+.rs-tpl-azurill .rs-tpl__name {
+  font-size: calc(var(--font-size-heading) * 1.4);
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.1;
+}
+
+.rs-tpl-azurill .rs-tpl__contact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8pt;
+  margin-top: 4pt;
+  font-size: var(--font-size-body);
+}
+
+.rs-tpl-azurill__row {
+  display: flex;
+  gap: 12pt;
+  align-items: flex-start;
+}
+
+.rs-tpl-azurill__sidebar {
+  flex-shrink: 0;
+}
+
+.rs-tpl-azurill__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-tpl-azurill .rs-tpl__section-heading {
+  color: var(--color-primary);
+  border-bottom: none;
+  margin-bottom: 4pt;
+  display: flex;
+  align-items: center;
+  gap: 4pt;
+  font-size: var(--font-size-heading);
+  font-weight: 600;
+}

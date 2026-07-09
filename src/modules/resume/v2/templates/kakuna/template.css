@@ -1,0 +1,75 @@
+/* T037 — Kakuna template CSS — centered symmetric. */
+
+.rs-tpl-kakuna .rs-tpl__header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding-bottom: 12pt;
+  margin-bottom: 16pt;
+  border-bottom: 1px solid var(--color-primary);
+}
+
+.rs-tpl-kakuna .rs-tpl__picture {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  margin-bottom: 6pt;
+}
+
+.rs-tpl-kakuna .rs-tpl__picture-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.rs-tpl-kakuna .rs-tpl__header-text {
+  text-align: center;
+}
+
+.rs-tpl-kakuna .rs-tpl__name {
+  font-size: calc(var(--font-size-heading) * 1.6);
+  font-weight: 700;
+  margin: 0;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.rs-tpl-kakuna .rs-tpl__headline {
+  text-align: center;
+  font-style: italic;
+  margin-top: 2pt;
+}
+
+.rs-tpl-kakuna .rs-tpl__contact-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8pt;
+  margin-top: 6pt;
+  font-size: var(--font-size-body);
+}
+
+.rs-tpl-kakuna .rs-tpl__main {
+  max-width: 92%;
+  margin: 0 auto;
+}
+
+.rs-tpl-kakuna .rs-tpl__section-heading {
+  text-align: center;
+  color: var(--color-primary);
+  border-bottom: 1px solid var(--color-primary);
+  padding-bottom: 2pt;
+  margin-bottom: 6pt;
+  font-size: var(--font-size-heading);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4pt;
+}
+
+.rs-tpl-kakuna .rs-tpl__item {
+  text-align: left;
+}

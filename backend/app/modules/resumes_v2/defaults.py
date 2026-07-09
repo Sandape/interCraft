@@ -113,6 +113,15 @@ def default_resume_data_v2() -> dict[str, Any]:
             },
             "notes": "",
             "styleRules": [],
+            "markdown": {
+                "sourceMarkdown": "# 林溪 - AI 应用工程师\n\n## 个人总结\n\n5 年 AI 应用与全栈工程经验，专注 **RAG、Agent 工作流、企业知识库、评测体系**。\n",
+                "themeId": "muji-default-autumn",
+                "manualLineHeight": 19,
+                "smartOnePageEnabled": False,
+                "smartLineHeight": None,
+                "previousManualLineHeight": None,
+                "smartStatus": "idle",
+            },
         },
     }
 

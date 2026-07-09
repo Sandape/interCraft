@@ -69,3 +69,10 @@ export function applySinglePageMode(domNode: HTMLElement, enabled: boolean): voi
 
 export { A4_HEIGHT_PX } from './constants'
 export { attachWindowScaleListener, applyWindowScale } from './window-scale'
+export { paginateMarkdownHtml } from './markdown-pages'
+export type {
+  PageBreakDecision,
+  PageBreakReason,
+  PaginatedResumePreview,
+  ResumePreviewPage,
+} from './types'

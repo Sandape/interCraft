@@ -1,12 +1,8 @@
-// T045 — TemplateId literal union + Gallery registry.
+// v1 TemplateId literal union + Gallery registry.
 //
-// All 10 template IDs must exist here so the Template Gallery picker
-// can render 10 thumbnails even though only Onyx actually renders
-// in the 032 v2 MVP. The dispatcher (templates/index.ts) maps the
-// other 9 ids to OnyxTemplate as a placeholder fallback.
-//
-// When the real templates ship (after MVP), each entry should be
-// replaced with the matching component import.
+// All 10 template IDs map to shipped template implementations. Keep these
+// descriptors aligned with the public manifest so product copy does not drift
+// back to old MVP placeholder language.
 
 import type { TemplateId } from "./data";
 
@@ -27,10 +23,7 @@ export const TEMPLATE_IDS: TemplateId[] = [
 
 export const DEFAULT_TEMPLATE_ID: TemplateId = "onyx";
 
-/** Lightweight schema describing each template for the Gallery UI.
- *  The MVP only ships real metadata for Onyx; the other 9 reuse
- *  the Onyx preview as a placeholder so the Gallery picker can be
- *  exercised in E2E tests before the real templates ship. */
+/** Lightweight schema describing each template for the Gallery UI. */
 export interface TemplateDescriptor {
   id: TemplateId;
   /** Display label shown in the Gallery thumbnail header. */
@@ -43,17 +36,17 @@ export const TEMPLATE_DESCRIPTORS: Record<TemplateId, TemplateDescriptor> = {
   onyx: {
     id: "onyx",
     label: "Onyx",
-    description: "Clean single-column resume — the v2 MVP default.",
+    description: "Clean single-column resume for ATS-friendly technical roles.",
   },
-  azurill: { id: "azurill", label: "Azurill", description: "(placeholder — uses Onyx in MVP)" },
-  kakuna: { id: "kakuna", label: "Kakuna", description: "(placeholder — uses Onyx in MVP)" },
-  chikorita: { id: "chikorita", label: "Chikorita", description: "(placeholder — uses Onyx in MVP)" },
-  ditgar: { id: "ditgar", label: "Ditgar", description: "(placeholder — uses Onyx in MVP)" },
-  bronzor: { id: "bronzor", label: "Bronzor", description: "(placeholder — uses Onyx in MVP)" },
-  pikachu: { id: "pikachu", label: "Pikachu", description: "(placeholder — uses Onyx in MVP)" },
-  lapras: { id: "lapras", label: "Lapras", description: "(placeholder — uses Onyx in MVP)" },
-  scizor: { id: "scizor", label: "Scizor", description: "(placeholder — uses Onyx in MVP)" },
-  rhyhorn: { id: "rhyhorn", label: "Rhyhorn", description: "(placeholder — uses Onyx in MVP)" },
+  azurill: { id: "azurill", label: "Azurill", description: "Two-column business layout with a left sidebar and timeline rhythm." },
+  kakuna: { id: "kakuna", label: "Kakuna", description: "Centered single-column layout for academic and research profiles." },
+  chikorita: { id: "chikorita", label: "Chikorita", description: "Creative right-sidebar layout with strong section contrast." },
+  ditgar: { id: "ditgar", label: "Ditgar", description: "Tinted left sidebar with item rules for engineering resumes." },
+  bronzor: { id: "bronzor", label: "Bronzor", description: "Compact row-style business layout with structured section labels." },
+  pikachu: { id: "pikachu", label: "Pikachu", description: "Colorful header-card layout with a left sidebar for creative tech roles." },
+  lapras: { id: "lapras", label: "Lapras", description: "Rounded card sections with a calmer product and operations feel." },
+  scizor: { id: "scizor", label: "Scizor", description: "Editorial letterhead layout for brand, content, and creative leadership." },
+  rhyhorn: { id: "rhyhorn", label: "Rhyhorn", description: "Compact professional header with pipe-separated contact details." },
 };
 
 /** Alias kept for backward-compat with `templates/index.ts`. The full

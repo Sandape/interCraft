@@ -13,6 +13,8 @@ Mount point: ``/api/v1/v2`` (added in ``backend/app/main.py`` and
 """
 from __future__ import annotations
 
+import copy
+import re
 from typing import Any
 from uuid import UUID
 
@@ -81,6 +83,174 @@ def _resume_to_out(row, *, include_data: bool = True) -> dict[str, Any]:
     if include_data:
         payload["data"] = row.data
     return payload
+
+
+def _stage_legacy_markdown_data(data: dict[str, Any]) -> dict[str, Any]:
+    staged = copy.deepcopy(data)
+    metadata = staged.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    markdown = metadata.get("markdown")
+    if not isinstance(markdown, dict):
+        markdown = {}
+    if str(markdown.get("sourceMarkdown") or "").strip():
+        return staged
+
+    converted = _convert_structured_resume_to_markdown(staged)
+    markdown = {
+        "sourceMarkdown": converted["markdown"],
+        "themeId": markdown.get("themeId") or "muji-default-autumn",
+        "manualLineHeight": markdown.get("manualLineHeight") or 19,
+        "smartOnePageEnabled": bool(markdown.get("smartOnePageEnabled") or False),
+        "smartLineHeight": markdown.get("smartLineHeight"),
+        "previousManualLineHeight": markdown.get("previousManualLineHeight"),
+        "smartStatus": markdown.get("smartStatus") or "idle",
+        "paginationState": markdown.get("paginationState") or "idle",
+        "pageCount": max(1, int(markdown.get("pageCount") or 1)),
+        "legacyConversionStatus": "warning" if converted["warnings"] else "converted",
+        "legacyConversionWarnings": converted["warnings"],
+    }
+    metadata["markdown"] = markdown
+    staged["metadata"] = metadata
+    return staged
+
+
+def _convert_structured_resume_to_markdown(data: dict[str, Any]) -> dict[str, Any]:
+    lines: list[str] = []
+    warnings: list[str] = []
+    basics = data.get("basics") if isinstance(data.get("basics"), dict) else {}
+    assert isinstance(basics, dict)
+    name = _string(basics.get("name")) or "Untitled Resume"
+    lines.append(f"# {name}")
+    headline = _string(basics.get("headline"))
+    if headline:
+        lines.extend(["", headline])
+
+    contact = _contact_rows(basics)
+    if contact:
+        lines.extend(["", "::: left", *contact, ":::"])
+
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+    if isinstance(summary, dict) and not summary.get("hidden"):
+        content = _strip_html(_string(summary.get("content")))
+        if content:
+            lines.extend(["", f"## {_string(summary.get('title')) or 'Summary'}", "", content])
+
+    sections = data.get("sections") if isinstance(data.get("sections"), dict) else {}
+    if isinstance(sections, dict):
+        for key, raw in sections.items():
+            if not isinstance(raw, dict) or raw.get("hidden"):
+                continue
+            rendered = _render_legacy_section(_string(raw.get("title")) or _titleize(key), raw)
+            if rendered:
+                lines.extend(["", *rendered])
+
+    custom_sections = data.get("customSections")
+    if isinstance(custom_sections, list):
+        for raw in custom_sections:
+            if not isinstance(raw, dict) or raw.get("hidden"):
+                continue
+            rendered = _render_legacy_section(_string(raw.get("title")) or "Custom Section", raw)
+            if rendered:
+                lines.extend(["", *rendered])
+
+    markdown = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip() + "\n"
+    return {"markdown": markdown, "warnings": warnings}
+
+
+def _contact_rows(basics: dict[str, Any]) -> list[str]:
+    rows: list[str] = []
+    if phone := _string(basics.get("phone")):
+        rows.append(f"icon:phone {phone}")
+    if email := _string(basics.get("email")):
+        rows.append(f"icon:email {email}")
+    if location := _string(basics.get("location")):
+        rows.append(f"icon:location {location}")
+    website = basics.get("website")
+    if isinstance(website, dict) and (url := _string(website.get("url"))):
+        label = _string(website.get("label")) or url
+        rows.append(f"[icon:link {label}]({url})")
+    custom = basics.get("customFields")
+    if isinstance(custom, list):
+        for field in custom:
+            if isinstance(field, dict) and (value := _string(field.get("value"))):
+                rows.append(f"{_string(field.get('name')) or 'Contact'}: {value}")
+    return rows
+
+
+def _render_legacy_section(title: str, section: dict[str, Any]) -> list[str]:
+    lines: list[str] = [f"## {title}"]
+    if content := _strip_html(_string(section.get("content"))):
+        lines.extend(["", content])
+    items = section.get("items")
+    if isinstance(items, list):
+        for item in items:
+            if isinstance(item, dict):
+                rendered = _render_legacy_item(item)
+                if rendered:
+                    lines.extend(["", *rendered])
+    return lines if len(lines) > 1 else []
+
+
+def _render_legacy_item(item: dict[str, Any]) -> list[str]:
+    title = (
+        _string(item.get("name"))
+        or _string(item.get("position"))
+        or _string(item.get("company"))
+        or _string(item.get("institution"))
+        or _string(item.get("area"))
+        or _string(item.get("title"))
+    )
+    subtitle = " - ".join(
+        part
+        for part in [
+            _string(item.get("company")),
+            _string(item.get("institution")),
+            _string(item.get("area")),
+        ]
+        if part and part != title
+    )
+    date = _string(item.get("date")) or _string(item.get("period"))
+    description = (
+        _strip_html(_string(item.get("summary")))
+        or _strip_html(_string(item.get("description")))
+        or _strip_html(_string(item.get("content")))
+    )
+    keywords = item.get("keywords")
+    keyword_text = (
+        ", ".join(_string(v) for v in keywords if _string(v))
+        if isinstance(keywords, list)
+        else ""
+    )
+    lines: list[str] = []
+    if title:
+        lines.append(f"### {title}")
+    if subtitle or date:
+        lines.append(" | ".join(part for part in [subtitle, date] if part))
+    if description:
+        lines.extend(["", description])
+    if keyword_text:
+        lines.extend(["", f"- {keyword_text}"])
+    return lines
+
+
+def _string(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _strip_html(value: str) -> str:
+    return (
+        re.sub(r"<[^>]+>", "", value.replace("<br>", "\n").replace("<br/>", "\n"))
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .strip()
+    )
+
+
+def _titleize(value: str) -> str:
+    return re.sub(r"[-_]+", " ", value).title()
 
 
 def _list_item_to_out(row) -> dict[str, Any]:
@@ -153,12 +323,8 @@ async def create_resume(
         template=payload.template,
         from_sample=payload.from_sample,
     )
-    # Envelope response per E2E test contract: clients expect
-    # `{ "resume": {...} }` so that the create/duplicate endpoints
-    # share a uniform shape across v2. Spec §1.2 says "same shape as
-    # 1.3", but the in-flight frontend + E2E tests use `{resume: ...}`.
-    # We wrap to match the client until the spec is amended.
-    return {"resume": _resume_to_out(row, include_data=True)}
+    out = _resume_to_out(row, include_data=True)
+    return {**out, "resume": out}
 
 
 @router.get("/resumes/{resume_id}", response_model=ResumeV2Out)
@@ -185,6 +351,10 @@ async def get_resume(
     data_blob = row.data if isinstance(row.data, dict) else {}
     fmt = data_blob.get("data_format_version") if isinstance(data_blob, dict) else None
     if fmt == "v1":
+        out = _resume_to_out(row, include_data=True)
+        out["data"] = _stage_legacy_markdown_data(data_blob)
+        return out
+    if False and fmt == "v1":
         return _err_response(
             400,
             "LEGACY_FORMAT",

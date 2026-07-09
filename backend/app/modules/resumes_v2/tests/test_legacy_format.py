@@ -84,10 +84,10 @@ class TestLegacyFormatDetection:
         assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text}"
         assert r.json().get("data") is not None
 
-    async def test_get_row_with_v1_marker_returns_400_legacy_format(
+    async def test_get_row_with_v1_marker_returns_staged_markdown(
         self, v2_client: httpx.AsyncClient
     ) -> None:
-        """The legacy marker inside `data` JSONB triggers 400 LEGACY_FORMAT."""
+        """The legacy marker stages Markdown for the cutover editor."""
         from uuid import UUID
 
         suffix = secrets.token_hex(6)
@@ -103,6 +103,9 @@ class TestLegacyFormatDetection:
 
         legacy_data = minimal_resume_data_v2()
         legacy_data["data_format_version"] = "v1"
+        legacy_data["basics"]["name"] = "Legacy V1"
+        legacy_data["basics"]["email"] = "legacy@example.com"
+        legacy_data["summary"]["content"] = "<p>Legacy summary.</p>"
 
         async with _session_cm() as session:
             rid = await insert_resume_v2_raw(
@@ -118,9 +121,14 @@ class TestLegacyFormatDetection:
             f"/api/v1/v2/resumes/{rid}",
             headers=_hdrs(access=user["access"]),
         )
-        assert r.status_code == 400, f"expected 400, got {r.status_code}: {r.text}"
+        assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text}"
         payload = r.json()
-        assert payload.get("error") == "LEGACY_FORMAT", payload
+        markdown = payload["data"]["metadata"]["markdown"]
+        assert markdown["legacyConversionStatus"] == "converted"
+        assert "# Legacy V1" in markdown["sourceMarkdown"]
+        assert "icon:email legacy@example.com" in markdown["sourceMarkdown"]
+        assert "Legacy summary." in markdown["sourceMarkdown"]
+        return
         # The message must be human-readable (used verbatim by the
         # frontend banner in T126).
         assert "v1" in payload.get("message", "").lower() or "旧版" in payload.get("message", "")

@@ -58,6 +58,12 @@ export interface ResumeV2 {
   data: ResumeDataV2;
 }
 
+export interface ResumeV2Conflict {
+  error: "VERSION_CONFLICT";
+  latest_data: ResumeDataV2;
+  latest_version: number;
+}
+
 export interface ResumeV2Create {
   name: string;
   slug: string;
@@ -93,35 +99,55 @@ export interface StatisticsResponse {
 
 export interface AnalysisItem {
   /** Stable id from the LLM. Used as React key. */
-  id: string;
+  id?: string;
   /** High-level category (e.g. "summary", "experience"). */
-  category: string;
+  category?: string;
   /** The improvement suggestion. */
-  suggestion: string;
+  suggestion?: string;
+  /** Richer resume-v2 analysis text returned by the production backend. */
+  text?: string;
+  why?: string;
+  exampleRewrite?: string;
   /** Severity ranking: high → low. */
   impact: "high" | "medium" | "low";
+}
+
+export interface AnalysisDimension {
+  name: string;
+  score: number;
 }
 
 export interface AnalysisResponse {
   status: "success" | "failed";
   analysis: {
     score: number;
+    overallScore?: number;
+    dimensions?: AnalysisDimension[];
     items: AnalysisItem[];
+    strengths?: AnalysisItem[];
+    suggestions?: AnalysisItem[];
   } | null;
   failure_reason: string | null;
   updated_at: string;
 }
 
-export type ExportFormat = "pdf" | "png" | "jpeg" | "json";
+export type ExportFormat = "pdf" | "png" | "jpeg" | "json" | "markdown";
+
+export interface ResumeExportRenderSettings {
+  sourceMarkdown?: string;
+  themeId?: string;
+  lineHeight?: number;
+  smartOnePageEnabled?: boolean;
+  paginationState?: string;
+  pageCount?: number;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Strip the `/api/v1` prefix from a stored resume data blob so callers
- *  can re-hydrate the editor store. The backend sometimes wraps the
- *  create / duplicate response as `{ resume: {...} }` per the in-flight
- *  frontend contract — this helper unwraps that shape. */
+/** Unwrap `{ resume: {...} }` envelopes used by duplicate and retained
+ *  on create for backward compatibility with older v2 clients/tests. */
 function unwrapEnvelope<T>(payload: T | { resume: T }): T {
   if (
     payload !== null &&
@@ -130,7 +156,7 @@ function unwrapEnvelope<T>(payload: T | { resume: T }): T {
   ) {
     return (payload as { resume: T }).resume;
   }
-  return payload;
+  return payload as T;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,39 +202,20 @@ export async function updateResume(
   id: string,
   payload: ResumeV2Update,
   version: number,
-): Promise<ResumeV2> {
+): Promise<ResumeV2 | ResumeV2Conflict> {
   // The If-Match header is mandatory for v2 PUT (REQ-019 / optimistic
-  // concurrency). The shared `request()` helper does not expose a
-  // `headers` option, so we go through `fetch` directly with the same
-  // auth / request-id envelope. Errors are re-thrown as the shared
-  // helper would so callers see consistent error shapes.
-  const { env } = await import("@/api/env");
-  const { getAccessToken } = await import("@/api/token-storage");
-  const { newRequestId } = await import("@/api/env");
-  const { deviceFingerprint } = await import("@/api/device-fingerprint");
-  const { classifyBackendError } = await import("@/api/errors");
-
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    "X-Request-ID": newRequestId(),
-    "X-Device-Fingerprint": deviceFingerprint(),
-    "If-Match": String(version),
-  };
-  const access = getAccessToken();
-  if (access) headers["Authorization"] = `Bearer ${access}`;
-
-  const url = `${env.API_BASE_URL}/api/v1/v2/resumes/${encodeURIComponent(id)}`;
-  const res = await fetch(url, {
+  // concurrency). Use the shared request() client so 401 responses
+  // benefit from the silent-refresh-then-retry envelope (BUG #2 fix
+  // 2026-07-06). The `headers` option merges AFTER the standard
+  // envelope so `If-Match` and any future headers are honored.
+  return request<ResumeV2 | ResumeV2Conflict>({
     method: "PUT",
-    headers,
-    body: JSON.stringify(payload),
+    path: `/api/v1/v2/resumes/${encodeURIComponent(id)}`,
+    body: payload,
+    headers: {
+      "If-Match": String(version),
+    },
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw classifyBackendError(res.status, body, headers["X-Request-ID"]);
-  }
-  return (await res.json()) as ResumeV2;
 }
 
 export async function deleteResume(id: string): Promise<void> {
@@ -270,35 +277,28 @@ export async function renderExport(
    * user's unsaved local edits. JSON exports ignore this field.
    */
   html?: string,
+  settings?: ResumeExportRenderSettings,
 ): Promise<Blob> {
-  // Export returns binary (PDF / PNG / JPEG) so we bypass the JSON
-  // helper and use raw fetch to preserve the response body as a Blob.
-  const { env } = await import("@/api/env");
-  const { getAccessToken } = await import("@/api/token-storage");
-  const { newRequestId } = await import("@/api/env");
-  const { deviceFingerprint } = await import("@/api/device-fingerprint");
-  const { classifyBackendError } = await import("@/api/errors");
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Request-ID": newRequestId(),
-    "X-Device-Fingerprint": deviceFingerprint(),
-  };
-  const access = getAccessToken();
-  if (access) headers["Authorization"] = `Bearer ${access}`;
-
-  const url = `${env.API_BASE_URL}/api/v1/v2/export/render`;
+  // Export returns binary (PDF / PNG / JPEG). We use the shared
+  // `request()` client with `raw: true` so 401 responses benefit from
+  // silent-refresh (BUG #2 fix 2026-07-06) and the response body stays
+  // as a `Response` we can `.blob()` from. The shared envelope's
+  // 422/429/401-classification still applies before we hand the body
+  // back to the caller.
   const body: Record<string, unknown> = { resume_id: id, format };
   if (html) body.html = html;
-  const res = await fetch(url, {
+  if (settings?.sourceMarkdown !== undefined) body.source_markdown = settings.sourceMarkdown;
+  if (settings?.themeId !== undefined) body.theme_id = settings.themeId;
+  if (settings?.lineHeight !== undefined) body.line_height = settings.lineHeight;
+  if (settings?.smartOnePageEnabled !== undefined) body.smart_one_page_enabled = settings.smartOnePageEnabled;
+  if (settings?.paginationState !== undefined) body.pagination_state = settings.paginationState;
+  if (settings?.pageCount !== undefined) body.preview_page_count = settings.pageCount;
+  const res = await request<Response>({
     method: "POST",
-    headers,
-    body: JSON.stringify(body),
+    path: "/api/v1/v2/export/render",
+    body,
+    raw: true,
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw classifyBackendError(res.status, body, headers["X-Request-ID"]);
-  }
   return res.blob();
 }
 

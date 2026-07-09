@@ -64,5 +64,13 @@ export function getCurrentColor(): string | null {
   return document.body.style.getPropertyValue(CSS_VARIABLE) || null
 }
 
-export { RESUME_THEMES, getThemeById, listThemes, DEFAULT_THEME_ID } from './registry'
-export type { ResumeTheme, ThemeId } from './registry'
+export {
+  RESUME_THEMES,
+  RESUME_V3_THEMES,
+  getThemeById,
+  listThemes,
+  listV3Themes,
+  DEFAULT_THEME_ID,
+  DEFAULT_V3_THEME_ID,
+} from './registry'
+export type { ResumeTheme, ThemeId, LegacyThemeId } from './registry'

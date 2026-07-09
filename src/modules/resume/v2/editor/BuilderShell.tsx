@@ -12,17 +12,31 @@
 // exposes panel-toggle state for the Header.
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { Copy } from "lucide-react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { ResumeDataV2 } from "../schema/data";
 import { Header } from "./Header";
 import SectionsPanel from "./left/SectionsPanel";
 import { PreviewPane } from "./center/PreviewPane";
-import { SettingsPanel } from "./right/SettingsPanel";
+// v2 batch 2: SettingsPanel container was split into 6 dedicated panels
+// (TypographyPanel / DesignPanel / StylesPanel / PagePanel / LayoutPanel
+//  / AnalysisPanel) under right/. We compose them inline below instead
+// of going through a container component. See specs/032-resume-renderer-v2
+//  /requirements-status.md "v2 batch 2" for the split rationale.
+import TypographyPanel from "./right/TypographyPanel";
+import DesignPanel from "./right/DesignPanel";
+import StylesPanel from "./right/StylesPanel";
+import PagePanel from "./right/PagePanel";
+import LayoutPanel from "./right/LayoutPanel";
+import { AnalysisPanel } from "./right/AnalysisPanel";
 import { Dock } from "./center/Dock";
 import { useResumeV2Store } from "../store";
 import { fireToast } from "./center/toast";
 import { duplicateResume } from "../api";
 import { DialogHost } from "./dialogs/DialogHost";
+import { MarkdownResumeEditor } from "./MarkdownResumeEditor";
+import { DEFAULT_MARKDOWN_SETTINGS } from "../../renderer/types";
+import { ExportMenu } from "./controls/ExportMenu";
 
 const STORAGE_KEY = "v2.panel-sizes";
 const DEFAULT_SIZES: [number, number, number] = [22, 56, 22];
@@ -101,10 +115,24 @@ export function BuilderShell({
   const [zoom, setZoom] = useState(1);
   const [stacking, setStacking] = useState<"horizontal" | "vertical">("vertical");
   const [duplicating, setDuplicating] = useState(false);
+  // v2 batch 2: right panel switched from a 12-accordion SettingsPanel
+  // container (v1 contract) to a tab-switched group of 6 dedicated panels
+  // (Typography/Design/Styles/Page/Layout/Analysis). The 6 panels live
+  // under right/ and self-bind to useResumeV2Store, so this shell only
+  // owns the active tab key. AnalysisPanel additionally takes resumeId.
+  const [rightTab, setRightTab] =
+    useState<"typography" | "design" | "styles" | "page" | "layout" | "analysis">("typography");
   const isDirty = useResumeV2Store((s) => s.isDirty);
   const flushSave = useResumeV2Store((s) => s.flushSave);
   const undo = useResumeV2Store((s) => s.undo);
   const redo = useResumeV2Store((s) => s.redo);
+  const setSourceMarkdown = useResumeV2Store((s) => s.setSourceMarkdown);
+  const setMarkdownTheme = useResumeV2Store((s) => s.setMarkdownTheme);
+  const setManualLineHeight = useResumeV2Store((s) => s.setManualLineHeight);
+  const enableSmartOnePage = useResumeV2Store((s) => s.enableSmartOnePage);
+  const disableSmartOnePage = useResumeV2Store((s) => s.disableSmartOnePage);
+  const setMarkdownPagination = useResumeV2Store((s) => s.setMarkdownPagination);
+  const markdown = data.metadata.markdown ?? DEFAULT_MARKDOWN_SETTINGS;
 
   // T160 — Header "Duplicate" button. Calls POST /api/v1/v2/resumes/{id}/
   // duplicate and navigates to the new editor. The button is intentionally
@@ -127,7 +155,7 @@ export function BuilderShell({
       const copy = await duplicateResume(resumeId);
       fireToast(`已复制为「${copy.name}」`, "info");
       if (typeof window !== "undefined") {
-        window.location.assign(`/resume/v2/${copy.id}`);
+        window.location.assign(`/resume/${copy.id}`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "复制失败";
@@ -258,127 +286,144 @@ export function BuilderShell({
       className="flex h-screen w-full flex-col bg-surface-muted"
       data-testid="v2-editor"
       data-builder-shell="true"
+      data-markdown-cutover="true"
     >
-      <Header
-        resumeName={(data as { basics?: { name?: string } }).basics?.name || resumeId}
-        leftCollapsed={leftCollapsed}
-        rightCollapsed={rightCollapsed}
-        onToggleLeft={() => setLeftCollapsed((v) => !v)}
-        onToggleRight={() => setRightCollapsed((v) => !v)}
-        onDuplicate={handleDuplicate}
-        duplicating={duplicating}
-      />
-
-      <div className="flex flex-1 overflow-hidden" data-testid="builder-body">
-        <PanelGroup
-          direction="horizontal"
-          onLayout={handleLayout}
-          data-testid="panel-group"
+      <div
+        className="flex h-10 w-full items-center justify-between border-b border-surface-border bg-surface px-3"
+        data-testid="editor-header"
+      >
+        <a
+          href="/dashboard"
+          className="text-xs text-ink-3 hover:text-ink-1"
+          data-testid="editor-home-link"
         >
-          <Panel
-            data-testid="panel-left"
-            data-size={leftSize}
-            data-min={leftCollapsedEffective ? RAIL_WIDTH : 15}
-            data-max={leftCollapsedEffective ? RAIL_WIDTH : 40}
-            data-collapsed={leftCollapsedEffective ? "true" : "false"}
-            defaultSize={leftSize}
-            minSize={leftCollapsedEffective ? RAIL_WIDTH : 15}
-            maxSize={leftCollapsedEffective ? RAIL_WIDTH : 40}
-            order={1}
-            className="overflow-hidden"
+          Home
+        </a>
+        <div className="min-w-0 flex-1 truncate px-4 text-center text-sm font-medium text-ink-1" data-testid="header-resume-name">
+          {(data as { basics?: { name?: string } }).basics?.name || resumeId}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="header-duplicate"
+            onClick={handleDuplicate}
+            disabled={duplicating}
+            className="flex h-8 items-center gap-1 rounded border border-surface-border bg-white px-2 text-xs text-ink-1 hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <div
-              data-testid="left-panel"
-              data-rail-width={leftCollapsedEffective ? String(RAIL_WIDTH) : undefined}
-              className="h-full w-full"
-            >
-              <SectionsPanel />
-            </div>
-          </Panel>
-
-          <PanelResizeHandle
-            data-testid="resize-handle-left"
-            className="relative z-10 w-px bg-surface-border data-[resize-handle-state=hover]:bg-primary-300 data-[resize-handle-state=drag]:bg-primary-400"
+            <Copy className="h-3.5 w-3.5" />
+            Duplicate
+          </button>
+          <ExportMenu
+            resumeId={resumeId}
+            filenameBase={resumeSlug || (data as { basics?: { name?: string } }).basics?.name || resumeId}
+            sourceMarkdown={markdown.sourceMarkdown}
+            previewHtml={() => {
+              const pages = Array.from(
+                document.querySelectorAll<HTMLElement>('[data-testid="markdown-preview-page"]'),
+              );
+              return pages.map((page) => page.outerHTML).join("");
+            }}
+            themeId={markdown.themeId}
+            lineHeight={
+              markdown.smartOnePageEnabled && markdown.smartLineHeight !== null
+                ? markdown.smartLineHeight
+                : markdown.manualLineHeight
+            }
+            smartOnePageEnabled={markdown.smartOnePageEnabled}
+            paginationState={markdown.paginationState}
+            pageCount={markdown.pageCount}
           />
+        </div>
+      </div>
 
-          <Panel
-            data-testid="panel-right"
-            data-size={rightSize}
-            data-min={rightCollapsedEffective ? RAIL_WIDTH : 15}
-            data-max={rightCollapsedEffective ? RAIL_WIDTH : 40}
-            data-collapsed={rightCollapsedEffective ? "true" : "false"}
-            defaultSize={rightSize}
-            minSize={rightCollapsedEffective ? RAIL_WIDTH : 15}
-            maxSize={rightCollapsedEffective ? RAIL_WIDTH : 40}
-            order={3}
-            className="overflow-hidden"
-          >
-            <div
-              data-testid="right-panel"
-              data-rail-width={rightCollapsedEffective ? String(RAIL_WIDTH) : undefined}
-              className="h-full w-full"
-            >
-              <SettingsPanel
-                data={data}
-                onChange={onChange}
-                resumeId={resumeId}
-                resumeSlug={resumeSlug}
-                ownerUsername={ownerUsername}
-                isPublic={isPublic}
-                passwordSet={passwordSet}
-              />
-            </div>
-          </Panel>
-
-          <PanelResizeHandle
-            data-testid="resize-handle-right"
-            className="relative z-10 w-px bg-surface-border data-[resize-handle-state=hover]:bg-primary-300 data-[resize-handle-state=drag]:bg-primary-400"
-          />
-
-          <Panel
-            data-testid="panel-center"
-            data-size={centerSize}
-            data-min={30}
-            data-max={80}
-            defaultSize={centerSize}
-            minSize={30}
-            maxSize={80}
-            order={2}
-            className="overflow-hidden"
-          >
-            <div data-testid="center-panel" className="h-full w-full">
-              <PreviewPane
-                data={data}
-                zoom={zoom}
-                stacking={stacking}
-                onZoomChange={setZoom}
-                onStackingChange={setStacking}
-                dock={
-                  <Dock
-                    data={data}
-                    resumeId={resumeId}
-                    slug={
-                      (data as { basics?: { name?: string } }).basics?.name
-                        ? (data as { basics?: { name?: string } }).basics!.name!
-                            .toLowerCase()
-                            .replace(/\s+/g, "-")
-                        : resumeId
-                    }
-                    zoom={zoom}
-                    stacking={stacking}
-                    onZoomChange={setZoom}
-                    onStackingChange={setStacking}
-                  />
-                }
-              />
-            </div>
-          </Panel>
-
-        </PanelGroup>
+      <div className="min-h-0 flex-1 overflow-hidden" data-testid="builder-body">
+        <MarkdownResumeEditor
+          sourceMarkdown={markdown.sourceMarkdown}
+          themeId={markdown.themeId}
+          manualLineHeight={markdown.manualLineHeight}
+          smartOnePageEnabled={markdown.smartOnePageEnabled}
+          smartLineHeight={markdown.smartLineHeight}
+          smartStatus={markdown.smartStatus}
+          onSourceChange={setSourceMarkdown}
+          onThemeChange={setMarkdownTheme}
+          onManualLineHeightChange={setManualLineHeight}
+          onEnableSmartOnePage={enableSmartOnePage}
+          onDisableSmartOnePage={disableSmartOnePage}
+          onPaginationChange={setMarkdownPagination}
+          legacyConversionStatus={markdown.legacyConversionStatus}
+          legacyConversionWarnings={markdown.legacyConversionWarnings}
+        />
       </div>
       {/* REQ-034 US1: mount the dialog dispatcher once near the root. It
           renders nothing when no dialog is open (returns null). */}
       <DialogHost />
+    </div>
+  );
+}
+
+/**
+ * Right-side tab host — v2 batch 2 split of the legacy SettingsPanel
+ * container into 6 dedicated panels. Self-bound to useResumeV2Store
+ * (each panel reads/writes its own slice), so this host only owns the
+ * active tab key + a tabbar. AnalysisPanel additionally receives
+ * `resumeId` to scope AI analysis calls.
+ *
+ * Kept in-file (not a new component under right/) because the 6 panels
+ * are the public surface; this host is an implementation detail of
+ * BuilderShell.
+ */
+function SettingsTabHost({
+  active,
+  onChange,
+  resumeId,
+}: {
+  active: "typography" | "design" | "styles" | "page" | "layout" | "analysis";
+  onChange: (next: typeof active) => void;
+  resumeId: string;
+}) {
+  const tabs: { key: typeof active; label: string; testid: string }[] = [
+    { key: "typography", label: "字体", testid: "right-tab-typography" },
+    { key: "design", label: "设计", testid: "right-tab-design" },
+    { key: "styles", label: "样式", testid: "right-tab-styles" },
+    { key: "page", label: "页面", testid: "right-tab-page" },
+    { key: "layout", label: "布局", testid: "right-tab-layout" },
+    { key: "analysis", label: "分析", testid: "right-tab-analysis" },
+  ];
+  return (
+    <div data-testid="right-tab-host" className="flex h-full flex-col">
+      <div
+        role="tablist"
+        data-testid="right-tabbar"
+        className="flex shrink-0 border-b border-surface-border text-sm"
+      >
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={active === t.key}
+            data-testid={t.testid}
+            data-active={active === t.key ? "true" : "false"}
+            onClick={() => onChange(t.key)}
+            className={
+              "flex-1 px-2 py-2 text-center transition-colors " +
+              (active === t.key
+                ? "text-primary-600 border-b-2 border-primary-500"
+                : "text-ink-3 hover:text-ink-1")
+            }
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-auto" data-testid={`right-tab-panel-${active}`}>
+        {active === "typography" && <TypographyPanel />}
+        {active === "design" && <DesignPanel />}
+        {active === "styles" && <StylesPanel />}
+        {active === "page" && <PagePanel />}
+        {active === "layout" && <LayoutPanel />}
+        {active === "analysis" && <AnalysisPanel resumeId={resumeId} />}
+      </div>
     </div>
   );
 }

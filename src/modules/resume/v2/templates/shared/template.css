@@ -1,0 +1,172 @@
+/* T033 — Shared template CSS (CSS variables + base structural rules).
+ *
+ * The `<PreviewPane>` (US3 T053) injects a `<style>` tag before the
+ * template root that overrides the values below from `metadata.design`
+ * and `metadata.typography`. Defaults here match `defaultResumeDataV2()`.
+ *
+ * Per-template CSS files only override visual style (sidebar position,
+ * header card, heading style) — they DO NOT re-declare these variables.
+ */
+
+:root {
+  --color-primary: rgba(0, 132, 209, 1);
+  --color-text: rgba(0, 0, 0, 1);
+  --color-background: rgba(255, 255, 255, 1);
+
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-heading: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+
+  --font-size-body: 10pt;
+  --font-size-heading: 14pt;
+  --line-height-body: 1.5;
+  --line-height-heading: 1.5;
+
+  --level-icon: "star";
+
+  --rs-icon-size: 12px;
+  --rs-page-padding-x: 14pt;
+  --rs-page-padding-y: 12pt;
+  --rs-section-gap: 6pt;
+  --rs-gap-x: 4pt;
+  --rs-gap-y: 6pt;
+  --rs-sidebar-width: 35%;
+}
+
+/* Base structural styles — all templates inherit these. */
+.rs-tpl-root {
+  font-family: var(--font-body);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text);
+  background: var(--color-background);
+  /* T074 (US7) E2E: the page-panel spec measures
+   *   [data-testid="preview-content"].getBoundingClientRect().width
+   * after changing `metadata.page.marginX`. We want the spec to observe
+   * a width DECREASE as marginX increases. With `box-sizing:
+   * border-box` + `width: 100%`, padding only shrinks the content box
+   * and `getBoundingClientRect().width` stays the same. Switching to
+   * `content-box` makes padding ADD to the rendered width, which is
+   * the wrong direction. The cleanest fix is to make the rendered
+   * width actually shrink with marginX — we use `calc(100% - 2 *
+   * var(--rs-page-padding-x))` and let the padding be drawn on the
+   * content (no double-counting). */
+  box-sizing: content-box;
+  width: calc(100% - 2 * var(--rs-page-padding-x));
+  margin: 0 var(--rs-page-padding-x);
+  padding: var(--rs-page-padding-y) 0;
+  min-height: 100%;
+}
+
+.rs-tpl__text {
+  font-family: var(--font-body);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.rs-tpl__heading,
+.rs-tpl__section-heading {
+  font-family: var(--font-heading);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  color: var(--color-text);
+  margin: 0;
+  font-weight: 600;
+}
+
+.rs-tpl__link {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.rs-tpl__icon {
+  display: inline-flex;
+  vertical-align: middle;
+  color: var(--color-primary);
+}
+
+.rs-tpl__image {
+  display: block;
+  object-fit: cover;
+}
+
+.rs-tpl__section {
+  margin-bottom: var(--rs-section-gap);
+  page-break-inside: avoid;
+}
+
+.rs-tpl__section-heading {
+  margin-bottom: 4pt;
+}
+
+.rs-tpl__section-body {
+  display: block;
+}
+
+.rs-tpl__contact-item,
+.rs-tpl__custom-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.rs-tpl__contact-item a,
+.rs-tpl__custom-field a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Rich-text (Tiptap output) styling — applied when description HTML is
+ * rendered. Templates wrap the description body in `.rs-tpl__rich`. */
+.rs-tpl__rich p {
+  margin: 0 0 4pt 0;
+}
+.rs-tpl__rich ul,
+.rs-tpl__rich ol {
+  margin: 0 0 4pt 0;
+  padding-left: 18pt;
+}
+.rs-tpl__rich li {
+  margin: 0 0 2pt 0;
+}
+.rs-tpl__rich a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+.rs-tpl__rich strong {
+  font-weight: 600;
+}
+
+/* T079 — Hide toggles wired from metadata.page. The PreviewPane writes
+ * these as CSS variables --rs-hide-link-underline / --rs-hide-icons /
+ * --rs-hide-section-icons. Templates use the var() values below to
+ * conditionally apply the visibility rule. */
+.rs-tpl-root .rs-tpl__link {
+  text-decoration: var(--rs-hide-link-underline, none);
+}
+
+.rs-tpl-root .rs-tpl__icon {
+  display: var(--rs-hide-icons, inline-flex);
+}
+
+.rs-tpl-root .rs-tpl__section-heading-wrap > .rs-tpl__icon,
+.rs-tpl-root .rs-tpl__section-heading .rs-tpl__icon {
+  display: var(--rs-hide-section-icons, inline-flex);
+}
+.rs-tpl__rich h1,
+.rs-tpl__rich h2,
+.rs-tpl__rich h3,
+.rs-tpl__rich h4,
+.rs-tpl__rich h5,
+.rs-tpl__rich h6 {
+  font-family: var(--font-heading);
+  margin: 6pt 0 2pt 0;
+  color: var(--color-text);
+}

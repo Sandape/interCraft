@@ -26,6 +26,13 @@ import { EducationDialog } from "./EducationDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
 import { SkillsDialog } from "./SkillsDialog";
 import { ProfileDialog } from "./ProfileDialog";
+import { LanguageDialog } from "./LanguageDialog";
+import { InterestsDialog } from "./InterestsDialog";
+import { AwardsDialog } from "./AwardsDialog";
+import { CertificationsDialog } from "./CertificationsDialog";
+import { PublicationsDialog } from "./PublicationsDialog";
+import { VolunteerDialog } from "./VolunteerDialog";
+import { ReferencesDialog } from "./ReferencesDialog";
 import { useResumeV2Store } from "../../store";
 
 // ── type namespace ─────────────────────────────────────────────────────────
@@ -59,7 +66,21 @@ export type DialogType =
   | "skills.create"
   | "skills.update"
   | "profile.create"
-  | "profile.update";
+  | "profile.update"
+  | "languages.create"
+  | "languages.update"
+  | "interests.create"
+  | "interests.update"
+  | "awards.create"
+  | "awards.update"
+  | "certifications.create"
+  | "certifications.update"
+  | "publications.create"
+  | "publications.update"
+  | "volunteer.create"
+  | "volunteer.update"
+  | "references.create"
+  | "references.update";
 
 export interface ExperienceUpdatePayload {
   sectionId: string;
@@ -246,6 +267,57 @@ export function DialogHost(): JSX.Element | null {
           itemId={itemId}
         />
       );
+    }
+    case "languages.create": {
+      return <LanguageDialog onClose={handleClose} itemId="" />;
+    }
+    case "languages.update": {
+      const payload = active.payload as { itemId?: string } | undefined;
+      return <LanguageDialog onClose={handleClose} itemId={payload?.itemId ?? ""} />;
+    }
+    case "interests.create": {
+      return <InterestsDialog onClose={handleClose} itemId="" />;
+    }
+    case "interests.update": {
+      const payload = active.payload as { itemId?: string } | undefined;
+      return <InterestsDialog onClose={handleClose} itemId={payload?.itemId ?? ""} />;
+    }
+    case "awards.create": {
+      return <AwardsDialog onClose={handleClose} itemId="" />;
+    }
+    case "awards.update": {
+      const payload = active.payload as { itemId?: string } | undefined;
+      return <AwardsDialog onClose={handleClose} itemId={payload?.itemId ?? ""} />;
+    }
+    case "certifications.create": {
+      return <CertificationsDialog onClose={handleClose} itemId="" />;
+    }
+    case "certifications.update": {
+      const payload = active.payload as { itemId?: string } | undefined;
+      return (
+        <CertificationsDialog onClose={handleClose} itemId={payload?.itemId ?? ""} />
+      );
+    }
+    case "publications.create": {
+      return <PublicationsDialog onClose={handleClose} itemId="" />;
+    }
+    case "publications.update": {
+      const payload = active.payload as { itemId?: string } | undefined;
+      return <PublicationsDialog onClose={handleClose} itemId={payload?.itemId ?? ""} />;
+    }
+    case "volunteer.create": {
+      return <VolunteerDialog onClose={handleClose} itemId="" />;
+    }
+    case "volunteer.update": {
+      const payload = active.payload as { itemId?: string } | undefined;
+      return <VolunteerDialog onClose={handleClose} itemId={payload?.itemId ?? ""} />;
+    }
+    case "references.create": {
+      return <ReferencesDialog onClose={handleClose} itemId="" />;
+    }
+    case "references.update": {
+      const payload = active.payload as { itemId?: string } | undefined;
+      return <ReferencesDialog onClose={handleClose} itemId={payload?.itemId ?? ""} />;
     }
     default: {
       // Fail loud (AC-11b-revised): an unknown type means a new verb

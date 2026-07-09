@@ -25,6 +25,17 @@ import type { ResumeDataV2, Metadata } from "../schema/data";
 import { defaultResumeDataV2 } from "../schema/defaults";
 import { updateResume, type ResumeV2Conflict, type ResumeV2 } from "../api";
 import { fireToast } from "../editor/center/toast";
+import type {
+  LineHeightPreset,
+  LegacyConversionStatus,
+  MarkdownPaginationState,
+  MujiThemeId,
+  SmartOnePageStatus,
+} from "../../renderer/types";
+import {
+  coerceLineHeightPreset,
+  getEffectiveLineHeight as deriveEffectiveLineHeight,
+} from "../../pagination/line-height";
 
 // ── types ────────────────────────────────────────────────────────────────
 
@@ -93,6 +104,28 @@ export interface ResumeV2Store {
    * side panels) — routes through the same debounced-save path.
    */
   setMetadata: (patch: Partial<Metadata>) => void;
+
+  setSourceMarkdown: (sourceMarkdown: string) => void;
+  setMarkdownTheme: (themeId: MujiThemeId) => void;
+  setManualLineHeight: (lineHeight: LineHeightPreset) => void;
+  enableSmartOnePage: (
+    selectedLineHeight: LineHeightPreset | null,
+    status: Exclude<SmartOnePageStatus, "idle">,
+  ) => void;
+  disableSmartOnePage: () => void;
+  setSmartOnePageResult: (
+    selectedLineHeight: LineHeightPreset | null,
+    status: Exclude<SmartOnePageStatus, "idle">,
+  ) => void;
+  setMarkdownPagination: (
+    paginationState: MarkdownPaginationState,
+    pageCount: number,
+  ) => void;
+  setLegacyConversionStatus: (
+    status: LegacyConversionStatus,
+    warnings?: string[],
+  ) => void;
+  getEffectiveLineHeight: () => LineHeightPreset;
 
   /** Cancel the pending debounce + abort in-flight save, then PUT now. */
   flushSave: () => Promise<void>;
@@ -193,7 +226,7 @@ export const useResumeV2Store = create<ResumeV2Store>()(
           if (signal.aborted) controller.abort();
           else signal.addEventListener("abort", () => controller.abort(), { once: true });
         }
-        const res = await updateResume(id, version, { data });
+        const res = await updateResume(id, { data }, version);
         // Did the user abort mid-flight?
         if (controller.signal.aborted) return;
         // 409 path: `updateResume` returns a ResumeV2Conflict shape.
@@ -237,6 +270,20 @@ export const useResumeV2Store = create<ResumeV2Store>()(
             }
             s.isDirty = false;
           });
+        } else if (
+          // BUG #2 fix 2026-07-06: client.request already attempted
+          // silent refresh once. If we still got a 401 (refresh failed
+          // because the refresh_token is also expired or revoked), we
+          // surface a dedicated toast and let the next manual edit
+          // (after re-login) retry. We do NOT clobber local edits.
+          message.includes("401") ||
+          message.includes("Unauthorized") ||
+          message.toLowerCase().includes("token")
+        ) {
+          set((s) => {
+            s.lastError = message;
+          });
+          fireToast("登录已过期,请重新登录后继续编辑");
         } else if (message.includes("409")) {
           // Defensive: in case `updateResume` throws instead of returning
           // the conflict envelope. Trigger applyServerDiff via a follow-up
@@ -376,6 +423,101 @@ export const useResumeV2Store = create<ResumeV2Store>()(
               : draft.metadata.page,
           } as Metadata;
         });
+      },
+
+      setSourceMarkdown: (sourceMarkdown) => {
+        get().setDataMut((draft) => {
+          draft.metadata.markdown = {
+            ...draft.metadata.markdown,
+            sourceMarkdown,
+          };
+        });
+      },
+
+      setMarkdownTheme: (themeId) => {
+        get().setDataMut((draft) => {
+          draft.metadata.markdown = {
+            ...draft.metadata.markdown,
+            themeId,
+          };
+        });
+      },
+
+      setManualLineHeight: (lineHeight) => {
+        const safeLineHeight = coerceLineHeightPreset(lineHeight);
+        get().setDataMut((draft) => {
+          if (draft.metadata.markdown.smartOnePageEnabled) return;
+          draft.metadata.markdown = {
+            ...draft.metadata.markdown,
+            manualLineHeight: safeLineHeight,
+            previousManualLineHeight: null,
+            smartLineHeight: null,
+            smartStatus: "idle",
+          };
+        });
+      },
+
+      enableSmartOnePage: (selectedLineHeight, status) => {
+        get().setDataMut((draft) => {
+          const markdown = draft.metadata.markdown;
+          draft.metadata.markdown = {
+            ...markdown,
+            smartOnePageEnabled: true,
+            previousManualLineHeight:
+              markdown.previousManualLineHeight ?? markdown.manualLineHeight,
+            smartLineHeight: selectedLineHeight,
+            smartStatus: status,
+          };
+        });
+      },
+
+      disableSmartOnePage: () => {
+        get().setDataMut((draft) => {
+          const markdown = draft.metadata.markdown;
+          draft.metadata.markdown = {
+            ...markdown,
+            manualLineHeight: markdown.previousManualLineHeight ?? markdown.manualLineHeight,
+            smartOnePageEnabled: false,
+            smartLineHeight: null,
+            previousManualLineHeight: null,
+            smartStatus: "idle",
+          };
+        });
+      },
+
+      setSmartOnePageResult: (selectedLineHeight, status) => {
+        get().setDataMut((draft) => {
+          draft.metadata.markdown = {
+            ...draft.metadata.markdown,
+            smartLineHeight: selectedLineHeight,
+            smartStatus: status,
+          };
+        }, { skipHistory: true });
+      },
+
+      setMarkdownPagination: (paginationState, pageCount) => {
+        get().setDataMut((draft) => {
+          draft.metadata.markdown = {
+            ...draft.metadata.markdown,
+            paginationState,
+            pageCount: Math.max(1, Math.floor(pageCount)),
+          };
+        }, { skipHistory: true });
+      },
+
+      setLegacyConversionStatus: (status, warnings = []) => {
+        get().setDataMut((draft) => {
+          draft.metadata.markdown = {
+            ...draft.metadata.markdown,
+            legacyConversionStatus: status,
+            legacyConversionWarnings: warnings,
+          };
+        }, { skipHistory: true });
+      },
+
+      getEffectiveLineHeight: () => {
+        const markdown = get().data.metadata.markdown;
+        return deriveEffectiveLineHeight(markdown);
       },
 
       flushSave: async () => {

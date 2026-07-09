@@ -1,0 +1,70 @@
+/* T040 — Bronzor template CSS — row-style (title left, items right). */
+
+.rs-tpl-bronzor .rs-tpl__header {
+  display: flex;
+  gap: 12pt;
+  align-items: center;
+  padding-bottom: 8pt;
+  margin-bottom: 4pt;
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.rs-tpl-bronzor .rs-tpl__picture {
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+}
+
+.rs-tpl-bronzor .rs-tpl__name {
+  font-size: calc(var(--font-size-heading) * 1.4);
+  font-weight: 700;
+  margin: 0;
+}
+
+.rs-tpl-bronzor .rs-tpl__headline {
+  margin-top: 2pt;
+  font-style: italic;
+}
+
+.rs-tpl-bronzor .rs-tpl__contact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8pt;
+  margin-top: 4pt;
+  font-size: var(--font-size-body);
+}
+
+.rs-tpl-bronzor__row {
+  display: flex;
+  gap: 12pt;
+  padding: 6pt 0;
+  border-bottom: 1px solid var(--color-primary);
+  page-break-inside: avoid;
+}
+
+.rs-tpl-bronzor__row-title {
+  flex-basis: 25%;
+  flex-shrink: 0;
+}
+
+.rs-tpl-bronzor__row-title .rs-tpl__section-heading {
+  color: var(--color-primary);
+  border: none;
+  margin: 0;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: var(--font-size-heading);
+  display: flex;
+  align-items: center;
+  gap: 4pt;
+}
+
+.rs-tpl-bronzor__row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-tpl-bronzor__sidebar-block {
+  margin-top: 6pt;
+}

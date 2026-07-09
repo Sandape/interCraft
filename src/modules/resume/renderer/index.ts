@@ -12,15 +12,24 @@
  */
 import { renderToHtml } from './parser'
 import { colorPlugin } from './markdown-it-plugins/color-token'
+import { normalizeContactRows } from './markdown-it-plugins/contact-rows'
+import type {
+  LineHeightPreset,
+  MarkdownRenderWarning,
+  MujiThemeId,
+} from './types'
 
 export interface RenderOptions {
   /** Theme accent color HEX (e.g. '#39393a'). Replaces `#{color}` tokens. Default '#39393a'. */
   accentColor?: string
+  themeId?: MujiThemeId
+  lineHeight?: LineHeightPreset
 }
 
 export interface RenderResult {
   /** Rendered HTML string (body content, no <html>/<head>/<body> wrapper). */
   html: string
+  warnings: MarkdownRenderWarning[]
 }
 
 export interface BlockRenderInput {
@@ -52,9 +61,13 @@ const DEFAULT_ACCENT_COLOR = '#39393a'
  */
 export function renderMarkdown(markdown: string, opts: RenderOptions = {}): RenderResult {
   const accentColor = opts.accentColor ?? DEFAULT_ACCENT_COLOR
-  const rawHtml = renderToHtml(markdown)
-  const html = colorPlugin(rawHtml, { color: accentColor })
-  return { html }
+  const safeMarkdown = sanitizeMarkdownSource(markdown)
+  const rawHtml = renderToHtml(safeMarkdown)
+  const styled = colorPlugin(rawHtml, { color: accentColor })
+  const normalized = normalizeContactRows(styled)
+  const warnings = collectWarnings(markdown, normalized)
+  const html = sanitizeHtml(normalized)
+  return { html, warnings }
 }
 
 /** Sanitize HTML — filter dangerous tags/attributes (defense in depth). */
@@ -68,6 +81,8 @@ export function sanitizeHtml(html: string): string {
     .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
     .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
     .replace(/javascript:/gi, '')
+    .replace(/\s(href|src)\s*=\s*"(?!(?:https?:|mailto:|tel:|#|\/))[^"]*"/gi, '')
+    .replace(/\s(href|src)\s*=\s*'(?!(?:https?:|mailto:|tel:|#|\/))[^']*'/gi, '')
 }
 
 /**
@@ -86,7 +101,7 @@ export function renderBlocksToHtml(
   const parts: string[] = []
   const blockIds: string[] = []
   for (const b of blocks) {
-    const raw = renderToHtml(b.content_md)
+    const raw = renderToHtml(sanitizeMarkdownSource(b.content_md))
     const styled = colorPlugin(raw, { color: accentColor })
     parts.push(
       `<section class="rs-block" data-block-id="${escapeAttr(b.id)}">${styled}</section>`,
@@ -94,6 +109,19 @@ export function renderBlocksToHtml(
     blockIds.push(b.id)
   }
   return { html: parts.join('\n'), blockIds }
+}
+
+function sanitizeMarkdownSource(markdown: string): string {
+  return markdown.replace(
+    /!\[([^\]]*)\]\(\s*([^)]+?)\s*(?:["'][^)]+["'])?\)/gi,
+    (full, alt: string, rawUrl: string) => {
+      const url = rawUrl.trim()
+      if (/^https?:\/\//i.test(url)) {
+        return full
+      }
+      return alt.trim()
+    },
+  )
 }
 
 function escapeAttr(v: string): string {
@@ -105,3 +133,41 @@ function escapeAttr(v: string): string {
 export { default as svgMap, ICON_NAMES } from './icons/svg-map'
 export type { IconName } from './icons/svg-map'
 export { markdownParserResume, markdownParserArticle, renderToHtml } from './parser'
+export type {
+  LineHeightPreset,
+  MarkdownRenderOutput,
+  MarkdownRenderWarning,
+  MujiThemeId,
+  ResumeMarkdownSettings,
+  SmartOnePageStatus,
+} from './types'
+
+function collectWarnings(markdown: string, html: string): MarkdownRenderWarning[] {
+  const warnings: MarkdownRenderWarning[] = []
+  if (/<script\b/i.test(markdown) || /<script\b/i.test(html)) {
+    warnings.push({
+      code: 'unsupported_syntax',
+      message: 'Raw script tags are not allowed in resume Markdown.',
+      sourceExcerpt: '<script>',
+    })
+  }
+  if (/javascript:/i.test(markdown) || /\]\(\s*(?:file|data|ftp):/i.test(markdown)) {
+    warnings.push({
+      code: 'unsafe_url',
+      message: 'Unsafe links or image URLs were removed from the rendered resume.',
+    })
+  }
+  if (/!\[[^\]]*\]\(\s*(?!https?:\/\/)[^)]+\)/i.test(markdown)) {
+    warnings.push({
+      code: 'unsafe_url',
+      message: 'Only external HTTP(S) Markdown images are rendered.',
+    })
+  }
+  if (/data-contact-icon-status="fallback"/i.test(html)) {
+    warnings.push({
+      code: 'fallback',
+      message: 'Some contact icons used a fallback slot to preserve row alignment.',
+    })
+  }
+  return warnings
+}

@@ -1,0 +1,337 @@
+{
+  "$schema": "./template-manifest.schema.json",
+  "version": 2,
+  "updated_at": "2026-06-25T00:00:00Z",
+  "templates": [
+    {
+      "id": "onyx",
+      "name": "Onyx",
+      "description": "极简纯文本风格。顶部单栏 header + 主体纯文本，无装饰。适合工程师与通用简历。",
+      "tags": ["Minimal", "ATS", "Tech", "Text-only"],
+      "category": "minimal",
+      "thumbnail": "/templates/jpg/onyx.jpg",
+      "sidebar": "none",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(0, 132, 209, 1)",
+        "text": "rgba(0, 0, 0, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "onyx",
+          "layout": {
+            "sidebarWidth": 35,
+            "pages": [
+              {
+                "fullWidth": true,
+                "main": [
+                  "summary",
+                  "experience",
+                  "education",
+                  "projects",
+                  "skills",
+                  "profiles"
+                ],
+                "sidebar": []
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "azurill",
+      "name": "Azurill",
+      "description": "左 sidebar 35% + 右 main 单列时间轴风格，商务经典。适合产品 / 运营 / 商务岗。",
+      "tags": ["Two-column", "Business", "Timeline", "Sidebar"],
+      "category": "business",
+      "thumbnail": "/templates/jpg/azurill.jpg",
+      "sidebar": "left",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(0, 132, 209, 1)",
+        "text": "rgba(31, 41, 55, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "azurill",
+          "layout": {
+            "sidebarWidth": 35,
+            "pages": [
+              {
+                "fullWidth": false,
+                "main": ["summary", "experience", "education", "projects"],
+                "sidebar": [
+                  "profiles",
+                  "skills",
+                  "languages",
+                  "interests",
+                  "awards",
+                  "certifications"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "kakuna",
+      "name": "Kakuna",
+      "description": "居中对称风格。Header 居中 + 主体单列居中，适合学术 / 教育 / 研究岗。",
+      "tags": ["Minimal", "Centered", "Academic", "Symmetric"],
+      "category": "minimal",
+      "thumbnail": "/templates/jpg/kakuna.jpg",
+      "sidebar": "none",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(75, 85, 99, 1)",
+        "text": "rgba(0, 0, 0, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "kakuna",
+          "layout": {
+            "sidebarWidth": 35,
+            "pages": [
+              {
+                "fullWidth": true,
+                "main": [
+                  "summary",
+                  "experience",
+                  "education",
+                  "projects",
+                  "publications",
+                  "references"
+                ],
+                "sidebar": []
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "chikorita",
+      "name": "Chikorita",
+      "description": "右实色 sidebar 风格。Sidebar 文字反相，左 main 主体，适合创意 / 设计岗。",
+      "tags": ["Right-sidebar", "Creative", "Inverted", "Design"],
+      "category": "creative",
+      "thumbnail": "/templates/jpg/chikorita.jpg",
+      "sidebar": "right",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(34, 197, 94, 1)",
+        "text": "rgba(31, 41, 55, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "chikorita",
+          "layout": {
+            "sidebarWidth": 35,
+            "pages": [
+              {
+                "fullWidth": false,
+                "main": ["summary", "experience", "education", "projects"],
+                "sidebar": [
+                  "profiles",
+                  "skills",
+                  "languages",
+                  "interests",
+                  "awards"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ditgar",
+      "name": "Ditgar",
+      "description": "左 tint sidebar + main item 左侧 2px 竖线，工程师 / 技术导向。",
+      "tags": ["Sidebar", "Tech", "Engineer", "Tinted"],
+      "category": "business",
+      "thumbnail": "/templates/jpg/ditgar.jpg",
+      "sidebar": "left",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(15, 23, 42, 1)",
+        "text": "rgba(31, 41, 55, 1)",
+        "background": "rgba(248, 250, 252, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "ditgar",
+          "layout": {
+            "sidebarWidth": 35,
+            "pages": [
+              {
+                "fullWidth": false,
+                "main": ["summary", "experience", "projects", "education"],
+                "sidebar": [
+                  "profiles",
+                  "skills",
+                  "languages",
+                  "interests"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "bronzor",
+      "name": "Bronzor",
+      "description": "行式 section 风格。单栏行式（section title 在左，items 在右），顶横线分割，传统商务风。",
+      "tags": ["Row-style", "Business", "Traditional", "Compact"],
+      "category": "business",
+      "thumbnail": "/templates/jpg/bronzor.jpg",
+      "sidebar": "none",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(120, 53, 15, 1)",
+        "text": "rgba(0, 0, 0, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "bronzor",
+          "layout": {
+            "sidebarWidth": 35,
+            "pages": [
+              {
+                "fullWidth": true,
+                "main": [
+                  "summary",
+                  "experience",
+                  "education",
+                  "projects",
+                  "skills",
+                  "profiles"
+                ],
+                "sidebar": []
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "pikachu",
+      "name": "Pikachu",
+      "description": "彩色 header 卡片 + 左 sidebar。前端 / 创意 / 设计首选，v2 默认模板。",
+      "tags": ["Two-column", "Creative", "Tech", "Visual flair"],
+      "category": "creative",
+      "thumbnail": "/templates/jpg/pikachu.jpg",
+      "sidebar": "left",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(255, 200, 55, 1)",
+        "text": "rgba(31, 41, 55, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "pikachu",
+          "design": {
+            "colors": {
+              "primary": "rgba(255, 200, 55, 1)"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "lapras",
+      "name": "Lapras",
+      "description": "圆角卡片化 + 浮动 section 标题。产品 / 运营 / 编辑导向。",
+      "tags": ["Card", "Rounded", "Product", "Floating"],
+      "category": "creative",
+      "thumbnail": "/templates/jpg/lapras.jpg",
+      "sidebar": "left",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(99, 102, 241, 1)",
+        "text": "rgba(31, 41, 55, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "lapras",
+          "design": {
+            "colors": {
+              "primary": "rgba(99, 102, 241, 1)"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "scizor",
+      "name": "Scizor",
+      "description": "杂志风。顶部 primary 色 letterhead + 大写 section heading + 重字重。适合品牌 / 创意总监。",
+      "tags": ["Editorial", "Letterhead", "Magazine", "Uppercase"],
+      "category": "editorial",
+      "thumbnail": "/templates/jpg/scizor.jpg",
+      "sidebar": "none",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(220, 38, 38, 1)",
+        "text": "rgba(0, 0, 0, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "scizor",
+          "design": {
+            "colors": {
+              "primary": "rgba(220, 38, 38, 1)"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "rhyhorn",
+      "name": "Rhyhorn",
+      "description": "管道分隔 contact line。顶部 header + 联系方式用 | 分隔，金融 / 法律 / 咨询首选。",
+      "tags": ["Business", "Pipe", "Finance", "Compact"],
+      "category": "business",
+      "thumbnail": "/templates/jpg/rhyhorn.jpg",
+      "sidebar": "none",
+      "recommendedPage": "a4",
+      "recommendedColors": {
+        "primary": "rgba(30, 58, 138, 1)",
+        "text": "rgba(0, 0, 0, 1)",
+        "background": "rgba(255, 255, 255, 1)"
+      },
+      "defaults": {
+        "metadata": {
+          "template": "rhyhorn",
+          "layout": {
+            "sidebarWidth": 35,
+            "pages": [
+              {
+                "fullWidth": true,
+                "main": [
+                  "summary",
+                  "experience",
+                  "education",
+                  "skills",
+                  "profiles"
+                ],
+                "sidebar": []
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

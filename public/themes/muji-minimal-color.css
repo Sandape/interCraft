@@ -1,0 +1,8 @@
+.markdown-resume-preview[data-theme="muji-minimal-color"] h1 {
+  color: #111827;
+}
+
+.markdown-resume-preview[data-theme="muji-minimal-color"] h2 {
+  border-bottom: 2px solid #2f6edb;
+  color: #2f6edb;
+}

@@ -1,34 +1,37 @@
 # Resume Pagination
 
-Smart A4 pagination using `rs-md-html-parser`.
+REQ-049 uses Markdown-specific A4 preview pagination for the active resume
+editor route.
 
 ## Public API
 
-```typescript
-import { paginateDom, applySinglePageMode, attachWindowScaleListener } from '@/modules/resume/pagination'
+```ts
+import { paginateMarkdownHtml } from "@/modules/resume/pagination";
 
-// After rendering HTML into a DOM node:
-const { pageCount, separators } = paginateDom(domNode)
-console.log(`${pageCount} pages`)
+const preview = paginateMarkdownHtml({
+  html: renderedMarkdownHtml,
+  lineHeight: 19,
+});
 
-// Single-page mode (clip to first A4 page):
-applySinglePageMode(domNode, true)
-
-// Window resize auto-scale (for narrow windows):
-const detach = attachWindowScaleListener()
+console.log(preview.pageCount);
 ```
 
-## Algorithm
+`paginateMarkdownHtml` returns ordered preview pages plus page-break decisions
+and warnings. The editor renders each page as a stable
+`data-testid="markdown-preview-page"` article and serializes those same page
+containers for PDF export.
 
-`rs-md-html-parser`'s `htmlParser(domNode)` walks the rendered DOM, computes
-A4 page boundaries, inserts `.rs-line-split` separator elements at break
-points, and sets `data-pages="<n>"` on the root.
+## Page Rules
 
-## Debouncing
+- Keep headings with the first related content block when possible.
+- Preserve tables, lists, and contact containers as readable blocks near page
+  boundaries.
+- Fall back to multiple pages when smart one-page cannot fit content safely.
+- Update `metadata.markdown.paginationState` and `pageCount` without adding
+  undo history.
 
-Pagination should be debounced on frequent content changes (e.g., typing).
-Use a 500ms debounce to avoid recalculating on every keystroke.
+## Validation
 
-```typescript
-const debouncedPaginate = useMemo(() => debounce(paginateDom, 500), [])
+```bash
+npm run test -- src/modules/resume/pagination/__tests__/markdown-pagination.test.ts src/modules/resume/v2/editor/__tests__/MarkdownResumePagination.test.tsx
 ```

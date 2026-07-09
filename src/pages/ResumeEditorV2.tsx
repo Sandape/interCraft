@@ -9,11 +9,9 @@
  * The full auto-save + SSE sync lands in US12 (T112–T120). For now,
  * edits flow through the store but are NOT persisted to the server.
  *
- * T126 — legacy (v1) detection. The backend returns 400 LEGACY_FORMAT
- * when the row's data has `data_format_version == 'v1'`. We surface a
- * banner + a soft "open in v1 editor" suggestion. The full redirect
- * is left to the user (some legacy resumes may have valuable data
- * the user wants to copy).
+ * Legacy rows now open through Markdown. If an older backend still returns
+ * LEGACY_FORMAT, the page surfaces a retry-only migration state instead of
+ * linking back to the retired structured editor.
  */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -25,6 +23,7 @@ import { getResume, type ResumeV2 } from "@/modules/resume/v2/api";
 import type { ResumeDataV2 } from "@/modules/resume/v2/schema/data";
 import { defaultResumeDataV2 } from "@/modules/resume/v2/schema/defaults";
 import { fireToast } from "@/modules/resume/v2/editor/center/toast";
+import { convertLegacyResumeToMarkdown } from "@/modules/resume/converter";
 
 export default function ResumeEditorV2() {
   const { id } = useParams<{ id: string }>();
@@ -35,7 +34,7 @@ export default function ResumeEditorV2() {
   const lastSavedAt = useResumeV2Store((s) => s.lastSavedAt);
   const queryClient = useQueryClient();
 
-  // Track 404 / 403 / 400-LEGACY_FORMAT explicitly because the shared
+  // Track 404 / 403 / stale 400-LEGACY_FORMAT explicitly because the shared
   // `request()` throws a generic Error — the body shape (status code)
   // is on the underlying Response but `request()` does not surface it.
   // We re-implement the fetch with explicit status checks below to
@@ -79,8 +78,8 @@ export default function ResumeEditorV2() {
             /* swallow — body may be empty */
           }
           if (body.error === "LEGACY_FORMAT") {
-            setLegacy(body.message ?? "该简历使用旧版格式,请创建新版 v2 简历。");
-            fireToast("该简历使用旧版格式,无法在 v2 编辑器中编辑");
+            setLegacy(body.message ?? "This resume needs Markdown migration before it can open.");
+            fireToast("This resume needs Markdown migration before it can open.");
             throw new Error("LEGACY_FORMAT");
           }
         }
@@ -119,12 +118,28 @@ export default function ResumeEditorV2() {
       }
       // Defensive: if server data is missing critical fields, fill from
       // defaults so the editor never crashes on partial data.
+      const serverMarkdown = serverData?.metadata?.markdown;
+      const serverSourceMarkdown = serverMarkdown?.sourceMarkdown ?? "";
+      const markdown = {
+        ...defaultResumeDataV2.metadata.markdown,
+        ...(serverMarkdown ?? {}),
+      };
+      let shouldPersistConvertedMarkdown = false;
+      if (!serverSourceMarkdown.trim()) {
+        const conversion = convertLegacyResumeToMarkdown(serverData);
+        markdown.sourceMarkdown = conversion.convertedMarkdown;
+        markdown.legacyConversionStatus = conversion.status;
+        markdown.legacyConversionWarnings = conversion.warnings;
+        shouldPersistConvertedMarkdown =
+          conversion.status !== "not_needed" && conversion.convertedMarkdown.trim().length > 0;
+      }
       const merged: ResumeDataV2 = {
         ...defaultResumeDataV2,
         ...serverData,
         metadata: {
           ...defaultResumeDataV2.metadata,
           ...(serverData?.metadata ?? {}),
+          markdown,
         },
       };
       resetFromServer({
@@ -132,8 +147,11 @@ export default function ResumeEditorV2() {
         data: merged,
         version: query.data.version,
       });
+      if (shouldPersistConvertedMarkdown) {
+        setData(merged);
+      }
     }
-  }, [query.data, resetFromServer]);
+  }, [query.data, resetFromServer, setData]);
 
   // T118 — Subscribe to cross-tab SSE updates for this resume.
   useResumeSse(id ?? null);
@@ -205,17 +223,20 @@ export default function ResumeEditorV2() {
           className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900"
           role="status"
         >
-          <div className="mb-1 text-sm font-semibold">该简历使用旧版格式</div>
+          <div className="mb-1 text-sm font-semibold">Resume migration is required</div>
           <div className="text-xs leading-relaxed">{legacy}</div>
         </div>
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate(`/resume/${id}`)}
+            onClick={() => {
+              setLegacy(null);
+              void query.refetch();
+            }}
             className="text-xs text-primary-500 hover:underline"
-            data-testid="legacy-open-v1"
+            data-testid="legacy-retry-markdown"
           >
-            在 v1 编辑器中打开
+            Retry Markdown migration
           </button>
           <span aria-hidden className="text-surface-border">|</span>
           <button

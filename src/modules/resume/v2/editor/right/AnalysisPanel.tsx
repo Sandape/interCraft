@@ -257,7 +257,7 @@ export function AnalysisPanel({
       {a && (
         <>
           <div className="flex items-center gap-3 rounded border border-surface-border bg-white px-3 py-2">
-            <CircularGauge value={a.overallScore} />
+            <CircularGauge value={a.overallScore ?? a.score} />
             <div className="flex-1 text-[11px] text-ink-2">
               <div className="font-semibold text-ink-1">
                 Overall score
@@ -270,20 +270,19 @@ export function AnalysisPanel({
 
           {a && (
             <div className="space-y-1 rounded border border-surface-border bg-white px-2 py-1.5">
-              {(
-                a.dimensions && a.dimensions.length > 0
-                  ? a.dimensions
-                  : Array.from({ length: 10 }, (_, i) => ({
-                      name: `维度 ${i + 1}`,
-                      score: 0,
-                    }))
-              ).map((d, i) => (
-                <DimensionBar
-                  key={`${d.name}-${i}`}
-                  name={d.name}
-                  score={d.score}
-                />
-              ))}
+              {a.dimensions && a.dimensions.length > 0 ? (
+                a.dimensions.map((d, i) => (
+                  <DimensionBar
+                    key={`${d.name}-${i}`}
+                    name={d.name}
+                    score={d.score}
+                  />
+                ))
+              ) : (
+                <p className="text-[10px] text-ink-3">
+                  No dimension scores returned.
+                </p>
+              )}
             </div>
           )}
 
@@ -292,43 +291,40 @@ export function AnalysisPanel({
               <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-ink-3">
                 <CheckCircle2 className="h-3 w-3" /> Strengths
               </div>
-              <ul className="space-y-1.5 text-[11px]">
-                {(
-                  a.strengths && a.strengths.length > 0
-                    ? sortByImpact(a.strengths)
-                    : Array.from({ length: 3 }, (_, i) => ({
-                        impact: "low" as const,
-                        text: `优势 ${i + 1}`,
-                        why: "",
-                        exampleRewrite: "",
-                      }))
-                ).map((s, i) => (
-                  <li
-                    key={`str-${i}`}
-                    data-testid="analysis-strength"
-                    data-impact={s.impact}
-                    className="space-y-0.5"
-                  >
-                    <div className="font-medium text-ink-1">
-                      <span
-                        className={
-                          s.impact === "high"
-                            ? "text-emerald-600"
-                            : s.impact === "medium"
-                              ? "text-amber-600"
-                              : "text-ink-3"
-                        }
-                      >
-                        [{s.impact}]
-                      </span>{" "}
-                      {s.text}
-                    </div>
-                    {s.why && (
-                      <div className="text-[10px] text-ink-3">{s.why}</div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              {a.strengths && a.strengths.length > 0 ? (
+                <ul className="space-y-1.5 text-[11px]">
+                  {sortByImpact(a.strengths).map((s, i) => (
+                    <li
+                      key={`str-${i}`}
+                      data-testid="analysis-strength"
+                      data-impact={s.impact}
+                      className="space-y-0.5"
+                    >
+                      <div className="font-medium text-ink-1">
+                        <span
+                          className={
+                            s.impact === "high"
+                              ? "text-emerald-600"
+                              : s.impact === "medium"
+                                ? "text-amber-600"
+                                : "text-ink-3"
+                          }
+                        >
+                          [{s.impact}]
+                        </span>{" "}
+                        {s.text ?? s.suggestion ?? s.category ?? ""}
+                      </div>
+                      {s.why && (
+                        <div className="text-[10px] text-ink-3">{s.why}</div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[10px] text-ink-3">
+                  No strengths returned by this analysis.
+                </p>
+              )}
             </div>
           )}
 
@@ -337,49 +333,46 @@ export function AnalysisPanel({
               <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-ink-3">
                 <Lightbulb className="h-3 w-3" /> Suggestions
               </div>
-              <ul className="space-y-2 text-[11px]">
-                {(
-                  a.suggestions && a.suggestions.length > 0
-                    ? sortByImpact(a.suggestions)
-                    : Array.from({ length: 3 }, (_, i) => ({
-                        impact: "low" as const,
-                        text: `建议 ${i + 1}`,
-                        why: "",
-                        exampleRewrite: "",
-                      }))
-                ).map((s, i) => (
-                  <li
-                    key={`sug-${i}`}
-                    data-testid="analysis-suggestion"
-                    data-impact={s.impact}
-                    className="space-y-0.5"
-                  >
-                    <div className="font-medium text-ink-1">
-                      <span
-                        className={
-                          s.impact === "high"
-                            ? "text-rose-600"
-                            : s.impact === "medium"
-                              ? "text-amber-600"
-                              : "text-ink-3"
-                        }
-                      >
-                        [{s.impact}]
-                      </span>{" "}
-                      {s.text}
-                    </div>
-                    {s.why && (
-                      <div className="text-[10px] text-ink-3">{s.why}</div>
-                    )}
-                    {s.exampleRewrite && (
-                      <div className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] text-ink-2">
-                        <span className="text-ink-3">重写: </span>
-                        {s.exampleRewrite}
+              {a.suggestions && a.suggestions.length > 0 ? (
+                <ul className="space-y-2 text-[11px]">
+                  {sortByImpact(a.suggestions).map((s, i) => (
+                    <li
+                      key={`sug-${i}`}
+                      data-testid="analysis-suggestion"
+                      data-impact={s.impact}
+                      className="space-y-0.5"
+                    >
+                      <div className="font-medium text-ink-1">
+                        <span
+                          className={
+                            s.impact === "high"
+                              ? "text-rose-600"
+                              : s.impact === "medium"
+                                ? "text-amber-600"
+                                : "text-ink-3"
+                          }
+                        >
+                          [{s.impact}]
+                        </span>{" "}
+                        {s.text ?? s.suggestion ?? s.category ?? ""}
                       </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                      {s.why && (
+                        <div className="text-[10px] text-ink-3">{s.why}</div>
+                      )}
+                      {s.exampleRewrite && (
+                        <div className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] text-ink-2">
+                          <span className="text-ink-3">重写: </span>
+                          {s.exampleRewrite}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[10px] text-ink-3">
+                  No suggestions returned by this analysis.
+                </p>
+              )}
             </div>
           )}
         </>

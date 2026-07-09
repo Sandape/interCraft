@@ -1,0 +1,70 @@
+/* T035 — Onyx template CSS.
+ *
+ * Visual signature:
+ *   - Top header has a thin primary-color border-bottom.
+ *   - Section headings: small text-transform, primary color, thin
+ *     border-bottom.
+ *   - No sidebar split — sidebar sections flow below main.
+ *   - Generous whitespace; minimal decoration.
+ */
+
+.rs-tpl-onyx .rs-tpl__header {
+  display: flex;
+  gap: 12pt;
+  align-items: center;
+  padding-bottom: 8pt;
+  margin-bottom: 12pt;
+  border-bottom: 1px solid var(--color-primary);
+}
+
+.rs-tpl-onyx .rs-tpl__picture {
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+}
+
+.rs-tpl-onyx .rs-tpl__name {
+  font-size: calc(var(--font-size-heading) * 1.5);
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.1;
+}
+
+.rs-tpl-onyx .rs-tpl__headline {
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+  opacity: 0.85;
+  margin-top: 2pt;
+}
+
+.rs-tpl-onyx .rs-tpl__contact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8pt;
+  margin-top: 6pt;
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+  opacity: 0.85;
+}
+
+.rs-tpl-onyx .rs-tpl__section-heading {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: var(--font-size-heading);
+  color: var(--color-primary);
+  border-bottom: 1px solid var(--color-primary);
+  padding-bottom: 2pt;
+  margin-bottom: 6pt;
+  display: flex;
+  align-items: center;
+  gap: 6pt;
+}
+
+.rs-tpl-onyx .rs-tpl__section-heading--with-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.rs-tpl-onyx .rs-tpl__sidebar-block {
+  margin-top: 12pt;
+}

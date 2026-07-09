@@ -20,7 +20,6 @@ import SharedAbilityProfile from '@/pages/SharedAbilityProfile'
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const ResumeList = lazy(() => import('@/pages/ResumeList'))
 const ResumeListV2 = lazy(() => import('@/pages/ResumeListV2'))
-const ResumeEditor = lazy(() => import('@/pages/ResumeEditor'))
 const ResumeEditorV2 = lazy(() => import('@/pages/ResumeEditorV2'))
 const PublicResumeV2 = lazy(() => import('@/pages/PublicResumeV2'))
 const Square = lazy(() => import('@/modules/resume/marketplace/Square'))
@@ -36,6 +35,8 @@ const Help = lazy(() => import('@/pages/Help'))
 const AbilityProfile = lazy(() => import('@/pages/AbilityProfile'))
 const AbilityProfileDetail = lazy(() => import('@/pages/AbilityProfileDetail'))
 const PMDashboard = lazy(() => import('@/pages/PMDashboard'))
+// REQ-053 (T069) — full report viewer.
+const ResearchReportPage = lazy(() => import('@/pages/ResearchReportPage'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -111,10 +112,11 @@ export function AppRoutes() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/resume" element={<ResumeList />} />
                 <Route path="/resume/marketplace" element={<Square />} />
+                {/* Canonical editor is V2; keep /resume/v2/:id as a stable alias. */}
                 <Route path="/resume/v2/:id" element={<ResumeEditorV2 />} />
                 <Route path="/resume-v2" element={<ResumeListV2 />} />
                 <Route path="/resume-v2/new" element={<ResumeListV2 />} />
-                <Route path="/resume/:branchId" element={<ResumeEditor />} />
+                <Route path="/resume/:id" element={<ResumeEditorV2 />} />
                 <Route path="/interview" element={<InterviewList />} />
                 <Route path="/interview/new" element={<InterviewLive />} />
                 <Route path="/interview/:id/live" element={<InterviewLive />} />
@@ -123,6 +125,10 @@ export function AppRoutes() {
                 <Route path="/ability-profile" element={<AbilityProfile />} />
                 <Route path="/ability-profile/:abilityKey" element={<AbilityProfileDetail />} />
                 <Route path="/jobs" element={<Jobs />} />
+                <Route
+                  path="/research-reports/:jobId/:reportId"
+                  element={<ResearchReportPage />}
+                />
                 <Route path="/error-book" element={<ErrorBook />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/coach" element={<GeneralCoach />} />

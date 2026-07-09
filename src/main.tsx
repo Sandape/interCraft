@@ -15,3 +15,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <App />
   </React.StrictMode>,
 )
+// REQ-053 acceptance: surface boot errors so vite HMR shows them clearly
+window.addEventListener('error', e => console.error('[BOOT ERROR]', e.message, e.filename + ':' + e.lineno, e.error?.stack?.substring(0, 500)))
+window.addEventListener('unhandledrejection', e => console.error('[BOOT REJECTION]', String(e.reason)))

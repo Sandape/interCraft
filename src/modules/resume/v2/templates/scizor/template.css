@@ -1,0 +1,58 @@
+/* T043 — Scizor template CSS — letterhead editorial. */
+
+.rs-tpl-scizor__letterhead {
+  background: var(--color-primary);
+  color: var(--color-background);
+  padding: 16pt 14pt;
+  margin-bottom: 14pt;
+}
+
+.rs-tpl-scizor__name {
+  font-size: calc(var(--font-size-heading) * 1.8);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0;
+  color: var(--color-background);
+  line-height: 1.05;
+}
+
+.rs-tpl-scizor__headline {
+  color: var(--color-background);
+  margin-top: 4pt;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: var(--font-size-body);
+  opacity: 0.9;
+}
+
+.rs-tpl-scizor__contact-list {
+  color: var(--color-background);
+  margin-top: 6pt;
+  font-size: var(--font-size-body);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.rs-tpl-scizor__main {
+  font-weight: 500;
+}
+
+.rs-tpl-scizor__section {
+  margin-bottom: 10pt;
+}
+
+.rs-tpl-scizor__heading {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+  font-size: calc(var(--font-size-heading) * 1.1);
+  color: var(--color-primary);
+  border-top: 2px solid var(--color-primary);
+  padding-top: 4pt;
+  margin: 0 0 6pt 0;
+}
+
+.rs-tpl-scizor .rs-tpl__item {
+  margin-bottom: 4pt;
+}

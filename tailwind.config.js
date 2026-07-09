@@ -6,7 +6,6 @@ export default {
     extend: {
       fontFamily: {
         sans: [
-          'Inter',
           '-apple-system',
           'BlinkMacSystemFont',
           'Segoe UI',
@@ -15,7 +14,7 @@ export default {
           'Microsoft YaHei',
           'sans-serif',
         ],
-        mono: ['JetBrains Mono', 'Menlo', 'Monaco', 'monospace'],
+        mono: ['Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       colors: {
         // 语义化颜色令牌

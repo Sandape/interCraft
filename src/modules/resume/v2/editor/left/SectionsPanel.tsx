@@ -25,6 +25,13 @@ import { EducationSectionList } from "./EducationSectionList";
 import { ProjectsSectionList } from "./ProjectsSectionList";
 import { SkillsSectionList } from "./SkillsSectionList";
 import { ProfileSectionList } from "./ProfileSectionList";
+import { LanguagesSectionList } from "./LanguagesSectionList";
+import { InterestsSectionList } from "./InterestsSectionList";
+import { AwardsSectionList } from "./AwardsSectionList";
+import { CertificationsSectionList } from "./CertificationsSectionList";
+import { PublicationsSectionList } from "./PublicationsSectionList";
+import { VolunteerSectionList } from "./VolunteerSectionList";
+import { ReferencesSectionList } from "./ReferencesSectionList";
 import type { Sections, SectionType } from "../../schema/data";
 
 // ── constants ─────────────────────────────────────────────────────────────
@@ -171,6 +178,13 @@ function SectionRow({ id, value }: SectionRowProps): JSX.Element {
               row. Shares `SectionItem` wrapper + uses
               `data-dnd-context="profiles"` for cross-section isolation. */}
           {id === "profiles" && <ProfileSectionList sectionId={id} />}
+          {id === "languages" && <LanguagesSectionList sectionId={id} />}
+          {id === "interests" && <InterestsSectionList sectionId={id} />}
+          {id === "awards" && <AwardsSectionList sectionId={id} />}
+          {id === "certifications" && <CertificationsSectionList sectionId={id} />}
+          {id === "publications" && <PublicationsSectionList sectionId={id} />}
+          {id === "volunteer" && <VolunteerSectionList sectionId={id} />}
+          {id === "references" && <ReferencesSectionList sectionId={id} />}
         </div>
       )}
     </div>

@@ -73,6 +73,12 @@ LevelType = Literal[
     "icon",
 ]
 PageFormat = Literal["a4", "letter", "free-form"]
+MujiThemeId = Literal[
+    "muji-default-autumn",
+    "muji-minimal-color",
+    "muji-flat-atmospheric",
+]
+SmartOnePageStatus = Literal["idle", "fit", "already-fit", "infeasible"]
 RgbaPattern = re.compile(
     r"^rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*(0|1|0?\.\d+)\s*\)$"
 )
@@ -470,6 +476,22 @@ class StyleRule(_Base):
     slots: StyleRuleSlots
 
 
+class MarkdownSettings(_Base):
+    sourceMarkdown: str = Field(default="", max_length=50000)
+    themeId: MujiThemeId = "muji-default-autumn"
+    manualLineHeight: int = Field(default=19, ge=12, le=25)
+    smartOnePageEnabled: bool = False
+    smartLineHeight: int | None = Field(default=None, ge=12, le=25)
+    previousManualLineHeight: int | None = Field(default=None, ge=12, le=25)
+    smartStatus: SmartOnePageStatus = "idle"
+    paginationState: Literal["idle", "measuring", "paginated", "warning", "failed"] = "idle"
+    pageCount: int = Field(default=1, ge=1)
+    legacyConversionStatus: Literal[
+        "not_needed", "pending", "converted", "warning", "failed"
+    ] = "not_needed"
+    legacyConversionWarnings: list[str] = Field(default_factory=list)
+
+
 class Metadata(_Base):
     template: TemplateId
     layout: Layout
@@ -478,6 +500,7 @@ class Metadata(_Base):
     typography: Typography
     notes: str = Field(default="", max_length=50000)
     styleRules: list[StyleRule] = Field(default_factory=list, max_length=50)
+    markdown: MarkdownSettings = Field(default_factory=MarkdownSettings)
 
 
 class _ResumeDataV2Base(BaseModel):
@@ -637,6 +660,12 @@ class ExportRenderIn(_Base):
     html: str = ""
     format: ExportFormat = "pdf"
     resume_id: UUID | None = None
+    source_markdown: str | None = None
+    theme_id: str | None = None
+    line_height: int | None = Field(default=None, ge=12, le=25)
+    smart_one_page_enabled: bool | None = None
+    pagination_state: str | None = None
+    preview_page_count: int | None = Field(default=None, ge=1)
 
 
 __all__ = [

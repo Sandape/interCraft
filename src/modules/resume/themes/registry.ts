@@ -1,10 +1,14 @@
+import type { MujiThemeId, MujiThemePattern } from '../renderer/types'
+
 /**
- * Resume theme registry — 4 木及风格主题（default / blue / orange / pupple）.
- * Themes are independent CSS files in /public/themes/, fetched at runtime
- * and injected into a single <style id="rs-themes-data"> tag.
+ * Resume theme registry.
+ *
+ * Legacy 027 themes stay available for older callers. REQ-047 adds the
+ * Markdown-first v3 theme set as an explicit, exact list.
  */
 
-export type ThemeId = 'default' | 'blue' | 'orange' | 'pupple'
+export type LegacyThemeId = 'default' | 'blue' | 'orange' | 'pupple'
+export type ThemeId = LegacyThemeId | MujiThemeId
 
 export interface ResumeTheme {
   id: ThemeId
@@ -16,6 +20,7 @@ export interface ResumeTheme {
   cssUrl: string
   /** Whether the theme supports custom accent color via color picker. */
   isColorCustomizable: boolean
+  renderPattern?: MujiThemePattern
 }
 
 const THEME_BASE = '/themes'
@@ -51,8 +56,35 @@ export const RESUME_THEMES: ResumeTheme[] = [
   },
 ]
 
+export const RESUME_V3_THEMES: ResumeTheme[] = [
+  {
+    id: 'muji-default-autumn',
+    name: '默认（秋风同款）',
+    defaultColor: '#39393a',
+    cssUrl: `${THEME_BASE}/muji-default-autumn.css`,
+    isColorCustomizable: false,
+    renderPattern: 'dark-header-centered-section',
+  },
+  {
+    id: 'muji-minimal-color',
+    name: '极简色',
+    defaultColor: '#2563eb',
+    cssUrl: `${THEME_BASE}/muji-minimal-color.css`,
+    isColorCustomizable: false,
+    renderPattern: 'minimal-line',
+  },
+  {
+    id: 'muji-flat-atmospheric',
+    name: '平面大气主题',
+    defaultColor: '#1f5fbf',
+    cssUrl: `${THEME_BASE}/muji-flat-atmospheric.css`,
+    isColorCustomizable: false,
+    renderPattern: 'accent-band',
+  },
+]
+
 const THEME_MAP = new Map<ThemeId, ResumeTheme>(
-  RESUME_THEMES.map((t) => [t.id, t]),
+  [...RESUME_THEMES, ...RESUME_V3_THEMES].map((t) => [t.id, t]),
 )
 
 export function getThemeById(id: string): ResumeTheme | undefined {
@@ -63,4 +95,9 @@ export function listThemes(): ResumeTheme[] {
   return RESUME_THEMES
 }
 
-export const DEFAULT_THEME_ID: ThemeId = 'default'
+export function listV3Themes(): ResumeTheme[] {
+  return RESUME_V3_THEMES
+}
+
+export const DEFAULT_THEME_ID: LegacyThemeId = 'default'
+export const DEFAULT_V3_THEME_ID: MujiThemeId = 'muji-default-autumn'

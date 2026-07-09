@@ -1,0 +1,9 @@
+.markdown-resume-preview[data-theme="muji-default-autumn"] h1 {
+  background: #39393a;
+  color: #fff;
+}
+
+.markdown-resume-preview[data-theme="muji-default-autumn"] h2 {
+  background: #eef0f3;
+  color: #2f343b;
+}

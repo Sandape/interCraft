@@ -262,7 +262,7 @@ describe("SectionsPanel cross-section drag isolation (AC-17b)", () => {
         // Manually invoke the same short-circuit logic the section list
         // uses: read droppableContainer.dataset.dndContext.
         const activeId = "e1";
-        const overCtx = "projects";
+        const overCtx: string | null = "projects";
         if (overCtx && overCtx !== "education") {
           return; // short-circuit
         }

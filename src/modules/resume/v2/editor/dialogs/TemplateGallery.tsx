@@ -106,7 +106,7 @@ export function TemplateGallery({
       onClose={onClose}
       title="选择模板"
       description="10 套精选模板，点击切换预览。模板切换不修改数据。"
-      size="xl"
+      size="lg"
     >
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" data-template-gallery>
         {TEMPLATE_IDS.map((id) => {

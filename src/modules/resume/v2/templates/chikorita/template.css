@@ -1,0 +1,89 @@
+/* T038 — Chikorita template CSS — left main + right solid sidebar. */
+
+.rs-tpl-chikorita .rs-tpl__header {
+  display: flex;
+  gap: 12pt;
+  align-items: center;
+  padding-bottom: 8pt;
+  margin-bottom: 12pt;
+}
+
+.rs-tpl-chikorita .rs-tpl__picture {
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+}
+
+.rs-tpl-chikorita .rs-tpl__name {
+  font-size: calc(var(--font-size-heading) * 1.4);
+  font-weight: 700;
+  margin: 0;
+}
+
+.rs-tpl-chikorita .rs-tpl__contact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8pt;
+  margin-top: 4pt;
+  font-size: var(--font-size-body);
+}
+
+.rs-tpl-chikorita__row {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+}
+
+.rs-tpl-chikorita__main {
+  flex: 1;
+  min-width: 0;
+  padding-right: 12pt;
+}
+
+.rs-tpl-chikorita__sidebar {
+  background: var(--color-primary);
+  color: var(--color-background);
+  padding: 12pt 12pt;
+  flex-shrink: 0;
+}
+
+.rs-tpl-chikorita__sidebar .rs-tpl__section-heading {
+  color: var(--color-background);
+  border-bottom: 1px solid var(--color-background);
+  margin-bottom: 6pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: var(--font-size-heading);
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 4pt;
+}
+
+.rs-tpl-chikorita__sidebar .rs-tpl__item,
+.rs-tpl-chikorita__sidebar .rs-tpl__text,
+.rs-tpl-chikorita__sidebar .rs-tpl__skill-name,
+.rs-tpl-chikorita__sidebar .rs-tpl__language-name,
+.rs-tpl-chikorita__sidebar .rs-tpl__interest-item,
+.rs-tpl-chikorita__sidebar .rs-tpl__profile-network,
+.rs-tpl-chikorita__sidebar .rs-tpl__item-title,
+.rs-tpl-chikorita__sidebar .rs-tpl__item-org,
+.rs-tpl-chikorita__sidebar .rs-tpl__item-period {
+  color: var(--color-background);
+}
+
+.rs-tpl-chikorita__sidebar .rs-tpl__icon,
+.rs-tpl-chikorita__sidebar .rs-tpl__icon svg {
+  color: var(--color-background);
+}
+
+.rs-tpl-chikorita .rs-tpl__section-heading {
+  color: var(--color-primary);
+  border-bottom: 1px solid var(--color-primary);
+  margin-bottom: 4pt;
+  font-weight: 600;
+  font-size: var(--font-size-heading);
+  display: flex;
+  align-items: center;
+  gap: 4pt;
+}

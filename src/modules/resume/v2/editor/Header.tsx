@@ -28,6 +28,7 @@ import { useResumeV2Store } from "../store";
 import { renderExport } from "../api";
 import { fireToast } from "./center/toast";
 import type { TemplateId } from "../schema/templates";
+import { ExportMenu } from "./controls/ExportMenu";
 
 export interface HeaderProps {
   resumeName: string;
@@ -65,6 +66,7 @@ export function Header({
   const data = useResumeV2Store((s) => s.data);
   const resumeId = useResumeV2Store((s) => s.id);
   const currentTemplate = (data?.metadata?.template ?? "pikachu") as TemplateId;
+  const markdown = data?.metadata?.markdown;
 
   // Batch 3 — PDF export. We grab the live preview DOM (rendered by
   // the same template the user is looking at) so the PDF matches what
@@ -192,23 +194,46 @@ export function Header({
             on the top-right (per spec). We never disable it based on
             `isDirty` because export reflects the live DOM (which is
             always up-to-date), not the last server snapshot. */}
-        <button
-          type="button"
-          data-testid="export-pdf-button"
-          data-state={exporting ? "loading" : "idle"}
-          onClick={() => void handleExportPdf()}
-          disabled={exporting || !resumeId}
-          aria-label="Export PDF"
-          title="Export PDF (download current preview)"
-          className="flex h-7 items-center gap-1 rounded border border-surface-border bg-white px-2 text-[11px] text-ink-1 hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {exporting ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" data-testid="export-pdf-spinner" />
-          ) : (
-            <Download className="h-3.5 w-3.5" />
-          )}
-          <span>Export PDF</span>
-        </button>
+        {markdown && resumeId ? (
+          <ExportMenu
+            resumeId={resumeId}
+            filenameBase={resumeSlugFromData(data) || resumeId}
+            sourceMarkdown={markdown.sourceMarkdown}
+            previewHtml={() => {
+              const pages = Array.from(
+                document.querySelectorAll<HTMLElement>('[data-testid="markdown-preview-page"]'),
+              );
+              return pages.map((page) => page.outerHTML).join("");
+            }}
+            themeId={markdown.themeId}
+            lineHeight={
+              markdown.smartOnePageEnabled && markdown.smartLineHeight !== null
+                ? markdown.smartLineHeight
+                : markdown.manualLineHeight
+            }
+            smartOnePageEnabled={markdown.smartOnePageEnabled}
+            paginationState={markdown.paginationState}
+            pageCount={markdown.pageCount}
+          />
+        ) : (
+          <button
+            type="button"
+            data-testid="export-pdf-button"
+            data-state={exporting ? "loading" : "idle"}
+            onClick={() => void handleExportPdf()}
+            disabled={exporting || !resumeId}
+            aria-label="Export PDF"
+            title="Export PDF (download current preview)"
+            className="flex h-7 items-center gap-1 rounded border border-surface-border bg-white px-2 text-[11px] text-ink-1 hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {exporting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" data-testid="export-pdf-spinner" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            <span>Export PDF</span>
+          </button>
+        )}
         <button
           type="button"
           data-testid="toggle-right-sidebar"

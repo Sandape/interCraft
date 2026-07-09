@@ -327,9 +327,9 @@ function mergeWithDefaults(data: ResumeDataV2, templateId: TemplateId): ResumeDa
       if (ds && typeof ds === "object") {
         // Per-section merge: caller wins for top-level keys, default
         // fills any missing ones (e.g. items array).
-        (mergedSections as Record<string, unknown>)[k] = {
-          ...(defaultSections[k] as Record<string, unknown>),
-          ...(ds as Record<string, unknown>),
+        (mergedSections as unknown as Record<string, unknown>)[k] = {
+          ...(defaultSections[k] as unknown as Record<string, unknown>),
+          ...(ds as unknown as Record<string, unknown>),
         };
       }
     }

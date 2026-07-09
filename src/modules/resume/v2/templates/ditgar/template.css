@@ -1,0 +1,68 @@
+/* T039 — Ditgar template CSS — left tint sidebar + 2px item spine. */
+
+.rs-tpl-ditgar .rs-tpl__header {
+  display: flex;
+  gap: 12pt;
+  align-items: center;
+  padding-bottom: 8pt;
+  margin-bottom: 12pt;
+}
+
+.rs-tpl-ditgar .rs-tpl__picture {
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+}
+
+.rs-tpl-ditgar .rs-tpl__name {
+  font-size: calc(var(--font-size-heading) * 1.4);
+  font-weight: 700;
+  margin: 0;
+}
+
+.rs-tpl-ditgar .rs-tpl__contact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8pt;
+  margin-top: 4pt;
+  font-size: var(--font-size-body);
+}
+
+.rs-tpl-ditgar__row {
+  display: flex;
+  gap: 12pt;
+  align-items: flex-start;
+}
+
+.rs-tpl-ditgar__sidebar {
+  flex-shrink: 0;
+  /* Tinted (semi-transparent) primary background.
+   * Approximated by reducing opacity; real alpha-mix would be
+   * background-blend-mode: lighten, but we keep it simple for v1. */
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  padding: 12pt 10pt;
+  border-radius: 4px;
+}
+
+.rs-tpl-ditgar__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-tpl-ditgar .rs-tpl__section-heading {
+  color: var(--color-text);
+  font-weight: 700;
+  border-bottom: 1px solid var(--color-primary);
+  margin-bottom: 4pt;
+  font-size: var(--font-size-heading);
+  display: flex;
+  align-items: center;
+  gap: 4pt;
+}
+
+/* 2px left spine on every main-column item. */
+.rs-tpl-ditgar__main .rs-tpl__item {
+  border-left: 2px solid var(--color-primary);
+  padding-left: 8pt;
+  margin-bottom: 6pt;
+}

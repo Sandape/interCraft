@@ -16,6 +16,10 @@ export default function headingBlockPlugin(md: MarkdownIt): void {
     'fence',
     'heading_block',
     function (state, line: number, _maxLine: number): boolean {
+      if ((state.parentType as string) === 'container') {
+        return false
+      }
+
       const rg = /^(#+)\s(.*)/
       const start = state.bMarks[line] + state.tShift[line]
       const end = state.eMarks[line]

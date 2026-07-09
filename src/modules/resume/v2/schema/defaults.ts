@@ -22,6 +22,7 @@ import type {
   Typography,
   TypographyItem,
 } from "./data";
+import { DEFAULT_MARKDOWN_SETTINGS } from "../../renderer/types";
 
 const BODY_TYPOGRAPHY: TypographyItem = {
   fontFamily: "Inter",
@@ -92,7 +93,7 @@ const PAGE: Page = {
   locale: "zh-CN",
   hideLinkUnderline: false,
   hideIcons: false,
-  hideSectionIcons: false,
+  hideSectionIcons: true,
 };
 
 const METADATA: Metadata = {
@@ -103,6 +104,7 @@ const METADATA: Metadata = {
   typography: TYPOGRAPHY,
   notes: "",
   styleRules: [],
+  markdown: { ...DEFAULT_MARKDOWN_SETTINGS },
 };
 
 const EMPTY_SECTIONS: Sections = {

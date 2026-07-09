@@ -1,0 +1,14 @@
+/* Barrel CSS — imports all 10 template CSS files.
+ * Imported by PreviewTest and (later) PreviewPane.
+ */
+@import "./shared/template.css";
+@import "./onyx/template.css";
+@import "./azurill/template.css";
+@import "./kakuna/template.css";
+@import "./chikorita/template.css";
+@import "./ditgar/template.css";
+/* @import "./gengar/template.css"; — no gengar template CSS yet */@import "./bronzor/template.css";
+@import "./pikachu/template.css";
+@import "./lapras/template.css";
+@import "./scizor/template.css";
+@import "./rhyhorn/template.css";

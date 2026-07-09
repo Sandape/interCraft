@@ -255,9 +255,28 @@ class ResumeV2Repository:
         )
         result = await self._session.execute(stmt)
         if result.rowcount == 0:
-            await self._session.rollback()
             return None
         await self._session.flush()
+        bind = self._session.get_bind()
+        if bind.dialect.name == "postgresql":
+            await self._session.execute(
+                sa_text(
+                    "SELECT pg_notify('resume_update_v2', "
+                    "json_build_object("
+                    "'type','resume.updated',"
+                    "'resume_id',CAST(:rid AS uuid),"
+                    "'version',CAST(:version AS integer),"
+                    "'user_id',CAST(:uid AS uuid),"
+                    "'updated_at',to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),"
+                    "'action','update'"
+                    ")::text)"
+                ),
+                {
+                    "rid": str(resume_id),
+                    "version": if_match + 1,
+                    "uid": str(user_id),
+                },
+            )
         return if_match + 1
 
     # ── 6. soft_delete ──────────────────────────────────────────────────

@@ -1,36 +1,32 @@
 # Resume Themes
 
-Runtime CSS injection + `--bg` single-variable theme system. Ported from 木及简历.
+REQ-047 exposes exactly three Muji-compatible v3 resume themes while leaving the
+legacy theme registry stable for older callers.
 
-## Architecture
+## V3 Theme IDs
 
-- 4 themes: `default`, `blue`, `orange`, `pupple`
-- CSS files in `/public/themes/<id>.css`, fetched at runtime
-- Injected into a single `<style id="rs-themes-data">` tag
-- All theme-color elements read `var(--bg)` — one variable drives everything
+| Theme ID | Display Name | Pattern |
+|---|---|---|
+| `muji-default-autumn` | Default autumn | Dark header / classic Muji pattern |
+| `muji-minimal-color` | Minimal color | White page with restrained section lines |
+| `muji-flat-atmospheric` | Flat atmospheric | Accent-band title treatment |
 
-## Public API
+The public selector surface is `listV3Themes()`. It must always return these
+three themes only for REQ-047.
 
-```typescript
-import { loadTheme, applyColor, listThemes, getThemeById } from '@/modules/resume/themes'
+## CSS Files
 
-// Switch theme (fetch CSS + inject)
-await loadTheme('blue')
+- `public/themes/muji-default-autumn.css`
+- `public/themes/muji-minimal-color.css`
+- `public/themes/muji-flat-atmospheric.css`
 
-// Apply accent color (sets --bg on body)
-applyColor('#2563eb')
+The Markdown preview root carries `data-theme="<theme-id>"`, a theme class, and
+the line-height class (`height12` through `height25`). Theme CSS is responsible
+for keeping headings, tables, lists, icons, and body text readable across line
+spacing changes.
 
-// List all themes for selector UI
-const themes = listThemes()
+## Validation
+
+```bash
+npm run test -- src/modules/resume/themes/__tests__/muji-v3-themes.test.ts src/modules/resume/v2/editor/__tests__/MarkdownResumePreviewThemes.test.tsx
 ```
-
-## Adding a New Theme
-
-1. Create `public/themes/<new-id>.css` (copy an existing theme as starting point)
-2. Add entry to `RESUME_THEMES` in `registry.ts`
-3. Update the `theme_id` CHECK constraint in the Alembic migration
-4. No rebuild required — theme is loaded at runtime
-
-## Contract
-
-See `specs/027-resume-center-muji-alignment/data-model.md` (ResumeTheme entity) and `contracts/render-engine.md`.

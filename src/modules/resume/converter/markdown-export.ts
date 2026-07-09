@@ -22,6 +22,15 @@ export function downloadMarkdown(branch: ResumeBranch, blocks: ResumeBlock[]): v
   URL.revokeObjectURL(url)
 }
 
+export function downloadSourceMarkdown(markdown: string, filename: string): void {
+  const safeFilename = filename.replace(/[<>:"/\\|?*]/g, '_').trim() || 'resume.md'
+  const finalFilename = safeFilename.toLowerCase().endsWith('.md')
+    ? safeFilename
+    : `${safeFilename}.md`
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+  downloadBlob(blob, finalFilename)
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

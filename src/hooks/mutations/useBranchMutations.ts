@@ -1,8 +1,11 @@
 /**
  * Resume branch + block mutations.
+ *
+ * 036 Phase A.2 — v1 mutations are no-ops. The v2 editor exposes its
+ * own mutations through `@/modules/resume/v2/api`. Hooks here are kept
+ * so legacy call sites keep importing cleanly until they migrate.
  */
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { getResumeRepository, getResumeBlockRepository } from '../../repositories/types'
+import { useMutation } from '@tanstack/react-query'
 import type {
   CreateBlockInput,
   CreateBranchInput,
@@ -12,71 +15,51 @@ import type {
   ResumeBlock,
   ResumeBranch,
 } from '@/modules/resume/api/types'
-import { BLOCKS_KEY, BRANCHES_KEY, BRANCH_KEY } from '../queries/useResumeBranches'
+
+const noop = <T,>(_input: T): Promise<ResumeBranch> =>
+  Promise.reject(new Error('v1 resume branches retired (036 Phase A.2)'))
+
+const noopBlock = <T,>(_input: T): Promise<ResumeBlock> =>
+  Promise.reject(new Error('v1 resume blocks retired (036 Phase A.2)'))
 
 export function useCreateBranch() {
-  const qc = useQueryClient()
   return useMutation<ResumeBranch, Error, CreateBranchInput>({
-    mutationFn: (input) => getResumeRepository().create(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: BRANCHES_KEY }),
+    mutationFn: (input) => noop(input),
   })
 }
 
 export function usePatchBranch() {
-  const qc = useQueryClient()
   return useMutation<ResumeBranch, Error, { id: string; input: PatchBranchInput }>({
-    mutationFn: ({ id, input }) => getResumeRepository().patch(id, input),
-    onSuccess: (branch) => {
-      qc.invalidateQueries({ queryKey: BRANCHES_KEY })
-      qc.setQueryData(BRANCH_KEY(branch.id), branch)
-    },
+    mutationFn: ({ id, input }) => noop({ id, input }),
   })
 }
 
 export function useDeleteBranch() {
-  const qc = useQueryClient()
   return useMutation<void, Error, string>({
-    mutationFn: (id) => getResumeRepository().delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: BRANCHES_KEY }),
+    mutationFn: (id) => Promise.reject(new Error('v1 resume branches retired (036 Phase A.2)')),
   })
 }
 
-export function useCreateBlock(branchId: string) {
-  const qc = useQueryClient()
+export function useCreateBlock(_branchId: string) {
   return useMutation<ResumeBlock, Error, CreateBlockInput>({
-    mutationFn: (input) => getResumeBlockRepository().create(branchId, input),
-    onSuccess: (block) => {
-      qc.setQueryData<ResumeBlock[]>(BLOCKS_KEY(branchId), (prev) =>
-        prev ? [...prev, block] : [block],
-      )
-    },
+    mutationFn: (input) => noopBlock(input),
   })
 }
 
-export function usePatchBlock(branchId: string) {
-  const qc = useQueryClient()
+export function usePatchBlock(_branchId: string) {
   return useMutation<ResumeBlock, Error, { id: string; input: PatchBlockInput }>({
-    mutationFn: ({ id, input }) => getResumeBlockRepository().patch(id, input),
-    onSuccess: (block) => {
-      qc.setQueryData<ResumeBlock[]>(BLOCKS_KEY(branchId), (prev) =>
-        prev ? prev.map((b) => (b.id === block.id ? block : b)) : [block],
-      )
-    },
+    mutationFn: ({ id, input }) => noopBlock({ id, input }),
   })
 }
 
-export function useReorderBlocks(branchId: string) {
-  const qc = useQueryClient()
+export function useReorderBlocks(_branchId: string) {
   return useMutation<ResumeBlock, Error, { id: string; input: ReorderBlocksInput }>({
-    mutationFn: ({ id, input }) => getResumeBlockRepository().reorder(id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: BLOCKS_KEY(branchId) }),
+    mutationFn: ({ id, input }) => noopBlock({ id, input }),
   })
 }
 
-export function useDeleteBlock(branchId: string) {
-  const qc = useQueryClient()
+export function useDeleteBlock(_branchId: string) {
   return useMutation<void, Error, string>({
-    mutationFn: (id) => getResumeBlockRepository().delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: BLOCKS_KEY(branchId) }),
+    mutationFn: (id) => Promise.reject(new Error('v1 resume blocks retired (036 Phase A.2)')),
   })
 }

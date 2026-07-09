@@ -13,16 +13,27 @@
 // The format radio's three options use a `name` attribute so they
 // form a single radio group (clicking one deselects the others).
 
+import { useEffect, useState } from "react";
 import { useResumeV2Store } from "../../store";
-import type { PageFormat } from "../../schema/data";
+import type { PageFormat, ResumeDataV2 } from "../../schema/data";
+
+export interface PagePanelProps {
+  data?: ResumeDataV2;
+  onChange?: (next: ResumeDataV2) => void;
+}
 
 // ── constants ─────────────────────────────────────────────────────────────
 
 const PAGE_FORMATS: readonly PageFormat[] = ["a4", "letter", "free-form"];
+const PAGE_LOCALES = ["en-US", "zh-CN", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"] as const;
 const MARGIN_MIN = 0;
 const MARGIN_MAX = 200;
 const LOCALE_HINT = "^[a-z]{2}(-[A-Z]{2})?$";
 const LOCALE_REGEX = /^[a-z]{2}(-[A-Z]{2})?$/;
+
+function cloneData(data: ResumeDataV2): ResumeDataV2 {
+  return JSON.parse(JSON.stringify(data)) as ResumeDataV2;
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -33,17 +44,34 @@ function clampNumber(n: number, min: number, max: number): number {
 
 // ── main panel ────────────────────────────────────────────────────────────
 
-export default function PagePanel(): JSX.Element {
-  const page = useResumeV2Store((s) => s.data.metadata.page);
+export function PagePanel(props: PagePanelProps = {}): JSX.Element {
+  const storeData = useResumeV2Store((s) => s.data);
   const setDataMut = useResumeV2Store((s) => s.setDataMut);
+  const [localData, setLocalData] = useState<ResumeDataV2 | null>(() =>
+    props.data ? cloneData(props.data) : null,
+  );
+
+  useEffect(() => {
+    if (props.data) setLocalData(cloneData(props.data));
+  }, [props.data]);
+
+  const data = props.data ? (localData ?? props.data) : storeData;
+  const page = data.metadata.page;
 
   const patchPage = (mutator: (draft: typeof page) => void) => {
+    if (props.data && props.onChange) {
+      const next = cloneData(data);
+      mutator(next.metadata.page);
+      setLocalData(next);
+      props.onChange(next);
+      return;
+    }
     setDataMut((draft) => {
       mutator(draft.metadata.page);
     });
   };
 
-  const handleFormatChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFormatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value as PageFormat;
     patchPage((d) => {
       d.format = next;
@@ -59,7 +87,7 @@ export default function PagePanel(): JSX.Element {
     });
   };
 
-  const handleLocaleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLocaleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     patchPage((d) => {
       d.locale = e.target.value;
     });
@@ -83,29 +111,21 @@ export default function PagePanel(): JSX.Element {
       <div className="text-xs font-semibold text-ink-3">Page</div>
 
       {/* ── format ───────────────────────────────────────────────────── */}
-      <fieldset
-        data-testid="page-format"
-        className="space-y-1 rounded border border-surface-border bg-surface-base p-3"
-      >
-        <legend className="px-1 text-xs text-ink-2">Format</legend>
-        {PAGE_FORMATS.map((f) => (
-          <label
-            key={f}
-            className="flex cursor-pointer items-center gap-2 text-xs text-ink-1"
-          >
-            <input
-              type="radio"
-              name="page-format"
-              value={f}
-              checked={page.format === f}
-              onChange={handleFormatChange}
-              data-testid={`page-format-${f}`}
-              className="accent-primary-500"
-            />
-            <span>{f}</span>
-          </label>
-        ))}
-      </fieldset>
+      <label className="block space-y-1 rounded border border-surface-border bg-surface-base p-3">
+        <span className="text-xs text-ink-2">Format</span>
+        <select
+          data-testid="page-format"
+          value={page.format}
+          onChange={handleFormatChange}
+          className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
+        >
+          {PAGE_FORMATS.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {/* ── margins + gaps ──────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-2 rounded border border-surface-border bg-surface-base p-3">
@@ -119,7 +139,7 @@ export default function PagePanel(): JSX.Element {
               step={1}
               value={page.marginX}
               onChange={handleNumberChange("marginX")}
-              data-testid="page-marginX"
+              data-testid="page-margin-x"
               className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
             />
             <span className="text-xs text-ink-3">pt</span>
@@ -136,7 +156,7 @@ export default function PagePanel(): JSX.Element {
               step={1}
               value={page.marginY}
               onChange={handleNumberChange("marginY")}
-              data-testid="page-marginY"
+              data-testid="page-margin-y"
               className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
             />
             <span className="text-xs text-ink-3">pt</span>
@@ -153,7 +173,7 @@ export default function PagePanel(): JSX.Element {
               step={1}
               value={page.gapX}
               onChange={handleNumberChange("gapX")}
-              data-testid="page-gapX"
+              data-testid="page-gap-x"
               className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
             />
             <span className="text-xs text-ink-3">pt</span>
@@ -170,7 +190,7 @@ export default function PagePanel(): JSX.Element {
               step={1}
               value={page.gapY}
               onChange={handleNumberChange("gapY")}
-              data-testid="page-gapY"
+              data-testid="page-gap-y"
               className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
             />
             <span className="text-xs text-ink-3">pt</span>
@@ -180,16 +200,19 @@ export default function PagePanel(): JSX.Element {
 
       {/* ── locale ──────────────────────────────────────────────────── */}
       <label className="block space-y-1 rounded border border-surface-border bg-surface-base p-3">
-        <span className="text-xs text-ink-2">Locale</span>
-        <input
-          type="text"
+        <span className="text-xs text-ink-2">Language</span>
+        <select
           value={page.locale}
           onChange={handleLocaleChange}
-          pattern={LOCALE_HINT}
-          placeholder="zh-CN"
-          data-testid="page-locale"
+          data-testid="page-language"
           className="w-full rounded border border-surface-border bg-surface-base px-2 py-1 text-xs text-ink-1"
-        />
+        >
+          {PAGE_LOCALES.map((locale) => (
+            <option key={locale} value={locale}>
+              {locale}
+            </option>
+          ))}
+        </select>
         <span
           className={
             "block text-[10px] " +
@@ -211,7 +234,7 @@ export default function PagePanel(): JSX.Element {
             type="checkbox"
             checked={page.hideLinkUnderline}
             onChange={handleToggle("hideLinkUnderline")}
-            data-testid="page-hideLinkUnderline"
+            data-testid="page-hide-link-underline"
             className="accent-primary-500"
           />
           <span>Hide link underline</span>
@@ -222,7 +245,7 @@ export default function PagePanel(): JSX.Element {
             type="checkbox"
             checked={page.hideIcons}
             onChange={handleToggle("hideIcons")}
-            data-testid="page-hideIcons"
+            data-testid="page-hide-icons"
             className="accent-primary-500"
           />
           <span>Hide icons</span>
@@ -233,7 +256,7 @@ export default function PagePanel(): JSX.Element {
             type="checkbox"
             checked={page.hideSectionIcons}
             onChange={handleToggle("hideSectionIcons")}
-            data-testid="page-hideSectionIcons"
+            data-testid="page-hide-section-icons"
             className="accent-primary-500"
           />
           <span>Hide section icons</span>
@@ -242,3 +265,5 @@ export default function PagePanel(): JSX.Element {
     </div>
   );
 }
+
+export default PagePanel;

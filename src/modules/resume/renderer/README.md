@@ -1,49 +1,50 @@
-# Resume Render Engine
+# Resume Renderer
 
-Unified Markdown→HTML pipeline shared by preview and PDF export to eliminate rendering drift (spec 027 US1).
+The renderer is the single Markdown-to-HTML pipeline used by the REQ-047 live
+preview and PDF export request body.
 
 ## Public API
 
-```typescript
-import { renderMarkdown, sanitizeHtml } from '@/modules/resume/renderer'
+```ts
+import { renderMarkdown } from "@/modules/resume/renderer";
 
-const { html } = renderMarkdown('# Hello\n\nContent...', {
-  accentColor: '#2563eb',
-})
-const safe = sanitizeHtml(html)
+const result = renderMarkdown(sourceMarkdown, {
+  themeId: "muji-default-autumn",
+  lineHeight: 19,
+});
 ```
 
-## Pipeline
+`result.html` is sanitized HTML. `result.warnings` contains structured warnings
+for unsupported syntax or unsafe URLs.
 
-```
-Markdown → markdown-it (+ 木及 plugins) → colorPlugin (#{color}) → HTML string
-```
+## Supported Markdown Dialect
 
-### Plugins (ported from 木及简历)
+- `#` maps to the resume title block.
+- `##` maps to major section headings.
+- `###` maps to item or subsection headings.
+- `::: left` and `::: right` create Muji-style contact/header columns with
+  semantic `.resume-contact-row`, icon slot, and text slot markup.
+- `icon:*` tokens render supported inline icons through the local icon map.
+  Unknown icons reserve a fallback slot and emit a render warning so alignment
+  remains stable.
+- Bold, italic, bold-italic, strikethrough, links, inline code, blockquotes,
+  horizontal rules, ordered lists, unordered lists, nested lists, and tables are
+  rendered.
+- Task-list syntax remains literal text (`[x]` / `[ ]`) instead of becoming
+  checkbox widgets.
+- Markdown images render only when the URL is external HTTP(S).
 
-1. **heading-block** — wraps `#/##/###/####/#####` in `<div class="h<N>_block block">`
-2. **blank-line** — preserves consecutive blank lines as `<span class="break-line">` × N
-3. **color-token** — replaces `#{color}` with current accent color hex
-4. **containers** — `::: left/right/header/title` → two-column layout divs
-5. **emoji + svgMap** — `icon:<name>` → inline SVG (14 brand icons)
+## Safety And Fallback
 
-## CLI
+- Raw scripts, embedded objects, event-handler attributes, and unsafe
+  `javascript:`/local/data/ftp URLs are removed.
+- Local Markdown images such as `file:///...` are removed before Markdown
+  rendering so the path is not leaked as literal preview text.
+- Unsupported syntax should degrade predictably to text or be omitted only when
+  it is unsafe.
+
+## Validation
 
 ```bash
-npx tsx src/lib/resume-renderer/cli.ts \
-  --input resume.md \
-  --color '#2563eb' \
-  --output resume.html
+npm run test -- src/modules/resume/renderer/__tests__/contact-container-rendering.test.ts
 ```
-
-Used for E2E test fixtures and local debugging.
-
-## Testing
-
-```bash
-npx vitest run src/lib/resume-renderer/__tests__/
-```
-
-## Contract
-
-See `specs/027-resume-center-muji-alignment/contracts/render-engine.md` for the full interface contract.
