@@ -40,6 +40,8 @@ class Job(Base):
     employment_type: Mapped[str] = mapped_column(Text, nullable=False, default="unspecified", server_default="unspecified")
     salary_range_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     headcount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # REQ-053: Interview time for round-based interview states (test/interview_1/2/3)
+    interview_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

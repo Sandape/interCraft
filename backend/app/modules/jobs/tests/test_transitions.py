@@ -7,9 +7,10 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 
 
-EXPECTED_STATUSES = ["applied", "test", "oa", "hr", "offer", "rejected", "withdrawn"]
-EXPECTED_EDGE_COUNT = 20  # 6+5+4+3+2 = 20
-TERMINAL_STATUSES = {"rejected", "withdrawn"}
+EXPECTED_STATUSES = ["applied", "test", "interview_1", "interview_2", "interview_3", "failed", "passed"]
+# REQ-053: new 7-state model edge count = 6+5+4+3+2+0+0 = 20
+EXPECTED_EDGE_COUNT = 20
+TERMINAL_STATUSES = {"failed", "passed"}
 
 
 @pytest.mark.contract
@@ -20,11 +21,11 @@ def test_response_shape_is_correct():
     statuses = EXPECTED_STATUSES
     assert len(statuses) == 7
     assert statuses[0] == "applied"
-    assert statuses[-2:] == ["rejected", "withdrawn"]
+    assert statuses[-2:] == ["failed", "passed"]
     # Total transitions = 6 + 5 + 4 + 3 + 2 + 0 + 0 = 20
     assert EXPECTED_EDGE_COUNT == 20
     # Terminal states have no outgoing edges
-    assert TERMINAL_STATUSES == {"rejected", "withdrawn"}
+    assert TERMINAL_STATUSES == {"failed", "passed"}
 
 
 @pytest.mark.contract

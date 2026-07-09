@@ -1,0 +1,158 @@
+# Event/Job Contracts: Interview Intelligence Engine
+
+**Feature**: REQ-053 | **Date**: 2026-07-09
+
+## ARQ Cron Job
+
+### `scan_interview_research`
+
+**Schedule**: Every 10 minutes (`minute={0, 10, 20, 30, 40, 50}`)
+**File**: `backend/app/workers/tasks/interview_research.py`
+
+```python
+async def scan_interview_research(ctx: dict) -> dict:
+    """
+    Scan jobs table for interviews happening in ~5 hours.
+    For each match: create InterviewResearchTask + enqueue execute_research_task.
+    Returns summary of actions taken.
+    """
+    ...
+    return {
+        "scanned_at": "2026-07-10T09:00:00+08:00",
+        "matched": 3,
+        "tasks_created": 3,
+        "skipped_duplicate": 1,
+        "skipped_deleted_user": 0,
+        "duration_ms": 120
+    }
+```
+
+**Scan SQL** (FR-009):
+```sql
+SELECT j.id, j.user_id, j.company, j.position, j.interview_time, j.status
+FROM jobs j
+LEFT JOIN interview_research_tasks t
+    ON t.job_id = j.id AND t.interview_time = j.interview_time AND t.status != 'cancelled'
+WHERE j.status IN ('test', 'interview_1', 'interview_2', 'interview_3')
+  AND j.interview_time BETWEEN NOW() + INTERVAL '4h 55m' AND NOW() + INTERVAL '5h 5m'
+  AND j.deleted_at IS NULL
+  AND t.id IS NULL
+```
+
+**Redis Lock**: Key `lock:scan_interview_research`, TTL 540s (9 min). Skip if lock held.
+
+**For each matched row**:
+1. INSERT into `interview_research_tasks` (status=pending)
+2. Enqueue `execute_research_task` via `enqueue_job('execute_research_task', task_id=task.id)`
+
+---
+
+## ARQ Task Function
+
+### `execute_research_task`
+
+**Triggered by**: `scan_interview_research` cron (or manual CLI)
+**File**: `backend/app/workers/tasks/interview_research.py`
+
+```python
+async def execute_research_task(ctx: dict, task_id: str) -> dict:
+    """
+    Execute a single research task:
+    1. Update task status to 'running'
+    2. Extract business keywords via LLM (FR-012)
+    3. Execute 4 search dimensions in parallel (FR-012/FR-013)
+    4. Generate report via LLM (FR-015)
+    5. Quality check report (FR-018); retry once if failed
+    6. Save report to interview_reports (FR-016)
+    7. Deliver via WeChat (FR-019) or notification fallback (FR-020)
+    8. Update task status to 'completed' or 'failed'
+    """
+    ...
+    return {
+        "task_id": "uuid",
+        "status": "completed",
+        "report_id": "uuid",
+        "delivery_status": "sent",
+        "search_dimensions": {
+            "interview_experience": {"results": 5, "status": "completed"},
+            "company_product": {"results": 4, "status": "completed"},
+            "exam_points": {"results": 5, "status": "completed"},
+            "user_weakness": {"results": 2, "status": "completed"}
+        },
+        "duration_ms": 45000,
+        "tokens_used": 8500
+    }
+```
+
+**Execution flow**:
+
+```
+execute_research_task(task_id)
+  │
+  ├─ [1] Load task + job from DB
+  │     └─ Fail if task not found or job deleted
+  │
+  ├─ [2] Update task status: pending → running, set started_at
+  │
+  ├─ [3] LLM: Extract 2-3 business keywords from position + notes_md
+  │     └─ ~200 tokens
+  │
+  ├─ [4] Parallel search (asyncio.gather):
+  │     ├─ interview_experience: tavily_search(["{company} {position} 面试经验 面经"])
+  │     ├─ company_product: tavily_search(["{company} {keyword} 产品 最新"])
+  │     ├─ exam_points: tavily_search(["{position} 面试知识点 考察点"])
+  │     └─ user_weakness: local DB (ability_dimensions + error_questions)
+  │     └─ Each: 3 retries, exponential backoff 2s/4s/8s
+  │     └─ Save results to interview_research_results
+  │
+  ├─ [5] Check 24h cache for same-company results (skip if fresh cache hit)
+  │
+  ├─ [6] LLM: Generate structured report (6 chapters, 2000-3000 chars)
+  │     └─ ~8K-15K tokens
+  │
+  ├─ [7] Quality check (FR-018):
+  │     ├─ (a) Not empty or template-only
+  │     ├─ (b) ≥1 specific company/product name
+  │     ├─ (c) ≥3 specific interview questions
+  │     ├─ (d) ≥1 ability dimension referenced (skip if new user)
+  │     ├─ PASS → continue to [8]
+  │     └─ FAIL (1st time) → retry from [4] (re-search + re-generate)
+  │     └─ FAIL (2nd time) → mark quality_failed, notify admin, stop
+  │
+  ├─ [8] Save report to interview_reports (report_type='pre_interview_research')
+  │
+  ├─ [9] Deliver report:
+  │     ├─ Check if user has active WeChat binding
+  │     ├─ If yes: convert Markdown→plain text, split into ~500-char segments
+  │     │         send via POST /agent/internal/send-message
+  │     │         retry each segment 3x on failure
+  │     └─ If no (or send failed): create Notification + save to DB
+  │
+  └─ [10] Update task: status→completed, set completed_at, link report_id
+```
+
+---
+
+## Internal Events
+
+### Task Cancellation (FR-011)
+
+When user modifies interview_time or changes status away from interview round:
+
+1. Query: `SELECT * FROM interview_research_tasks WHERE job_id = :jid AND status = 'pending'`
+2. UPDATE: `SET status = 'cancelled' WHERE id = :task_id`
+3. If task is `running`: do NOT interrupt; allow completion; report appends "面试时间已于 XX:XX 更新" note
+
+### Post-Interview Reminder (Edge Case)
+
+When interview_time passes and job status is still an interview state:
+
+- Trigger: `scan_post_interview_reminder` cron (daily at 10:00 UTC) — **deferred to future iteration**; spec says "24 小时后" which is complex to schedule per-job. Instead, implement as a daily sweep: find jobs where `interview_time < NOW() - INTERVAL '24h'` AND `status IN ('test','interview_1','interview_2','interview_3')`.
+- Action: Send WeChat message "你的 XX 公司面试（原定于 XX 时间）是否已完成？可以在 InterCraft 中更新状态哦"
+
+### Quota Exhaustion Handling (Edge Case)
+
+If Tavily API returns quota-exhausted error during search:
+1. Reduce search to 2 dimensions (interview_experience + company_product)
+2. Report marked with "本月调研配额已用尽，以下为精简版报告"
+3. Alert admin via existing Prometheus alert or notification

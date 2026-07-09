@@ -76,24 +76,31 @@ class InterviewMode(str, Enum):
 
 JOB_STATUS_CN = {
     "applied": "已投递",
-    "test": "笔试",
-    "oa": "OA",
-    "hr": "HR 面",
-    "offer": "Offer",
-    "rejected": "已拒",
-    "withdrawn": "已撤回",
+    "test": "笔试中",
+    "interview_1": "一面中",
+    "interview_2": "二面中",
+    "interview_3": "三面中",
+    "failed": "已失败",
+    "passed": "已通过",
 }
 
 
+# REQ-053: New state machine. interview_1 -> interview_2 -> interview_3 is the
+# recommended path, but skipping intermediate rounds is allowed (e.g., applied -> interview_3).
+# Terminal states (failed, passed) have no outgoing transitions.
 JOB_TRANSITIONS: dict[str, set[str]] = {
-    "applied": {"test", "oa", "hr", "offer", "rejected", "withdrawn"},
-    "test": {"oa", "hr", "offer", "rejected", "withdrawn"},
-    "oa": {"hr", "offer", "rejected", "withdrawn"},
-    "hr": {"offer", "rejected", "withdrawn"},
-    "offer": {"rejected", "withdrawn"},
-    "rejected": set(),
-    "withdrawn": set(),
+    "applied":     {"test", "interview_1", "interview_2", "interview_3", "failed", "passed"},
+    "test":        {"interview_1", "interview_2", "interview_3", "failed", "passed"},
+    "interview_1": {"interview_2", "interview_3", "failed", "passed"},
+    "interview_2": {"interview_3", "failed", "passed"},
+    "interview_3": {"failed", "passed"},
+    "failed":      set(),
+    "passed":      set(),
 }
+
+
+# REQ-053: Statuses that REQUIRE an interview_time when transitioning to them.
+INTERVIEW_STATUSES = {"test", "interview_1", "interview_2", "interview_3"}
 
 
 __all__ = [

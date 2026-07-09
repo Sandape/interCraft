@@ -1,0 +1,188 @@
+# API Contracts: Interview Intelligence Engine
+
+**Feature**: REQ-053 | **Date**: 2026-07-09
+
+## Modified Endpoints
+
+### `GET /api/v1/jobs/transitions`
+
+Returns updated state set and transition matrix with new 7-state model.
+
+**Response** (200):
+```json
+{
+  "statuses": ["applied", "test", "interview_1", "interview_2", "interview_3", "failed", "passed"],
+  "transitions": [
+    {"from": "applied", "to": "test"},
+    {"from": "applied", "to": "interview_1"},
+    {"from": "applied", "to": "interview_2"},
+    {"from": "applied", "to": "interview_3"},
+    {"from": "applied", "to": "failed"},
+    {"from": "applied", "to": "passed"},
+    {"from": "test", "to": "interview_1"},
+    {"from": "test", "to": "interview_2"},
+    {"from": "test", "to": "interview_3"},
+    {"from": "test", "to": "failed"},
+    {"from": "test", "to": "passed"},
+    {"from": "interview_1", "to": "interview_2"},
+    {"from": "interview_1", "to": "interview_3"},
+    {"from": "interview_1", "to": "failed"},
+    {"from": "interview_1", "to": "passed"},
+    {"from": "interview_2", "to": "interview_3"},
+    {"from": "interview_2", "to": "failed"},
+    {"from": "interview_2", "to": "passed"},
+    {"from": "interview_3", "to": "failed"},
+    {"from": "interview_3", "to": "passed"}
+  ]
+}
+```
+
+### `PATCH /api/v1/jobs/{id}`
+
+Now accepts `interview_time` field for standalone time modification (FR-007).
+
+**Request Body** (all fields optional):
+```json
+{
+  "company": "string | null",
+  "position": "string | null",
+  "jd_url": "string | null",
+  "branch_id": "uuid | null",
+  "notes_md": "string | null",
+  "base_location": "string | null",
+  "requirements_md": "string | null",
+  "employment_type": "string | null",
+  "salary_range_text": "string | null",
+  "headcount": "int | null",
+  "interview_time": "ISO8601 datetime | null"
+}
+```
+
+**Validation** (FR-008):
+- If `interview_time` is provided: must be ISO 8601, future time (±5min tolerance)
+- If `interview_time` is provided: job must be in interview-round status (`test`/`interview_1`/`interview_2`/`interview_3`)
+- Changing `interview_time` alone (without status change) cancels old research task and reschedules
+
+### `PATCH /api/v1/jobs/{id}/status`
+
+Now requires `interview_time` when transitioning to interview-round states (FR-003).
+
+**Request Body**:
+```json
+{
+  "to": "interview_1",
+  "note": "string | null",
+  "interview_time": "2026-07-10T14:00:00+08:00"
+}
+```
+
+**Validation**:
+- `interview_time` REQUIRED when `to` is `test`/`interview_1`/`interview_2`/`interview_3`
+- `interview_time` must be future time
+- `interview_time` NOT allowed when `to` is `applied`/`failed`/`passed`
+- 422 error if validation fails: `{"detail": "面试时间必须是将来时间"}` or `{"detail": "推进到面试轮次需要设置面试时间"}`
+
+---
+
+## New Endpoints
+
+### `GET /api/v1/jobs/{id}/research-reports`
+
+List all research reports for a job (FR-022).
+
+**Response** (200):
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "report_type": "pre_interview_research",
+      "job_id": "uuid",
+      "interview_time": "2026-07-10T14:00:00+08:00",
+      "company": "阿里巴巴",
+      "position": "Java 开发工程师",
+      "status": "interview_1",
+      "generated_at": "2026-07-10T09:05:00+08:00",
+      "delivery_status": "sent",
+      "rating": null
+    }
+  ]
+}
+```
+
+**Sorted by**: `interview_time DESC`
+
+### `GET /api/v1/jobs/{id}/research-reports/{report_id}`
+
+Get full report content (FR-022).
+
+**Response** (200):
+```json
+{
+  "id": "uuid",
+  "report_type": "pre_interview_research",
+  "job_id": "uuid",
+  "interview_time": "2026-07-10T14:00:00+08:00",
+  "summary_md": "# 📋 面试概览\n\n...",
+  "research_task_id": "uuid",
+  "rating": null,
+  "generated_at": "2026-07-10T09:05:00+08:00",
+  "delivery_status": "sent",
+  "delivered_at": "2026-07-10T09:05:30+08:00",
+  "quality_check_passed": true
+}
+```
+
+### `PATCH /api/v1/research-reports/{report_id}/rating`
+
+Submit user rating for a report (SC-009).
+
+**Request Body**:
+```json
+{
+  "rating": 4
+}
+```
+
+**Validation**: `rating` must be integer 1-5.
+
+**Response** (200):
+```json
+{
+  "id": "uuid",
+  "rating": 4
+}
+```
+
+### `GET /api/v1/research/stats`
+
+Return research task statistics for the current user (for admin debugging).
+
+**Response** (200):
+```json
+{
+  "total_tasks": 15,
+  "by_status": {
+    "pending": 0,
+    "running": 0,
+    "completed": 12,
+    "cancelled": 2,
+    "failed": 1
+  },
+  "total_reports": 12,
+  "average_rating": 4.2
+}
+```
+
+---
+
+## Error Responses
+
+| Status | Scenario | Response |
+|--------|----------|----------|
+| 409 | Duplicate research task | `{"detail": "该面试时间已存在调研任务"}` |
+| 422 | interview_time in past | `{"detail": "面试时间必须是将来时间"}` |
+| 422 | interview_time without interview status | `{"detail": "请先将岗位状态推进到面试轮次"}` |
+| 404 | Report not found | `{"detail": "报告不存在"}` |
+| 404 | No reports for job | `{"detail": "该岗位暂无面试备战报告"}` |
+| 422 | Invalid rating | `{"detail": "评分必须为 1-5 的整数"}` |
