@@ -142,9 +142,9 @@ export function IncidentsBadcases() {
       data-workspace-tab={tab}
     >
       <div className="ac-page__header">
-        <h1 className="ac-page__title">Incidents &amp; Badcases</h1>
+        <h1 className="ac-page__title">事件与差例</h1>
         <span className="ac-page__hint">
-          运营 triage · impact-first grouping · FR-021~FR-023
+          运营分诊 · 影响优先分组
         </span>
       </div>
 
@@ -162,7 +162,7 @@ export function IncidentsBadcases() {
             aria-selected={tab === 'incidents'}
             onClick={() => setTab('incidents')}
           >
-            Incidents
+            事件
             <span className="ib-tab__count" data-testid="workspace-tab-incidents-count">
               {incidentsTotal}
             </span>
@@ -175,7 +175,7 @@ export function IncidentsBadcases() {
             aria-selected={tab === 'badcases'}
             onClick={() => setTab('badcases')}
           >
-            Badcases
+            差例
             <span className="ib-tab__count" data-testid="workspace-tab-badcases-count">
               {badcasesTotal}
             </span>
@@ -187,19 +187,19 @@ export function IncidentsBadcases() {
           data-testid="incidents-badcases-stats"
         >
           <div className="ib-stat" data-testid="stat-confirmed">
-            <span className="ib-stat__label">Confirmed incidents</span>
+            <span className="ib-stat__label">已确认事件</span>
             <span className="ib-stat__value">{incidentsConfirmed}</span>
           </div>
           <div className="ib-stat" data-testid="stat-candidate">
-            <span className="ib-stat__label">Candidate (low conf)</span>
+            <span className="ib-stat__label">候选事件（低置信度）</span>
             <span className="ib-stat__value">{incidentsCandidate}</span>
           </div>
           <div className="ib-stat" data-testid="stat-badcases-open">
-            <span className="ib-stat__label">Open badcases</span>
+            <span className="ib-stat__label">未关闭差例</span>
             <span className="ib-stat__value">{badcasesOpen}</span>
           </div>
           <div className="ib-stat" data-testid="stat-badcases-escalated">
-            <span className="ib-stat__label">Escalated badcases</span>
+            <span className="ib-stat__label">已升级差例</span>
             <span className="ib-stat__value">{badcasesEscalated}</span>
           </div>
         </section>
@@ -221,11 +221,11 @@ export function IncidentsBadcases() {
                 className="ib-loading"
                 data-testid="incidents-loading"
               >
-                Loading incidents…
+                加载事件…
               </p>
             ) : incidentsQuery.isError ? (
               <div className="ac-error-banner" data-testid="incidents-error">
-                Failed to load incidents.
+                加载事件失败。
               </div>
             ) : (
               <div
@@ -237,7 +237,7 @@ export function IncidentsBadcases() {
                     className="ib-incidents__empty"
                     data-testid="incidents-empty"
                   >
-                    No incidents match the current filters.
+                    无事件匹配当前筛选条件。
                   </p>
                 ) : (
                   filteredIncidents.map((inc) => (
@@ -258,11 +258,11 @@ export function IncidentsBadcases() {
                 className="ib-loading"
                 data-testid="badcases-loading"
               >
-                Loading badcases…
+                加载差例…
               </p>
             ) : badcasesQuery.isError ? (
               <div className="ac-error-banner" data-testid="badcases-error">
-                Failed to load badcases.
+                加载差例失败。
               </div>
             ) : (
               <BadcaseList

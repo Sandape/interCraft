@@ -79,6 +79,7 @@ class PublicUser(BaseModel):
     target_role: str | None
     bio: str | None
     subscription: Literal["free", "pro", "enterprise"]
+    is_admin: bool = False
     avatar_url: str | None = None
     created_at: datetime
     updated_at: datetime

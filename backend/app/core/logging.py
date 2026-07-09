@@ -9,6 +9,7 @@ from typing import Any
 import structlog
 
 from app.core.config import get_settings
+from app.observability.tracing import _inject_otel_context
 
 _request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 _user_id_var: ContextVar[str | None] = ContextVar("user_id", default=None)
@@ -56,6 +57,7 @@ def configure_logging() -> None:
     processors: list = [
         structlog.contextvars.merge_contextvars,
         _inject_context,
+        _inject_otel_context,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         _drop_sensitive,
@@ -75,6 +77,24 @@ def configure_logging() -> None:
         logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
         cache_logger_on_first_use=True,
     )
+
+    # Bridge stdlib logging → same stderr sink. Modules that still use
+    # ``logging.getLogger(__name__)`` (e.g. app.channels.ilink_pool) would
+    # otherwise have no handler at all and their INFO/ERROR output is silently
+    # dropped. Keep the stdlib format minimal so it doesn't fight structlog's
+    # JSON renderer; just emit ``level name message`` on one line.
+    if not logging.getLogger().handlers:
+        _stderr = logging.StreamHandler(sys.stderr)
+        _stderr.setFormatter(
+            logging.Formatter(
+                fmt='{"event": "%(name)s.%(levelname)s", "level": "%(levelname)s", '
+                    '"logger": "%(name)s", "message": %(message)r}\n',
+            )
+        )
+        logging.getLogger().addHandler(_stderr)
+        logging.getLogger().setLevel(
+            getattr(logging, settings.log_level, logging.INFO)
+        )
 
     # Quiet down noisy loggers.
     for noisy in ("uvicorn.access", "sqlalchemy.engine", "asyncio"):

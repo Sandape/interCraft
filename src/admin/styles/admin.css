@@ -34,8 +34,8 @@
   --ac-tag-p1-incident: #be123c;
   --ac-tag-monitoring: #0891b2;
 
-  --ac-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --ac-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --ac-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ac-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 *,

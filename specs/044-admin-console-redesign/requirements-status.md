@@ -34,3 +34,9 @@ REQ-039. This file tracks requirement status after the specify phase.
 | ID Range | Status | Notes |
 |---|---|---|
 | SC-001 - SC-012 | planned | To be validated after implementation tasks and evidence exist. |
+
+## Architecture Change Log
+
+| Date | Change | Reason | Evidence |
+|---|---|---|---|
+| 2026-07-05 | Admin entry 合并到主 SPA (删 `index.admin.html` + `src/admin/main.tsx` + `adminConsolePathPlugin`) | 用户实测 `/admin` 空白 — 独立 entry 设计让 sidebar 跳转无法命中 admin SPA; 简化部署 | `spec.md` Migration 2026-07-05 区块; `vite.config.{js,ts}` 迁移注释; `docs/evidence/admin-probe/02-command-center.png` |

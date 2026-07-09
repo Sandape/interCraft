@@ -16,6 +16,17 @@ if ! command -v redis-cli >/dev/null 2>&1; then
   printf '  \033[0;31m! redis-cli not found; please install Redis 7+ and start it\033[0m\n'
 fi
 
+# Kill orphaned processes on ports 5173 (Vite) and 8000 (uvicorn) to prevent
+# zombie services from competing for CPU / filesystem access.
+for PORT in 5173 8000; do
+  PID=$(netstat -ano | grep ":$PORT " | grep LISTENING | awk '{print $NF}' | head -1)
+  if [ -n "$PID" ] && [ "$PID" -gt 0 ] 2>/dev/null; then
+    printf '  \033[0;33m> Port %s in use by PID %s — killing\033[0m\n' "$PORT" "$PID"
+    taskkill //F //PID "$PID" 2>/dev/null || true
+    sleep 1
+  fi
+done
+
 # Sync backend deps (uv.lock pinned)
 printf '\n\033[0;33m==> uv sync (backend)\033[0m\n'
 (cd "$ROOT/backend" && uv sync --extra dev)

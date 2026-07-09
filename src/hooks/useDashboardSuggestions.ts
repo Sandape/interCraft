@@ -42,7 +42,7 @@ export function useDashboardSuggestions(): DashboardSuggestions {
             id: 'cta-first-interview',
             title: '完成首场模拟面试，获取能力画像',
             body: '我们会在你完成模拟面试后生成能力维度评分与个性化建议。',
-            cta: { label: '开始模拟面试', href: '/interview/new' },
+            cta: { label: '开始模拟面试', href: '/interview/mode' },
             tier: 0,
           },
         ],

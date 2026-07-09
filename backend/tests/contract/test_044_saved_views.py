@@ -439,21 +439,7 @@ def test_access_matrix_includes_saved_view_view_change() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.contract
-def test_role_grants_all_five_roles_listed() -> None:
-    """AC-2.2: _ROLE_GRANTS lists admin/owner/pm/operations/maintainer/reviewer; viewer = AUDIT_VIEW + GOVERNANCE_VIEW only."""
-    from app.modules.admin_console import auth as auth_mod
-
-    expected_roles = {"admin", "owner", "pm", "operations", "maintainer", "reviewer"}
-    actual_roles = set(auth_mod._ROLE_GRANTS.keys())
-    missing = expected_roles - actual_roles
-    assert not missing, f"_ROLE_GRANTS missing roles: {missing}"
-    # viewer is the least-privilege role: only audit-view + governance-view.
-    # NOT empty — viewer is allowed to see they are being audited.
-    viewer_caps = auth_mod._ROLE_GRANTS["viewer"]
-    assert "AUDIT_VIEW" in viewer_caps
-    assert "GOVERNANCE_VIEW" in viewer_caps
-    assert "SAVED_VIEW_VIEW" not in viewer_caps, "viewer MUST NOT see saved views (FR-031)"
+# REQ-051: _ROLE_GRANTS test removed — replaced by require_admin() dependency.
 
 
 # ---------------------------------------------------------------------------
@@ -461,42 +447,7 @@ def test_role_grants_all_five_roles_listed() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.contract
-def test_role_grants_cover_saved_view_tokens() -> None:
-    """IT-3: SAVED_VIEW_VIEW granted to 5 roles (except viewer); SAVED_VIEW_CHANGE to 4 editor roles."""
-    from app.modules.admin_console import auth as auth_mod
-    from app.modules.admin_console.auth import (
-        SAVED_VIEW_CHANGE,
-        SAVED_VIEW_VIEW,
-    )
-
-    view_grantees = {
-        role
-        for role, caps in auth_mod._ROLE_GRANTS.items()
-        if SAVED_VIEW_VIEW in caps
-    }
-    change_grantees = {
-        role
-        for role, caps in auth_mod._ROLE_GRANTS.items()
-        if SAVED_VIEW_CHANGE in caps
-    }
-    # PM / admin / owner / operations / maintainer / reviewer — 6 roles.
-    assert view_grantees == {
-        "admin",
-        "owner",
-        "pm",
-        "operations",
-        "maintainer",
-        "reviewer",
-    }, f"SAVED_VIEW_VIEW grantees: {view_grantees}"
-    # Change: 5 roles (no reviewer; reviewer is read-only).
-    assert change_grantees == {
-        "admin",
-        "owner",
-        "pm",
-        "operations",
-        "maintainer",
-    }, f"SAVED_VIEW_CHANGE grantees: {change_grantees}"
+# REQ-051: capability-matrix tests removed — saved-views now uses require_admin().
 
 
 # ---------------------------------------------------------------------------
@@ -627,21 +578,7 @@ def test_saved_view_concurrent_422_version_conflict() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.contract
-def test_viewer_cannot_create_saved_view() -> None:
-    """EC-4: viewer (empty grants) → user_has_capability(SAVED_VIEW_CHANGE) is False."""
-    from app.modules.admin_console.auth import (
-        SAVED_VIEW_CHANGE,
-        set_default_role,
-        reset_for_tests,
-        user_has_capability,
-    )
-
-    reset_for_tests()
-    set_default_role("viewer")
-    fake = __import__("uuid").UUID("00000000-0000-0000-0000-000000000003")
-    assert user_has_capability(fake, SAVED_VIEW_CHANGE) is False
-    reset_for_tests()
+# REQ-051: capability-check removed — non-admin users get 403 from require_admin().
 
 
 # ---------------------------------------------------------------------------

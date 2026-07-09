@@ -11,6 +11,7 @@ import redis.asyncio as redis
 from arq.connections import RedisSettings, create_pool
 
 from app.core.config import get_settings
+from app.observability.tracing import TraceContext, get_trace_context, inject_trace_context
 
 _client: redis.Redis | None = None
 _arq_pool: Any = None
@@ -52,12 +53,24 @@ async def get_arq_pool():
     return _arq_pool
 
 
+def build_arq_trace_metadata(ctx: TraceContext | None = None) -> dict[str, str]:
+    ctx = ctx or get_trace_context()
+    headers = inject_trace_context(ctx)
+    return {
+        "run_id": headers.get("x-run-id", ""),
+        "trace_id": headers["x-trace-id"],
+        "span_id": headers["traceparent"].split("-")[2],
+        "traceparent": headers["traceparent"],
+    }
+
+
 async def enqueue_job(name: str, **kwargs: Any) -> Any:
     """Enqueue an ARQ job by registered function name + kwargs.
 
     The kwargs become the ARQ function's parameters at execution time.
     """
     pool = await get_arq_pool()
+    kwargs.setdefault("trace_ctx", build_arq_trace_metadata())
     return await pool.enqueue_job(name, **kwargs)
 
 
@@ -131,6 +144,7 @@ async def subscribe(channel: str) -> AsyncGenerator[dict[str, Any], None]:
 
 __all__ = [
     "close_redis",
+    "build_arq_trace_metadata",
     "enqueue_job",
     "get_arq_pool",
     "get_redis",

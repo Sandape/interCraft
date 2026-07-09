@@ -48,6 +48,25 @@ export class TokenInvalidError extends AuthError {
   }
 }
 
+export class SessionEvictedError extends AuthError {
+  constructor(opts: { message: string; requestId: string; details?: Record<string, unknown> }) {
+    super({ ...opts, code: 'auth.session_evicted' })
+    this.name = 'SessionEvictedError'
+  }
+}
+
+export class TokenExpiredError extends AuthError {
+  // BUG #1 fix 2026-07-06: the backend now distinguishes
+  // `auth.token_expired` from `auth.token_invalid` (which is reserved
+  // for malformed / revoked tokens). Frontend callers can branch on
+  // `instanceof TokenExpiredError` to surface a "please re-login"
+  // toast instead of a generic auth error.
+  constructor(opts: { message: string; requestId: string; details?: Record<string, unknown> }) {
+    super({ ...opts, code: 'auth.token_expired' })
+    this.name = 'TokenExpiredError'
+  }
+}
+
 export class ValidationError extends ApiError {
   readonly fieldErrors: FieldError[]
 
@@ -120,11 +139,13 @@ export function classifyBackendError(
 
   if (status === 401) {
     if (code === 'auth.token_invalid') return new TokenInvalidError({ message, requestId, details })
+    if (code === 'auth.token_expired') return new TokenExpiredError({ message, requestId, details })
+    if (code === 'auth.session_evicted') return new SessionEvictedError({ message, requestId, details })
     return new AuthError({ code, message, requestId, details })
   }
   if (status === 422) {
     const fieldErrors = ((details?.field_errors as FieldError[] | undefined) ?? [])
-    return new ValidationError({ message, requestId, details, fieldErrors })
+    return new ValidationError({ code, message, requestId, details, fieldErrors })
   }
   if (status === 429) {
     return new RateLimitError({ message, requestId, details })

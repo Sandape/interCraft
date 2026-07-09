@@ -25,8 +25,8 @@ The full admin console surface spans:
   schemas, service, router mounted at
   ``/api/v1/admin-console/product-analytics`` plus
   ``/api/v1/admin-console/users`` for privacy-safe lookup).
-- :mod:`app.modules.admin_console.auth` — capability check helpers
-  (``require_capability``).
+- :mod:`app.modules.admin_console.auth` — admin check helper
+  (``require_admin``).
 - :mod:`app.modules.admin_console.rate_limit` — sliding-window
   in-process limiter for Replay (≤5/min) and Diff (≤20/min).
 - :mod:`app.modules.admin_console.audit` — append-only audit log

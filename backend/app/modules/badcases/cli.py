@@ -64,7 +64,10 @@ from app.modules.auth import models as _auth_models  # noqa: E402,F401
 from app.modules.avatars import models as _avatar_models  # noqa: E402,F401
 from app.modules.badcases import repository as repo  # noqa: E402
 from app.modules.badcases import service as badcase_service  # noqa: E402
-from app.modules.badcases.promotion import promote_to_golden_candidate  # noqa: E402
+from app.modules.badcases.promotion import (  # noqa: E402
+    promote_badcase_to_eval_case,
+    promote_to_golden_candidate,
+)
 from app.modules.badcases.schemas import (  # noqa: E402
     BADCASE_SEVERITIES,
     BADCASE_SOURCES,
@@ -492,11 +495,42 @@ async def cmd_promote(args: argparse.Namespace) -> int:
     if not args.reviewer:
         _err("--reviewer is required")
         return 2
-    if not args.redaction_audit_id:
+    if not args.redaction_audit_id and not getattr(args, "badcase_json", None):
         _err("--redaction-audit-id is required")
         return 2
     if not args.reason:
         _err("--reason is required")
+        return 2
+    if getattr(args, "badcase_json", None):
+        try:
+            raw = json.loads(Path(args.badcase_json).read_text(encoding="utf-8"))
+            eval_case = promote_badcase_to_eval_case(
+                raw,
+                lifecycle=args.lifecycle,
+                dataset_version=args.dataset_version,
+                export_policy_decision_id=args.export_policy_decision_id,
+                reviewer=args.reviewer,
+                reason=args.reason,
+            )
+            candidate_path = promote_to_golden_candidate(
+                raw,
+                redaction_audit_id=args.redaction_audit_id or "not-required",
+                reviewer=args.reviewer,
+                reason=args.reason,
+            )
+        except Exception as exc:
+            _err(f"promote failed: {exc}")
+            return 3
+        _emit_json(
+            {
+                "evalCase": eval_case,
+                "candidatePath": str(candidate_path),
+            },
+            args.json,
+        )
+        return 0
+    if not args.badcase_id:
+        _err("--badcase-id is required unless --badcase-json is provided")
         return 2
 
     user_id = _cli_user_id(args)
@@ -708,12 +742,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_promote = sub.add_parser(
         "promote", help="Promote a badcase to a golden-case candidate"
     )
-    p_promote.add_argument("--badcase-id", required=True)
+    p_promote.add_argument("--badcase-id", required=False)
+    p_promote.add_argument("--badcase-json", required=False, dest="badcase_json")
     p_promote.add_argument("--reviewer", required=True)
     p_promote.add_argument(
-        "--redaction-audit-id", required=True, dest="redaction_audit_id"
+        "--redaction-audit-id", required=False, dest="redaction_audit_id"
     )
     p_promote.add_argument("--reason", required=True)
+    p_promote.add_argument("--lifecycle", default="CANDIDATE")
+    p_promote.add_argument("--dataset-version", default="candidate-v1", dest="dataset_version")
+    p_promote.add_argument("--export-policy-decision-id", default=None, dest="export_policy_decision_id")
     _add_user_id_arg(p_promote)
     _add_json_arg(p_promote)
     p_promote.set_defaults(func=cmd_promote)

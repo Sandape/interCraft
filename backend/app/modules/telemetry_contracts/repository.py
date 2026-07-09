@@ -30,7 +30,14 @@ output. The dataclass uses ``Optional`` so callers can distinguish
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.telemetry_contracts.models import AIInvocationRecord
 
 
 @dataclass(frozen=True)
@@ -149,6 +156,68 @@ def build_trace_run_ref(
     )
 
 
+async def _existing_eval_run_id(session: AsyncSession, run_id: UUID | None) -> UUID | None:
+    if run_id is None:
+        return None
+    try:
+        exists = await session.scalar(
+            text("SELECT run_id FROM eval_runs WHERE run_id = :run_id LIMIT 1"),
+            {"run_id": run_id},
+        )
+        return run_id if exists is not None else None
+    except Exception:
+        return None
+
+
+async def insert_ai_invocation(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    invocation_id: UUID,
+    graph: str,
+    node: str,
+    model: str,
+    prompt_fingerprint: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    estimated_cost: Decimal | None,
+    latency_ms: int | None,
+    retry_count: int,
+    status: str,
+    error_category: str | None,
+    run_id: UUID | None = None,
+    trace_id: str | None = None,
+) -> AIInvocationRecord:
+    """Persist one AI invocation summary row.
+
+    ``run_id`` is an eval-run FK. Normal interview thread ids are not eval
+    runs, so they are stored as ``NULL`` while trace/node/cost visibility
+    remains intact.
+    """
+
+    record = AIInvocationRecord(
+        id=uuid4(),
+        invocation_id=invocation_id,
+        user_id=user_id,
+        run_id=await _existing_eval_run_id(session, run_id),
+        trace_id=trace_id,
+        graph=graph or "unknown",
+        node=node or "unknown",
+        model=model or "unknown",
+        prompt_fingerprint=prompt_fingerprint or "unknown",
+        prompt_tokens=max(0, int(prompt_tokens)),
+        completion_tokens=max(0, int(completion_tokens)),
+        estimated_cost=estimated_cost,
+        latency_ms=latency_ms,
+        retry_count=max(0, int(retry_count)),
+        status=status,
+        error_category=error_category,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
 # ---------------------------------------------------------------------------
 # Display helpers — map ``None`` to the canonical "unavailable" marker
 # ---------------------------------------------------------------------------
@@ -198,6 +267,7 @@ __all__ = [
     "TraceRunRef",
     "build_trace_run_ref",
     "extract_trace_id_from_ai_invocation",
+    "insert_ai_invocation",
     "langsmith_url_for_display",
     "lookup_run_metadata",
     "run_id_for_display",

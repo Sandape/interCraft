@@ -29,11 +29,11 @@ type TabId = 'matrix' | 'audit' | 'reveal' | 'export' | 'retention'
 const TAB_IDS: TabId[] = ['matrix', 'audit', 'reveal', 'export', 'retention']
 
 const TAB_LABELS: Record<TabId, string> = {
-  matrix: 'Access Matrix',
-  audit: 'Audit Log',
-  reveal: 'Reveal Requests',
-  export: 'Export',
-  retention: 'Retention',
+  matrix: '权限矩阵',
+  audit: '审计日志',
+  reveal: '敏感内容请求',
+  export: '导出',
+  retention: '保留策略',
 }
 
 export function Governance() {
@@ -60,9 +60,9 @@ export function Governance() {
       data-active-tab={tab}
     >
       <div className="ac-page__header">
-        <h1 className="ac-page__title">Governance</h1>
+        <h1 className="ac-page__title">治理与审计</h1>
         <span className="ac-page__hint">
-          RBAC · audit · sensitive-action review · retention · FR-031~FR-036
+          权限矩阵 · 审计日志 · 敏感操作审查 · 保留策略
         </span>
       </div>
 

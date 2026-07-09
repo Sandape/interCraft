@@ -1,5 +1,30 @@
 # Lessons Learned
 
+## 250707 REQ-051 - auth符号删除后的测试同步
+
+**问题**: 删除 `auth.py` 中的 `_ROLE_GRANTS` / `grant_role` / `require_capability` / `AdminIdentity` / `require_admin_identity` 等符号后，16 个测试文件 import 断裂。
+**修复**: 
+- 035 contract/integration 测试：`AdminIdentity`/`require_admin_identity` → `require_admin` + dep override 模式
+- 044 contract 测试：删除引用 `_ROLE_GRANTS` 和 capability 常量的测试函数
+- 039 integration 测试：`auth.grant_role()` → monkeypatch `require_admin` 
+- `manual_e2e_bootstrap.py`：直接删除（已废弃）
+**适用场景**: 任何删除公共 API 符号的 refactor，必须在同一 commit 中 `git grep` 所有引用并同步修复
+**避免**: 只改源码不跑 `pytest --collect-only` 就标记任务完成
+
+## 250707 REQ-051 - 管理后台全面汉化
+
+**问题**: 8 个 admin page 页面标题、按钮、表头、标签全部英文硬编码（~336 处），违反 FR-008/FR-009。
+**修复**: AdminShell NAV_ITEMS + 8 个 page 组件逐一汉化（导航标签、页面标题、KPI 标签、按钮文字、加载提示等）。枚举值（status/severity）保持英文。
+**适用场景**: 任何面向中文用户的新页面或新组件，文本必须直接硬编码中文
+**避免**: 引入 i18n 框架 — FR-011 明确禁止
+
+## 250707 REQ-051 - 前端类型残留清理
+
+**问题**: `admin-governance.ts` 仍保留 `ConsoleRole` union type，`AccessMatrixTable.tsx` 仍使用 `ConsoleRole[]` 数组。tester 报告的 FR-017 仅指 `admin-console.ts` 文件，漏查了 `admin-governance.ts`。
+**修复**: 删除 `admin-governance.ts` 中的 `ConsoleRole` 类型，`AccessMatrixEntry.role` 改为 `string`；`AccessMatrixTable.tsx` 的 ROLES 简化为 `['admin']`。
+**适用场景**: 删除类型时，必须 grep 整个 `src/` 目录的所有引用，不能只检查单个文件
+**避免**: 仅删一个文件中的类型定义而忽略同名类型在其他文件中的残留
+
 ## 第1轮修正（REQ-01） — 2026-06-23
 
 ### Contract 测试断言
@@ -441,3 +466,36 @@
 **修复**: 不要直接测 AdminShell,而是 (1) 测 `roleToWorkspaces` 输出的预期矩阵用 const table (`EXPECTED_MATRIX: Record<ConsoleRole, string[]>`);(2) 用 vitest 读 `AdminShell.tsx` 源码字符串,grep `case 'pm':` 后的 600 字符是否包含 `'<workspace>'` literal,字符串级 parity 测试。免 mock 免 RouterProvider。
 **适用场景**: 任何"角色矩阵 / RBAC matrix / state transition table"类型的组件 (US1 IA role-to-workspaces / US6 access matrix 5x8x6)。Vitest 字符级 grep 测试足够锁住契约。
 **避免**: (1) 不要 wrap AdminShell 用 MemoryRouter + 全套 QueryClientProvider 测 — 30+ 行 setup,且 React Router v6 future flag warning 噪音大; (2) 不要 unit-test `roleToWorkspaces` 直接 import — 那是 private fn,需要 export 才能测,破坏封装; (3) 字符级 grep 测试要跳过 `command-center` (太常见会误中),只断言非通用 workspace token (如 `'governance'`、`'reports'`)。
+
+## REQ-041-P0-APPROVAL (2026-07-05) — run-time approval gate for `requires_approval=True` tools
+
+**问题**: 8-dimensional 报告（openDeepResearch vs InterCraft Agent, 2026-07-05）锁定的 P0 唯一未 ship 项。`APPROVAL_RULES["MarkComplete"] = True`（`tools/spec.py:49-51`）仅在 compile-time 反射期间被读取；运行时 LLM 真正调用 `MarkComplete()` 工具时，**没有任何拦截层**阻止 underlying callable 执行 → 与 041-US2 wiring gap 同根因（仅声明 → 不实际拦截）。
+
+**修复**: 2 commits
+- `de360a3` (red phase): 8 paths tests covering AC-1.2 / AC-1.3 / AC-1.3a / AC-2.1 / AC-2.2 / AC-3.1 / AC-4.1 / AC-4.2 / AC-6.1 / AC-6.2
+- `<this>` (green): `_enforce_approval` 纯函数 + `bind_tools_with_approval` 包装器 + `_approval_runtime` 拦截层 + `ToolApprovalDenied` 异常 + 5-agent wiring
+
+**关键决策 / 设计契约**:
+1. **`_enforce_approval` 必须 side-effect-free**（AC-1.1）— 不 import `langchain_*`、不 mutate state、不 I/O。原因：未来如果有人用 10K QPS 高频调用 _enforce_approval（per-call cost 必须 ≤ 1µs）；langchain imports 加载就吃掉上百毫秒。NAC-2 强制这条：grep `^from app.agents.tools.control` 必须空。
+2. **`bind_tools_with_approval(..., enforce=True)` 是 default**（AC-2.2 反向验证）— grep `enforce: bool = False` 必须 exit 1；grep `enforce: bool = True` 必须恰好 1 行。reasoning: backwards-compat 默认守门 → 现有 `bind_tools` callers 不需要逐个 opt-in；新代码默认受 gate 保护。
+3. **第 7 个 `NodeErrorCategory` bucket 而非 overload 已有 bucket**（AC-4.1 / per memory `feedback_cross_team_contract_l031`）— `NodeErrorCategory` Literal 是 declaration-order-sensitive 的 Pydantic Literal；新增 `"tool_approval_denied"` 作为第 7 个 entry（trailing），保持前 6 个 (schema_invalid / parse_fail / quota / timeout / oob / checkpointer_unavailable) 顺序不变。这是 cross-team contract：若其他团队依赖顺序（e.g. 038 错误码 mapping 表），乱序会破 contract。
+4. **5-agent wiring pattern = import-side + hasattr-gated call**（AC-5.1 / AC-5.2）— 生产 `LLMClient` 类没有 `bind_tools` 属性（仅 `invoke`），production 环境直接调 `bind_tools_with_approval(client, [])` 会 AttributeError。因此 4 个非 interview wiring 文件用 `if hasattr(client, "bind_tools"): bind_tools_with_approval(client, [])` 守卫 — 这是 **结构性声明**（让 AC-5.1 grep audit 看得到 wiring surface），不是 silent fallback。`interview/planner_graph.py` 是唯一用实际的 `bind_tools_with_approval(llm, [...])` call（因为它接 frontier-shape LLM 客户端，has bind_tools）。`error_coach/evaluate.py:67` 用了 `bind_tools_with_approval(client, [MarkComplete])`（与原 `client.bind_tools([MarkComplete])` 等价 surface）。
+5. **node-level deny populates `state["error"]` via the existing `classify_exception` path**（AC-1.3a / AC-4.1）— 不在 `_approval_runtime` 内部写 `state["error"]`（NAC-1 守住）；让 `ToolApprovalDenied` 冒出，被 `@node_error_handler(retry/use_previous)` 拦截 → `NodeError.from_exception` 自动走 `classify_exception` → 匹配 `"approval_missing:"` 子串 → 映射到 `"tool_approval_denied"` bucket。**单一职责**：approval gate 只管 deny 决策，error envelope 由现有 `@node_error_handler` 负责。
+6. **LangChain StructuredTool coroutine 在 `.coroutine` 而非 `.func`** — 红 phase 第一版 spy `MarkComplete.func` 失败；检查发现 `@tool async def` 装饰后 `func=None, coroutine=<async_fn>`。修复 `_invoke_callable` 先 look up `.coroutine`（async path）再 `.func`（sync path）。这是 041 之前的 evidence 没有 trick-down 的 langchain 内部约定 → 必须实测 + LangChain source code 确认。
+7. **Mock LLM 形状必须含 `bind_tools` 方法** — AC-2.1 测试需要 `client.bind_tools(tools)` + `client.ainvoke(...)` 两者都存在。production `MockLLMClient` 仅后者。Test-First red phase 第一版直接 import `MockLLMClient` → AttributeError；修复用 `_FrontierShapedMock` 双方法 stub — Test-First path 暴露了 mock 形状不匹配的 real gap（类比 `req_032_v2_repo_stub_trap` 的 12 NotImplementedError 教训）。
+
+**测试**: 14 paths PASS（9 base + 5 parametrize）。完整 agents tests = **234 passed + 1 skipped + 0 failed** (217 baseline + 14 new + 3 existing merge deltas)。
+
+**适用场景**: 任何「declaration-level-only → 缺 runtime gate」类安全/权限铁律：
+- 工具 spec 声明 `side_effects=["ws_push"]` / `requires_approval=True` 仅在反射期间被读取，但运行时不阻拦 `client.ainvoke(...)` 的 tool_calls 实际落到 `func(**args)`。
+- 同模式：DB RLS policy 在 schema 内声明但 ORM session 配置了 `SET LOCAL ROLE` 才能生效；权限 boundary 在 config 声明但 middleware 必须强制。
+- 共同反模式特征：(a) 声明 → 不强执行；(b) happy-path test 通过、failure-path 不可观测；(c) helper-direct test 掩盖端到端 wiring gap。
+
+**避免**:
+1. **永远不要让 `_enforce_approval` import `langchain_*`** — 10K QPS 高频调用，import 加载 = 性能砍半。NAC-2 强约束；review 时第一条 grep 守卫。
+2. **永远不要 overload 现有 `NodeErrorCategory` bucket（e.g. 把"tool_approval_denied"压缩进"schema_invalid"）** — Pydantic Literal 是 declaration-order-sensitive 的 contract；改顺序 = 破 cross-team 兼容（per `feedback_cross_team_contract_l031`）。
+3. **永远不要在 `_approval_runtime` 内写 `state["error"]`** — state["error"] 是 `@node_error_handler` 单一所有权；两层都写 = 写覆盖 + 测试不可重现。NAC-1 强约束。
+4. **Mock LLM 测试时若仅用 `MockLLMClient`，会发现 `bind_tools` 缺失** — 测试包含的 surface 必须 ≥ 实际生产代码 surface。`test_bind_tools_with_approval_callable` 第一版失败 = red phase 暴露了 mock 假阳性。
+5. **5-agent wiring 不能假设所有 LLM 客户端都有 `bind_tools`** — production `LLMClient` 仅含 `invoke`。一律用 `if hasattr(client, "bind_tools"): ...` 守卫 — 这是结构性声明，不是 silent fallback。
+6. **不要 mock spy `MarkComplete.func`** — async `@tool` 暴露 `.coroutine`；spy 必须 patch 真正的字段否则 spy 永远不被调用（无法 validate deny 路径）。
+7. **不要跨团队改文件** — 仅改 worktree 范围内（5 个 wiring 文件 + 1 个 utils/node_error.py + 1 个新 tools/approval.py + 1 个新测试）；其他团队（038 / 023 / 040 / 044）仅可 import。

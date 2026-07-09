@@ -41,8 +41,19 @@ export function useBindBranchToJob() {
 export function useUpdateJobStatus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, to, note }: { id: string; to: string; note?: string }) =>
-      getJobRepository().updateStatus(id, to, note),
+    // REQ-053: status advances to interview rounds carry an `interview_time`
+    // payload. Terminal advances (failed/passed) pass null/undefined.
+    mutationFn: ({
+      id,
+      to,
+      note,
+      interview_time,
+    }: {
+      id: string
+      to: string
+      note?: string
+      interview_time?: string | null
+    }) => getJobRepository().updateStatus(id, to, note, interview_time),
     onSuccess: (data: Job) => {
       qc.setQueryData(['job', data.id], data)
       qc.invalidateQueries({ queryKey: ['jobs'] })

@@ -12,7 +12,7 @@ Endpoints (7):
 - ``GET    /traces/{trace_id}/nodes/{node_id}/payload`` — byte-range slice.
 - ``GET    /health`` — module liveness (placeholder).
 
-Auth (B1): capability check via :func:`app.modules.admin_console.auth.require_capability`.
+Auth: admin-only via :func:`app.modules.admin_console.auth.require_admin`.
 Tests inject a fake user_id via FastAPI ``dependency_overrides``.
 
 Error mapping:
@@ -24,7 +24,7 @@ Error mapping:
 - 413 ``payload_too_large``
 - 422 Pydantic validation (tag charset / length)
 - 429 ``rate_limited`` with ``retry_after_seconds`` (FR-032 / FR-033)
-- 403 ``missing_capability``
+- 403 ``admin_required``
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user_id_optional as _resolve_user_id_from_jwt
 from app.core.db import get_db_session_no_rls, set_rls_user_id
 from app.modules.admin_console import rate_limit, service
-from app.modules.admin_console.auth import REPLAY_TRIGGER, TASK_TAG, require_capability
+from app.modules.admin_console.auth import require_admin
 from app.modules.admin_console.repository import DuplicateTagError
 from app.modules.admin_console.schemas import (
     DiffRequest,
@@ -308,14 +308,14 @@ async def list_task_tags(
         201: {"description": "Tag created", "model": TaskTagOut},
         409: {"description": "Duplicate tag"},
         422: {"description": "Tag charset / length invalid"},
-        403: {"description": "Missing TASK_TAG capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def add_task_tag(
     task_id: UUID,
     body: Annotated[TaskTagCreateRequest, Body()],
     user_id: UUID = Depends(get_caller_user_id),
-    _cap: bool = Depends(require_capability(TASK_TAG)),
+    _admin: bool = Depends(require_admin),
     session: AsyncSession = Depends(_db_session_with_rls),
 ) -> TaskTagOut | JSONResponse:
     try:
@@ -336,14 +336,14 @@ async def add_task_tag(
     status_code=200,
     responses={
         200: {"description": "Tag removed (or was already absent)"},
-        403: {"description": "Missing TASK_TAG capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def delete_task_tag(
     task_id: UUID,
     tag: Annotated[str, Query(min_length=1, max_length=50)],
     user_id: Annotated[UUID, Depends(get_caller_user_id)],
-    _cap: Annotated[bool, Depends(require_capability(TASK_TAG))],
+    _admin: bool = Depends(require_admin),
     session: AsyncSession = Depends(_db_session_with_rls),
 ) -> dict[str, Any]:
     deleted = await service.remove_tag(
@@ -372,7 +372,7 @@ async def delete_task_tag(
 async def replay_trace(
     trace_id: UUID,
     user_id: Annotated[UUID, Depends(get_caller_user_id)],
-    _cap: Annotated[bool, Depends(require_capability(REPLAY_TRIGGER))],
+    _admin: bool = Depends(require_admin),
     session: AsyncSession = Depends(_db_session_with_rls),
     body: Annotated[ReplayRequest | None, Body()] = None,
 ) -> ReplayResponse | JSONResponse:

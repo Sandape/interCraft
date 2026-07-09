@@ -33,7 +33,7 @@ export function UsersAccounts() {
       data-testid="users-accounts"
     >
       <div className="ac-page__header">
-        <h1 className="ac-page__title">Users &amp; Accounts</h1>
+        <h1 className="ac-page__title">用户与账户</h1>
         <span className="ac-page__hint">
           隐私安全的用户与账户查询（默认隐藏敏感内容）
         </span>
@@ -46,7 +46,7 @@ export function UsersAccounts() {
               htmlFor="ac-pa-user-search"
               className="ac-pa-users-page__search-label"
             >
-              Search by user_id (Phase 1 demo)
+              按 user_id 搜索（演示阶段）
             </label>
             <input
               id="ac-pa-user-search"

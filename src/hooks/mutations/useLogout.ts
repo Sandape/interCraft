@@ -3,7 +3,7 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { clearTokens } from '../../api/token-storage'
-import { getAuthRepository } from '../../repositories/types'
+import { getAuthRepository } from '../../repositories/authRepositories'
 import { useAuthStore } from '../../stores/useAuthStore'
 
 export function useLogout() {

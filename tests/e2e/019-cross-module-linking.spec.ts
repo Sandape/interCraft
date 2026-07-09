@@ -79,18 +79,15 @@ test.describe('019 Cross-Module Linking — E2E (US5)', () => {
     await expect(page.getByText('字节')).toBeVisible({ timeout: 10_000 })
     await expect(page.getByText('前端工程师')).toBeVisible({ timeout: 10_000 })
 
-    // ── Step 2: Interview prefill via ?job_id (FR-012) ────────────
-    await page.goto(`/interview/new?job_id=${job.id}`)
+    // ── Step 2: Interview launch workbench via ?job_id ───────────
+    await page.goto(`/interview/mode?job_id=${job.id}`)
     await page.waitForLoadState('networkidle')
 
-    // Verify prefill card shows job info
-    const prefillCard = page.getByTestId('intake-prefill-card')
-    await expect(prefillCard).toBeVisible({ timeout: 10_000 })
-    await expect(prefillCard).toContainText('字节')
-
-    // Verify position and company are pre-filled
-    await expect(page.getByTestId('setup-position-input')).toHaveValue('前端工程师')
-    await expect(page.getByTestId('setup-company-input')).toHaveValue('字节')
+    await expect(page.getByTestId('interview-launch-workbench')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('interview-context-panel')).toBeVisible()
+    await expect(page.getByTestId('interview-job-jd')).toBeVisible()
+    await expect(page.getByTestId('setup-position-input')).toHaveCount(0)
+    await expect(page.getByTestId('setup-company-input')).toHaveCount(0)
 
     // ── Step 3: Seed auto-sinked error question via API ───────────
     await seedAutoErrorQuestion(page, token)

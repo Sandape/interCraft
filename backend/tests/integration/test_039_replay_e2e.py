@@ -131,16 +131,30 @@ async def seeded_trace(bootstrapped_db) -> AsyncIterator[tuple[UUID, dict]]:
 
 
 @pytest_asyncio.fixture
-async def admin_user(monkeypatch) -> AsyncIterator[UUID]:
-    """Provision an admin user (admin role + REPLAY_TRIGGER capability)."""
+async def admin_user() -> AsyncIterator[UUID]:
+    """Provision an admin user by overriding require_admin and resetting rate limits."""
     from app.modules.admin_console import auth, rate_limit, service
 
     user_id = uuid.uuid4()
-    auth.grant_role(user_id, "admin")
+
+    # REQ-051: override require_admin to return True (no capability matrix)
+    async def _admin_override(*args, **kwargs) -> bool:
+        return True
+
+    app = None
+    try:
+        from app.main import app as _app
+        app = _app
+    except Exception:
+        pass
+    if app is not None:
+        app.dependency_overrides[auth.require_admin] = _admin_override
+
     rate_limit.reset_for_tests()
     service.reset_retired_models()
     yield user_id
-    auth.revoke_role(user_id)
+    if app is not None:
+        app.dependency_overrides.pop(auth.require_admin, None)
     rate_limit.reset_for_tests()
     service.reset_retired_models()
 

@@ -222,6 +222,7 @@ class AIInvocationSummary(BaseModel):
     )
 
     invocation_id: str = Field(default_factory=lambda: str(uuid4()))
+    user_id: Optional[UUID] = Field(default=None)
     run_id: Optional[UUID] = Field(default=None)
     trace_id: Optional[str] = Field(default=None)
     graph: str = Field(default="unknown")
@@ -273,6 +274,7 @@ class AIInvocationSummary(BaseModel):
         """
         return cls(
             invocation_id=str(uuid4()),
+            user_id=None,
             run_id=None,
             trace_id=None,
             graph="unknown",

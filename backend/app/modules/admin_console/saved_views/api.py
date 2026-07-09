@@ -2,10 +2,7 @@
 
 Mounted at ``/api/v1/admin-console/saved-views`` by :mod:`app.main`.
 
-Auth: capability check via
-:func:`app.modules.admin_console.auth.require_capability` with the
-2 CROSS capability tokens (:data:`SAVED_VIEW_VIEW` +
-:data:`SAVED_VIEW_CHANGE`).
+Auth: admin-only via :func:`app.modules.admin_console.auth.require_admin`.
 
 Endpoints:
 
@@ -25,10 +22,8 @@ Endpoints:
 
 Error mapping:
 
-- 403 ``missing_capability`` (FR-031, SC-008).
-- 403 ``saved_view_access_denied`` (EC-2 surface; deliberate
-  leakage reduction — same code as ``missing_capability`` for
-  cross-team consistency).
+- 403 ``admin_required``.
+- 403 ``saved_view_access_denied`` (EC-2 surface).
 - 422 ``saved_view_version_conflict`` (EC-3).
 - 404 ``saved_view_not_found`` (AC-6.3).
 """
@@ -41,12 +36,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.deps import get_current_user_id_optional as _resolve_user_id_from_jwt
-from app.modules.admin_console.auth import (
-    SAVED_VIEW_CHANGE,
-    SAVED_VIEW_VIEW,
-    require_capability,
-    user_has_capability,
-)
+from app.modules.admin_console.auth import require_admin
 from app.modules.admin_console.saved_views import service
 from app.modules.admin_console.saved_views.schemas import (
     SavedView,
@@ -78,13 +68,13 @@ def _actor_handle(user_id: UUID) -> str:
     status_code=200,
     responses={
         200: {"description": "Saved views list (role-filtered)"},
-        403: {"description": "Missing SAVED_VIEW_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def list_saved_views(
     workspace_id: Annotated[WorkspaceId, Query()],
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    cap: Annotated[bool, Depends(require_capability(SAVED_VIEW_VIEW))],
+    cap: Annotated[bool, Depends(require_admin)],
 ) -> SavedViewListResponse:
     """List saved views (FR-006 AC-6.1 + AC-6.6)."""
     log.info(
@@ -110,13 +100,13 @@ async def list_saved_views(
     status_code=201,
     responses={
         201: {"description": "Saved view created + audit event written"},
-        403: {"description": "Missing SAVED_VIEW_CHANGE capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def create_saved_view(
     body: SavedViewCreateRequest,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    cap: Annotated[bool, Depends(require_capability(SAVED_VIEW_CHANGE))],
+    cap: Annotated[bool, Depends(require_admin)],
 ) -> SavedViewCreateResponse:
     """Create a saved view (FR-006 AC-6.2 + SC-009)."""
     log.info(
@@ -143,14 +133,14 @@ async def create_saved_view(
     status_code=200,
     responses={
         200: {"description": "Saved view detail with role-aware warnings"},
-        403: {"description": "Missing SAVED_VIEW_VIEW capability OR permission revoked"},
+        403: {"description": "Admin required OR permission revoked"},
         404: {"description": "Saved view not found"},
     },
 )
 async def get_saved_view(
     saved_view_id: str,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    cap: Annotated[bool, Depends(require_capability(SAVED_VIEW_VIEW))],
+    cap: Annotated[bool, Depends(require_admin)],
 ) -> SavedViewDetailResponse:
     """Get a saved view (FR-006 AC-6.3 + EC-1 + EC-2)."""
     log.info(
@@ -193,7 +183,7 @@ async def get_saved_view(
     status_code=200,
     responses={
         200: {"description": "Saved view updated + audit event written"},
-        403: {"description": "Missing SAVED_VIEW_CHANGE capability"},
+        403: {"description": "Admin required"},
         404: {"description": "Saved view not found"},
         422: {"description": "saved_view version conflict (EC-3)"},
     },
@@ -202,7 +192,7 @@ async def patch_saved_view(
     saved_view_id: str,
     body: SavedViewUpdateRequest,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    cap: Annotated[bool, Depends(require_capability(SAVED_VIEW_CHANGE))],
+    cap: Annotated[bool, Depends(require_admin)],
 ) -> SavedView:
     """Update a saved view (FR-006 AC-6.4 + EC-3 + SC-009)."""
     log.info(
@@ -258,14 +248,14 @@ async def patch_saved_view(
     status_code=204,
     responses={
         204: {"description": "Saved view deleted + audit event written"},
-        403: {"description": "Missing SAVED_VIEW_CHANGE capability"},
+        403: {"description": "Admin required"},
         404: {"description": "Saved view not found"},
     },
 )
 async def delete_saved_view(
     saved_view_id: str,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    cap: Annotated[bool, Depends(require_capability(SAVED_VIEW_CHANGE))],
+    cap: Annotated[bool, Depends(require_admin)],
 ) -> Response:
     """Delete a saved view (FR-006 AC-6.5 + SC-009)."""
     log.info(
@@ -318,22 +308,12 @@ async def saved_views_health() -> dict[str, str]:
 
 
 def _infer_role(user_id: UUID) -> str:
-    """Return the caller's role string (best-effort).
+    """Return the caller's role string.
 
-    Uses :func:`app.modules.admin_console.auth.user_has_capability`
-    to probe capability ownership — the saved_views endpoint doesn't
-    need a full role-string, just enough to filter visibility. We
-    probe ``SAVED_VIEW_CHANGE`` for pm / admin / operations /
-    maintainer / owner (5 roles), then fall back to ``reviewer``,
-    then ``viewer`` (FR-031 least-privilege). This is the same
-    pattern US6 governance uses; saved_views reuses the auth layer's
-    role-grants map rather than introducing a parallel hierarchy.
+    REQ-051: all admin-console callers are admin, so we return "admin"
+    for saved-view visibility (admin sees all views).
     """
-    if user_has_capability(user_id, SAVED_VIEW_CHANGE):
-        return "pm"
-    if user_has_capability(user_id, SAVED_VIEW_VIEW):
-        return "reviewer"
-    return "viewer"
+    return "admin"
 
 
 __all__ = ["saved_views_router"]

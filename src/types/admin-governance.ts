@@ -23,13 +23,8 @@ export type WorkspaceId =
   | 'governance'
   | 'all' // reserved
 
-export type ConsoleRole =
-  | 'pm'
-  | 'operations'
-  | 'maintainer'
-  | 'reviewer'
-  | 'owner'
-  | 'unknown' // reserved fallback
+// REQ-051: ConsoleRole removed — replaced by boolean is_admin.
+// CapabilityToken and AccessMatrix types retained for governance workspace display.
 
 export type CapabilityToken =
   | 'READ'
@@ -40,7 +35,7 @@ export type CapabilityToken =
   | 'AUDIT'
 
 export interface AccessMatrixEntry {
-  role: ConsoleRole
+  role: string
   workspace: WorkspaceId
   capability: CapabilityToken
   allowed: boolean

@@ -9,14 +9,11 @@ Endpoints:
 - ``GET /overview`` — 4 KPI tiles for the workspace header.
 - ``GET /health`` — module liveness (placeholder).
 
-Auth: capability check via :func:`app.modules.admin_console.auth.require_capability`
-with the new ``COMMAND_CENTER_VIEW`` capability. The default role map
-grants this to ``pm``, ``owner``, and ``admin``; ``viewer`` is denied
-per FR-031 least-privilege.
+Auth: admin-only via :func:`app.modules.admin_console.auth.require_admin`.
 
 Error mapping:
 
-- 403 ``missing_capability`` (FR-031)
+- 403 ``admin_required``
 - 200 + empty signals + ``quiet_steady_state=True`` (FR-010)
 - 500 unexpected (default FastAPI handler)
 """
@@ -28,7 +25,7 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.modules.admin_console.auth import require_capability
+from app.modules.admin_console.auth import require_admin
 from app.modules.admin_console.decision_signals import service
 from app.modules.admin_console.decision_signals.schemas import (
     CommandCenterOverviewResponse,
@@ -39,14 +36,6 @@ from app.api.deps import get_current_user_id_optional as _resolve_user_id_from_j
 log = structlog.get_logger(__name__)
 
 router = APIRouter()
-
-
-# ---------------------------------------------------------------------------
-# Capability token (added to admin_console.auth role map)
-# ---------------------------------------------------------------------------
-
-
-COMMAND_CENTER_VIEW = "COMMAND_CENTER_VIEW"
 
 
 # ---------------------------------------------------------------------------
@@ -79,12 +68,12 @@ async def _noop_session():
     status_code=200,
     responses={
         200: {"description": "Prioritized decision-signal queue"},
-        403: {"description": "Missing COMMAND_CENTER_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_decision_signals(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(COMMAND_CENTER_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
     limit: int = Query(50, ge=1, le=200),
 ) -> DecisionSignalListResponse:
     """Return the prioritized decision-signal queue (FR-007~FR-010)."""
@@ -111,12 +100,12 @@ async def get_decision_signals(
     status_code=200,
     responses={
         200: {"description": "4 KPI tiles for the workspace header"},
-        403: {"description": "Missing COMMAND_CENTER_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_command_center_overview(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(COMMAND_CENTER_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> CommandCenterOverviewResponse:
     """Return the 4 KPI tiles (Product / AI Quality / AI Cost / System)."""
     return service.get_command_center_overview()
@@ -137,4 +126,4 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "module": "decision_signals"}
 
 
-__all__ = ["COMMAND_CENTER_VIEW", "router"]
+__all__ = ["router"]

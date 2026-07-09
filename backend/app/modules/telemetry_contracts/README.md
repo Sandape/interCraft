@@ -214,6 +214,36 @@ The same contract is used by `eval/report.py` (per-case trace column
 in the JSON + Markdown drilldown) and by `badcases/service.py`
 (`promote_with_trace_evidence`).
 
+## REQ-045 destination export policy
+
+REQ-045 uses destination-aware policy decisions before external export:
+
+- `LANGSMITH` may receive production `FULL_CONTENT` AI payloads only when owner,
+  access scope, retention days, policy version, and allowed content classes are
+  recorded.
+- `OTLP_GENERIC` never receives raw AI payloads from this policy version;
+  requested `FULL_CONTENT` is downgraded to `REDACTED`.
+- Operational secrets are blocked for every destination, including LangSmith.
+- `LOCAL_ARTIFACT` remains the canonical local evidence path.
+
+CLI example:
+
+```bash
+python -m app.eval.cli export-audit \
+  --sample specs/045-llm-ops-eval-workflow/fixtures/export-policy-sample.json \
+  --destination LANGSMITH \
+  --env PRODUCTION \
+  --representation FULL_CONTENT \
+  --owner ai-ops \
+  --access-scope langsmith-prod-ai-debuggers \
+  --retention-days 30 \
+  --allowed-content-class resume_text \
+  --json
+```
+
+The JSON result includes `allowed`, `decision`, and `secretPaths`. A blocked
+decision exits `3` and still emits the decision body for audit trails.
+
 ## Programmatic usage — quick reference
 
 ```python
@@ -264,3 +294,20 @@ and degrade to in-memory stand-ins when the source files are absent.
 The contract (exit codes, JSON shape, dry-run flag) is fixed by
 those CLI modules regardless of whether the source modules are
 restored.
+
+## REQ-045 destination policy extension
+
+REQ-045 adds destination-aware export governance to this package:
+
+- `LOCAL_ARTIFACT` is the canonical eval evidence destination.
+- `LANGSMITH` is the approved AI workbench destination and may receive
+  production full-content AI prompts, responses, tool inputs, and evaluator
+  feedback when the policy includes owner, access scope, retention, and policy
+  version metadata.
+- `OTLP_GENERIC` is the generic observability destination and defaults to
+  metadata-only or redacted representations for AI payload-adjacent fields.
+- Operational secrets, access tokens, credentials, and infrastructure passwords
+  are blocked for every destination, including production LangSmith.
+- Export decisions are audit records, not ad hoc booleans. Eval sync, trace
+  export, badcase promotion, and prompt proposal workflows must reference the
+  decision that authorized their external representation.

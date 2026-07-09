@@ -73,3 +73,36 @@ role without parsing span attributes.
 - `app/agents/tests/test_node_separation.py` — verifies score split
   (FR-004), update_dimensions split (FR-005), and the related routing
   / state schema additions.
+
+## REQ-045 OTel-first contract
+
+REQ-045 makes OpenTelemetry the canonical runtime correlation layer for covered
+AI workflows. The expected runtime shape is:
+
+- FastAPI, websocket, ARQ worker, graph node, tool, and LLM spans share W3C trace
+  context where the workflow boundary allows it.
+- Logs and local eval artifacts expose the canonical trace id, span id, and run
+  id for drilldown without requiring LangSmith.
+- OTLP export remains the generic company observability path for latency,
+  errors, resource health, and bounded metrics.
+- LangSmith is an AI-specific workbench fed from approved trace/eval records; it
+  is not the canonical tracing substrate and must fail open for user workflows.
+- Generic OTLP destinations do not receive raw AI payloads unless a destination
+  policy explicitly permits that representation. REQ-045 currently permits
+  production full-content AI payload export only for LangSmith.
+
+### REQ-045 US2 propagation guarantees
+
+The covered AI surfaces share a single local trace/run contract:
+
+| Surface | Propagation guarantee |
+|---------|-----------------------|
+| FastAPI HTTP | `TraceIDMiddleware` accepts `X-Trace-Id`/`X-Run-Id`, binds them into process context, and echoes them on the response. |
+| Interview websocket | Submit/reconnect messages bind `trace_id` and `run_id` from the message payload when present, with generated fallbacks when absent. |
+| ARQ worker | Enqueue metadata includes `traceparent`, `trace_id`, `span_id`, and `run_id`; worker job hooks extract and bind that context before task code runs. |
+| LangGraph nodes | `@traced_node` remains the graph-level span boundary for agent steps, so node spans can be joined with request, worker, and LLM spans. |
+| LLM calls | `LLMClient` and `MockLLMClient` emit `llm.*` child spans with model, token, run, and trace attributes; mock spans are inspectable via the in-memory exporter. |
+
+This keeps OTel-first correlation usable without LangSmith. LangSmith can still
+receive approved eval/trace records for AI-specific debugging and comparison,
+but user-facing workflows continue when LangSmith export is disabled or fails.

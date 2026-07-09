@@ -1,4 +1,10 @@
-"""Sessions service: registration, 5-device eviction, rotation, revocation."""
+"""Sessions service: registration, 10-device eviction, rotation, revocation.
+
+FR-001 (Phase 4): device_id dedup removed — multi-tab coexistence.
+FR-003: list_active filters expires_at so expired rows don't consume quota.
+FR-009: rotate_refresh uses in-place UPDATE instead of soft-delete + create.
+FR-011: structured audit logging for session lifecycle events.
+"""
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -7,7 +13,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.exceptions import NotFoundError, SessionOtherUserError
+from app.core.exceptions import NotFoundError, RefreshReuseError, SessionEvictedError, SessionOtherUserError
+from app.core.logging import get_logger
 from app.modules.auth.models import AuthSession
 from app.modules.sessions.repository import SessionRepository
 
@@ -29,6 +36,9 @@ class SessionService:
     ) -> tuple[AuthSession, str | None]:
         """Create a new session, evicting the oldest if the user has >= MAX_ACTIVE.
 
+        FR-001: No longer soft-deletes a prior row for the same device_id.
+        Multi-tab coexistence means the same device_id can have multiple rows.
+
         Returns (new_session, evicted_session_id or None).
         """
         settings = get_settings()
@@ -36,20 +46,22 @@ class SessionService:
         existing = await self.repo.list_active(user_id)
         evicted: str | None = None
 
-        # If this device is already known, soft-delete the prior row (effectively
-        # a re-login) so we don't accidentally evict another device.
-        prior_for_device = next((s for s in existing if s.device_id == device_id), None)
-        if prior_for_device is not None:
-            prior_for_device.deleted_at = datetime.now(UTC)
-            await self.session.flush()
-            existing = [s for s in existing if s.id != prior_for_device.id]
-
-        # Phase 1: 5-device cap is soft (delete oldest if needed).
+        # Phase 1: 10-device cap is soft (delete oldest if needed).
         if len(existing) >= max_active:
             oldest = min(existing, key=lambda s: s.last_seen_at)
             oldest.deleted_at = datetime.now(UTC)
             evicted = str(oldest.id)
             await self.session.flush()
+            logger = get_logger("sessions")
+            logger.info(
+                "session_evicted",
+                extra={
+                    "event": "session_evicted",
+                    "target_session_id": str(oldest.id),
+                    "new_session_device_id": device_id,
+                    "cause": "max_devices_exceeded",
+                },
+            )
 
         new_session = AuthSession(
             user_id=user_id,
@@ -67,6 +79,18 @@ class SessionService:
         self.session.add(new_session)
         await self.session.flush()
         await self.session.refresh(new_session)
+
+        logger = get_logger("sessions")
+        logger.info(
+            "session_created",
+            extra={
+                "event": "session_created",
+                "session_id": str(new_session.id),
+                "device_id": device_id,
+                "cause": "login",
+            },
+        )
+
         return new_session, evicted
 
     async def revoke_session(self, session_id: UUID, *, user_id: UUID | None = None) -> None:
@@ -77,6 +101,15 @@ class SessionService:
             raise SessionOtherUserError()
         sess.deleted_at = datetime.now(UTC)
         await self.session.flush()
+        logger = get_logger("sessions")
+        logger.info(
+            "session_revoked",
+            extra={
+                "event": "session_revoked",
+                "target_session_id": str(session_id),
+                "cause": "logout",
+            },
+        )
 
     async def rotate_refresh(
         self,
@@ -85,12 +118,13 @@ class SessionService:
         session_id: UUID | None,
         old_refresh_token: str,
     ) -> tuple[AuthSession, str | None]:
-        """Rotate a refresh token.
+        """Rotate a refresh token using in-place UPDATE (FR-009).
 
         Validates the supplied refresh JWT, then:
-        - If session row not found OR hash mismatch → reuse detected → revoke all user sessions.
-        - Otherwise soft-delete the old session and create a fresh one (Phase 1 simpler
-          than keeping the same id).
+        - If session row not found or deleted → raise NotFoundError.
+        - If hash mismatch → reject only; do NOT revoke all user sessions (FR-008).
+        - Otherwise update the existing row in-place: new refresh_token_hash,
+          new expires_at, updated_at bumped. No new row created, no soft-delete.
         """
         from app.core.security import hash_refresh_token
 
@@ -102,30 +136,16 @@ class SessionService:
         if old.user_id != user_id:
             raise SessionOtherUserError()
         if old.refresh_token_hash != hash_refresh_token(old_refresh_token):
-            # Reuse — revoke all
-            for s in await self.repo.list_active(user_id):
-                s.deleted_at = datetime.now(UTC)
-            await self.session.flush()
-            raise NotFoundError("session.not_found", "Refresh token reuse detected; all sessions revoked")
-        # Mark old as deleted
-        old.deleted_at = datetime.now(UTC)
+            # FR-008: reject only — do NOT revoke all sessions.
+            raise RefreshReuseError()
+        # In-place rotation (FR-009): update the existing row atomically.
+        # The caller sets refresh_token_hash immediately after this returns.
+        settings = get_settings()
+        old.expires_at = datetime.now(UTC) + timedelta(seconds=settings.refresh_ttl)
+        old.updated_at = datetime.now(UTC)
         await self.session.flush()
-        # Issue a new row in its place (Phase 1 simplification).
-        new = AuthSession(
-            user_id=old.user_id,
-            device_id=old.device_id,
-            device_fingerprint=old.device_fingerprint,
-            device_name=old.device_name,
-            last_seen_ip=old.last_seen_ip,
-            last_seen_ua=old.last_seen_ua,
-            refresh_token_hash="0" * 64,
-            expires_at=datetime.now(UTC)
-            + timedelta(seconds=get_settings().refresh_ttl),
-        )
-        self.session.add(new)
-        await self.session.flush()
-        await self.session.refresh(new)
-        return new, None
+        await self.session.refresh(old)
+        return old, None
 
     async def is_session_alive(self, session_id: UUID | None) -> bool:
         if not session_id:

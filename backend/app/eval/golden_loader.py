@@ -41,6 +41,9 @@ _VALID_SOURCES: frozenset[str] = frozenset({"manual", "promoted"})
 
 # Valid `status` values.
 _VALID_STATUS: frozenset[str] = frozenset({"active", "stale"})
+_VALID_LIFECYCLES: frozenset[str] = frozenset(
+    {"GOLDEN", "CANDIDATE", "REPORT_ONLY", "DEPRECATED", "REJECTED"}
+)
 
 
 @dataclass
@@ -76,6 +79,8 @@ class GoldenCase:
     expected_overall_score_range: tuple[float, float] | None = None
     expected_fidelity_pass: bool = True
     status: str = "active"
+    lifecycle: str = "GOLDEN"
+    dataset_version: str = "golden-v1"
     file_path: str = ""  # for diagnostics — where this case was loaded from
 
 
@@ -111,7 +116,6 @@ def load_golden_cases(spec_dir: Path | str) -> list[GoldenCase]:
         spec_dir=str(spec_path),
         file_count=len(case_files),
     )
-
     for case_file in case_files:
         try:
             raw = case_file.read_text(encoding="utf-8")
@@ -225,6 +229,15 @@ def _build_case(data: dict[str, Any], file_path: str) -> GoldenCase | None:
         case_id,
         "expected_overall_score_range",
     )
+    lifecycle = str(data.get("lifecycle", "GOLDEN")).upper()
+    if lifecycle not in _VALID_LIFECYCLES:
+        logger.warning(
+            "eval.golden_case_invalid_lifecycle",
+            case_id=case_id,
+            lifecycle=lifecycle,
+        )
+        lifecycle = "REJECTED"
+        status = "stale"
 
     return GoldenCase(
         case_id=case_id,
@@ -239,6 +252,8 @@ def _build_case(data: dict[str, Any], file_path: str) -> GoldenCase | None:
         expected_overall_score_range=expected_overall_score_range,
         expected_fidelity_pass=bool(data.get("expected_fidelity_pass", True)),
         status=status,
+        lifecycle=lifecycle,
+        dataset_version=str(data.get("dataset_version", "golden-v1")),
         file_path=file_path,
     )
 

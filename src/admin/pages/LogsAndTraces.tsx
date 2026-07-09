@@ -23,9 +23,9 @@ import type { DrilldownSource, LogEvent } from '@/types/admin-logs'
 type TabId = 'logs' | 'traces' | 'list'
 
 const TAB_LABELS: Record<TabId, string> = {
-  logs: 'Logs',
-  traces: 'Traces',
-  list: 'Trace list',
+  logs: '日志',
+  traces: '链路',
+  list: '链路列表',
 }
 
 export function LogsAndTraces() {
@@ -109,9 +109,9 @@ export function LogsAndTraces() {
   return (
     <div className="ac-page" data-testid="logs-and-traces-drilldown">
       <div className="ac-page__header">
-        <h1 className="ac-page__title">Logs &amp; Traces</h1>
+        <h1 className="ac-page__title">日志与链路</h1>
         <span className="ac-page__hint">
-          Maintainer Drilldown · FR-024~FR-026
+          运维下钻 · 日志检索与链路追踪
         </span>
       </div>
 

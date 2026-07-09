@@ -1,8 +1,11 @@
 /**
  * Repository factory — toggles between HTTP and Mock implementations
- * based on `VITE_USE_MOCK`. The default for development is `true`
- * so the UI works without a backend; flip to `false` in `.env.local`
- * to test against the real FastAPI service.
+ * based on `VITE_USE_MOCK`. The default is real HTTP; set
+ * `VITE_USE_MOCK=true` only for explicit offline/mock runs.
+ *
+ * Note: static top-level imports ensure all factory functions are synchronous.
+ * Vite `server.warmup` in vite.config.ts pre-transforms these modules so the
+ * first browser request doesn't pay a cold-transform tax for every repository.
  */
 import { env } from '../api/env'
 import { AuthRepository, HttpAuthRepository } from './AuthRepository'

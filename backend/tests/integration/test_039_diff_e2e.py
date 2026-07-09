@@ -137,13 +137,28 @@ async def seeded_pair(bootstrapped_db) -> AsyncIterator[tuple[UUID, UUID, dict, 
 
 @pytest_asyncio.fixture
 async def admin_user() -> AsyncIterator[UUID]:
+    """Provision an admin user by overriding require_admin and resetting rate limits."""
     from app.modules.admin_console import auth, rate_limit
 
     user_id = uuid.uuid4()
-    auth.grant_role(user_id, "admin")
+
+    # REQ-051: override require_admin to return True (no capability matrix)
+    async def _admin_override(*args, **kwargs) -> bool:
+        return True
+
+    app = None
+    try:
+        from app.main import app as _app
+        app = _app
+    except Exception:
+        pass
+    if app is not None:
+        app.dependency_overrides[auth.require_admin] = _admin_override
+
     rate_limit.reset_for_tests()
     yield user_id
-    auth.revoke_role(user_id)
+    if app is not None:
+        app.dependency_overrides.pop(auth.require_admin, None)
     rate_limit.reset_for_tests()
 
 

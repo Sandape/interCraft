@@ -14,7 +14,6 @@ import { useMemo } from 'react'
 import type {
   AccessMatrixResponse,
   CapabilityToken,
-  ConsoleRole,
   WorkspaceId,
 } from '@/types/admin-governance'
 
@@ -24,13 +23,8 @@ interface Props {
   error?: Error | null
 }
 
-const ROLES: ConsoleRole[] = [
-  'pm',
-  'operations',
-  'maintainer',
-  'reviewer',
-  'owner',
-]
+// REQ-051: simplified to admin role only
+const ROLES: string[] = ['admin']
 const WORKSPACES: WorkspaceId[] = [
   'command-center',
   'product-analytics',

@@ -1,0 +1,79 @@
+name: 045 LLM Ops Eval Gate
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "backend/app/agents/**"
+      - "backend/app/eval/**"
+      - "backend/app/observability/**"
+      - "backend/app/modules/telemetry_contracts/**"
+      - "specs/045-llm-ops-eval-workflow/**"
+      - ".github/workflows/045-llm-ops-eval-gate.yml"
+
+concurrency:
+  group: llm-ops-eval-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  eval-gate:
+    name: Local canonical eval plus optional LangSmith status
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Sync backend deps
+        working-directory: backend
+        run: uv sync --extra dev
+
+      - name: Run REQ-045 focused tests
+        working-directory: backend
+        run: >
+          uv run pytest -q
+          tests/unit/test_045_llm_ops_schemas.py
+          tests/contract/test_045_llm_ops_migrations.py
+          tests/contract/test_045_llm_ops_cli_contract.py
+          tests/unit/test_045_llm_ops_metrics.py
+          tests/contract/test_045_eval_report_schema.py
+          tests/contract/test_045_eval_run_cli.py
+          tests/eval/test_045_langsmith_sync.py
+          tests/eval/test_045_eval_artifacts.py
+          tests/eval/test_045_eval_gate_regressions.py
+
+      - name: Run local eval gate
+        working-directory: backend
+        env:
+          JWT_SECRET: ci-only-dummy-32bytes-xxxxxxxxxxxxxxxxxxxxxx
+          MASTER_KEY: ${{ secrets.MASTER_KEY || 'ZGV2LW9ubHktZHVtbXktMzJiLWJhc2U2NC0xMjM0NTY3ODkwYWI=' }}
+        run: |
+          RUN_ID="045-${{ github.event.pull_request.number }}-$(date -u +%Y%m%dT%H%M%S)"
+          OUT_DIR="docs/evidence/045-llm-ops-eval-workflow/${RUN_ID}"
+          mkdir -p "${OUT_DIR}"
+          uv run python -m app.eval.cli run \
+            --suite golden \
+            --env ci \
+            --source-revision "${{ github.event.pull_request.head.sha }}" \
+            --branch "${{ github.event.pull_request.head.ref }}" \
+            --report-out "${OUT_DIR}/eval-report.json" \
+            --markdown-out "${OUT_DIR}/eval-report.md" \
+            --sync-langsmith never \
+            --json | tee "${OUT_DIR}/cli-output.json"
+
+      - name: Upload REQ-045 eval evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: req045-llm-ops-eval
+          path: backend/docs/evidence/045-llm-ops-eval-workflow/
+          if-no-files-found: warn
+          retention-days: 30

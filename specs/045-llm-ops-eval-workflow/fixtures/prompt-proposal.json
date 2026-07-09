@@ -1,0 +1,13 @@
+{
+  "proposalId": "proposal-req045-sample",
+  "status": "READY_FOR_COMPARISON",
+  "sourceRunIds": ["eval-run-req045-policy-sample"],
+  "sourceCaseIds": ["badcase-bc-req045-candidate"],
+  "targetGraph": "interview",
+  "targetNode": "score",
+  "proposalType": "PROMPT",
+  "candidateFingerprint": "sha256:req045-candidate-prompt",
+  "expectedImpact": "Improve scoring fidelity for promoted badcases.",
+  "comparisonRunId": null,
+  "approvalOwner": null
+}

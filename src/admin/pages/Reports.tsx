@@ -31,9 +31,9 @@ export function Reports() {
   return (
     <div className="ac-page" data-testid="reports">
       <div className="ac-page__header">
-        <h1 className="ac-page__title">Reports</h1>
+        <h1 className="ac-page__title">报告中心</h1>
         <span className="ac-page__hint">
-          内部 review snapshot · frozen vs live · metric trust
+          内部评审快照 · 冻结对照实时 · 指标可信度
         </span>
       </div>
 
@@ -42,14 +42,14 @@ export function Reports() {
           className="ac-reports-grid__list"
           data-testid="reports-snapshot-list"
         >
-          <h2 className="ac-reports-grid__list-title">Snapshots</h2>
+          <h2 className="ac-reports-grid__list-title">快照列表</h2>
           {list.isLoading ? (
             <div
               className="ac-reports-grid__empty"
               data-testid="snapshot-list-loading"
               role="status"
             >
-              Loading snapshots…
+              加载快照…
             </div>
           ) : list.data && list.data.snapshots.length > 0 ? (
             <div
@@ -70,7 +70,7 @@ export function Reports() {
               data-testid="snapshot-list-empty"
               role="status"
             >
-              No snapshots yet — generate one below.
+              暂无快照 — 请在下方生成。
             </div>
           )}
         </section>
@@ -79,7 +79,7 @@ export function Reports() {
           className="ac-reports-grid__viewer"
           data-testid="reports-snapshot-viewer"
         >
-          <h2 className="ac-reports-grid__viewer-title">Snapshot detail</h2>
+          <h2 className="ac-reports-grid__viewer-title">快照详情</h2>
           <SnapshotViewer
             snapshot={detail.data ?? null}
             loading={detail.isLoading}
@@ -92,7 +92,7 @@ export function Reports() {
           className="ac-reports-grid__generator"
           data-testid="reports-snapshot-generator"
         >
-          <h2 className="ac-reports-grid__generator-title">Generate snapshot</h2>
+          <h2 className="ac-reports-grid__generator-title">生成快照</h2>
           <SnapshotGenerateForm
             onCreated={(id) => {
               setSelectedSnapshotId(id)
@@ -104,7 +104,7 @@ export function Reports() {
               data-testid="snapshot-create-success"
               role="status"
             >
-              Snapshot created: {createMutation.data?.snapshot_id}
+              快照已创建: {createMutation.data?.snapshot_id}
             </div>
           ) : null}
         </section>

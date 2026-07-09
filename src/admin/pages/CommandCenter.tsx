@@ -48,9 +48,9 @@ export function CommandCenter() {
   return (
     <div className="ac-page" data-testid="command-center">
       <div className="ac-page__header">
-        <h1 className="ac-page__title">Command Center</h1>
+        <h1 className="ac-page__title">指挥中心</h1>
         <span className="ac-page__hint">
-          PM 决策指挥中心 · 默认 landing · FR-007~FR-010
+          PM 决策指挥中心 · 默认首页
         </span>
       </div>
 
@@ -60,7 +60,7 @@ export function CommandCenter() {
           {overview ? (
             <>
               <div className="ds-kpi" data-testid="kpi-product-health">
-                <span className="ds-kpi__label">Product Health</span>
+                <span className="ds-kpi__label">产品健康度</span>
                 <span className="ds-kpi__value">
                   {fmtNumber(overview.productHealth, overview.productHealthUnit)}
                   <span className="ds-kpi__unit">
@@ -69,21 +69,21 @@ export function CommandCenter() {
                 </span>
               </div>
               <div className="ds-kpi" data-testid="kpi-ai-quality">
-                <span className="ds-kpi__label">AI Quality</span>
+                <span className="ds-kpi__label">AI 质量</span>
                 <span className="ds-kpi__value">
                   {fmtNumber(overview.aiQuality, overview.aiQualityUnit)}
                   <span className="ds-kpi__unit">{overview.aiQualityUnit}</span>
                 </span>
               </div>
               <div className="ds-kpi" data-testid="kpi-ai-cost">
-                <span className="ds-kpi__label">AI Cost</span>
+                <span className="ds-kpi__label">AI 成本</span>
                 <span className="ds-kpi__value">
                   {fmtNumber(overview.aiCost, overview.aiCostUnit)}
                   <span className="ds-kpi__unit">{overview.aiCostUnit}</span>
                 </span>
               </div>
               <div className="ds-kpi" data-testid="kpi-system-health">
-                <span className="ds-kpi__label">System Health</span>
+                <span className="ds-kpi__label">系统健康度</span>
                 <span className="ds-kpi__value">
                   {fmtNumber(overview.systemHealth, overview.systemHealthUnit)}
                   <span className="ds-kpi__unit">
@@ -94,7 +94,7 @@ export function CommandCenter() {
             </>
           ) : (
             <div className="ds-kpi" data-testid="kpi-loading">
-              <span className="ds-kpi__label">Loading…</span>
+              <span className="ds-kpi__label">加载中…</span>
             </div>
           )}
         </section>
@@ -110,12 +110,12 @@ export function CommandCenter() {
                 data-testid="command-center-queue"
               >
                 <div className="ds-queue__header">
-                  <span className="ds-queue__title">Decision Queue</span>
+                  <span className="ds-queue__title">决策队列</span>
                   <span
                     className="ds-queue__hint"
                     data-testid="command-center-queue-hint"
                   >
-                    {response.total} signals · {response.highSeverityCount} high-severity
+                    {response.total} 条信号 · {response.highSeverityCount} 条高严重度
                   </span>
                 </div>
                 <div className="ds-queue__list">
@@ -133,14 +133,13 @@ export function CommandCenter() {
                 data-testid="command-center-reviews"
               >
                 <div className="ds-queue__header">
-                  <span className="ds-queue__title">Recent Reviews</span>
+                  <span className="ds-queue__title">最近评审</span>
                 </div>
                 <p
                   className="ds-quiet__no-signals"
                   data-testid="recent-reviews-empty"
                 >
-                  No recent reviews · [CROSS-TEAM-DEBT] Phase 2 batch 2
-                  接 review_queue 表
+                  暂无最近评审 · 待接入 review_queue 表
                 </p>
               </aside>
             </div>
@@ -150,11 +149,11 @@ export function CommandCenter() {
             className="ds-quiet"
             data-testid="command-center-loading"
           >
-            <span className="ds-quiet__lede">Loading decision queue…</span>
+            <span className="ds-quiet__lede">加载决策队列…</span>
           </div>
         ) : signalsQuery.isError ? (
           <div className="ac-error-banner" data-testid="command-center-error">
-            Failed to load decision signals.{' '}
+            加载决策信号失败.{' '}
             {signalsQuery.error instanceof Error
               ? signalsQuery.error.message
               : 'Unknown error'}

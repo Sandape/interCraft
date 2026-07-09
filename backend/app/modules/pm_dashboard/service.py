@@ -53,6 +53,7 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.eval.experiment_compare import compare_experiments
 from app.modules.pm_dashboard import repository
 from app.modules.pm_dashboard.schemas import (
     AIOperationsPanelData,
@@ -117,6 +118,26 @@ def validate_filters(filters: DashboardFilter) -> DashboardFilter:
             "date_range_end must be strictly after date_range_start"
         )
     return filters
+
+
+def build_experiment_evidence_adapter(
+    *,
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a PM-dashboard-friendly evidence block for an eval comparison."""
+
+    comparison = compare_experiments(baseline=baseline, candidate=candidate)
+    return {
+        "metric_id": "pm.req045.experiment_comparison",
+        "display_name": "Experiment Comparison",
+        "source_of_truth": "REQ-045 eval reports",
+        "comparison": comparison,
+        "recommended_action": comparison["recommendation"],
+        "quality_delta": comparison["qualityDelta"],
+        "risk_flags": comparison["riskFlags"],
+        "freshness_at": _now_iso(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -701,6 +722,7 @@ __all__ = [
     "AI_OPS_TOP_N",
     "FUNNEL_STEPS",
     "VERSION_EXPERIMENT_TOP_N",
+    "build_experiment_evidence_adapter",
     "get_ai_operations",  # US4 T104
     "get_funnel",
     "get_mock_interview",  # US3 T094

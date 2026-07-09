@@ -44,6 +44,7 @@ from typing import Any, Union
 # to find the repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_GOLDEN_DIR = _REPO_ROOT / "specs" / "033-eval-pm-dashboard" / "golden"
+_VALID_PROMOTION_LIFECYCLES = {"GOLDEN", "CANDIDATE", "REPORT_ONLY"}
 
 
 def _resolve_golden_dir() -> Path:
@@ -106,8 +107,59 @@ def promote_to_golden_candidate(
     return target_path
 
 
+def promote_badcase_to_eval_case(
+    badcase: Any,
+    *,
+    lifecycle: str = "CANDIDATE",
+    dataset_version: str = "candidate-v1",
+    export_policy_decision_id: str | None = None,
+    reviewer: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Build a REQ-045 eval-case payload from a governed badcase."""
+
+    lifecycle_norm = lifecycle.strip().upper()
+    if lifecycle_norm not in _VALID_PROMOTION_LIFECYCLES:
+        raise ValueError(f"lifecycle must be one of {sorted(_VALID_PROMOTION_LIFECYCLES)}")
+    if lifecycle_norm in {"GOLDEN", "CANDIDATE"}:
+        redaction_status = str(_badcase_field(badcase, "redaction_status", "redactionStatus") or "")
+        privacy_class = str(_badcase_field(badcase, "privacy_class", "privacyClass") or "")
+        if redaction_status not in {"PASSED", "NOT_REQUIRED"}:
+            raise ValueError("redaction must pass before candidate/golden promotion")
+        if privacy_class == "SECRET":
+            raise ValueError("secret badcases cannot be promoted to eval datasets")
+    badcase_id = _badcase_id(badcase)
+    return {
+        "case_id": f"badcase-{badcase_id}",
+        "node": "unknown.badcase",
+        "label": f"Promoted badcase {badcase_id}",
+        "source": "promoted",
+        "input_state": {
+            "badcase_id": badcase_id,
+            "type": _badcase_field(badcase, "type"),
+            "trace_id": _badcase_field(badcase, "trace_id", "traceId"),
+            "run_id": str(_badcase_field(badcase, "run_id", "runId") or ""),
+        },
+        "llm_response": "",
+        "expected_language": "zh-CN",
+        "expected_contains": [],
+        "expected_fidelity_pass": True,
+        "status": "active",
+        "lifecycle": lifecycle_norm,
+        "dataset_version": dataset_version,
+        "export_policy_decision_id": export_policy_decision_id,
+        "reviewer": reviewer,
+        "reason": reason,
+        "blocks_merge": lifecycle_norm == "GOLDEN",
+    }
+
+
 def _badcase_id(badcase: Any) -> str:
     """Extract the ``badcaseId`` from either an ORM row or a Pydantic schema."""
+    if isinstance(badcase, dict):
+        value = badcase.get("badcase_id") or badcase.get("badcaseId")
+        if value:
+            return str(value)
     if hasattr(badcase, "badcase_id"):
         return str(badcase.badcase_id)
     if hasattr(badcase, "badcaseId"):
@@ -117,6 +169,10 @@ def _badcase_id(badcase: Any) -> str:
 
 def _badcase_field(badcase: Any, *names: str) -> Any:
     """Read a field by trying multiple attribute names (snake or camel)."""
+    if isinstance(badcase, dict):
+        for n in names:
+            if n in badcase:
+                return badcase[n]
     for n in names:
         if hasattr(badcase, n):
             return getattr(badcase, n)
@@ -171,4 +227,4 @@ def _build_payload(
     }
 
 
-__all__ = ["promote_to_golden_candidate"]
+__all__ = ["promote_badcase_to_eval_case", "promote_to_golden_candidate"]

@@ -376,6 +376,145 @@ def parse_timestamp(ts: str) -> datetime | None:
         return None
 
 
+def normalize_req045_report(
+    report: EvalReport | dict[str, Any],
+    *,
+    suite: str = "golden",
+    dataset_version: str = "golden-v1",
+    artifacts: dict[str, str] | None = None,
+    langsmith_export_status: str = "DISABLED",
+    langsmith_url: str = "unavailable",
+    export_policy_decision_id: str | None = None,
+) -> dict[str, Any]:
+    """Return the REQ-045 camelCase eval report contract."""
+    out = render_json_report(report)
+    run_id = str(out.get("run_id") or out.get("runId") or uuid4())
+    case_results: list[dict[str, Any]] = []
+    for raw_case in out.get("case_results", []) or []:
+        if not isinstance(raw_case, dict):
+            continue
+        metrics = raw_case.get("metrics") if isinstance(raw_case.get("metrics"), dict) else {}
+        case_node = str(raw_case.get("node") or "unknown")
+        graph = case_node.split(".", 1)[0] if "." in case_node else "unknown"
+        trace_id = raw_case.get("trace_id") or metrics.get("trace_id") or "unavailable"
+        span_id = raw_case.get("span_id") or metrics.get("span_id") or "unavailable"
+        artifact_ref = raw_case.get("artifact_ref") or metrics.get("artifact_ref") or "unavailable"
+        case_langsmith_url = raw_case.get("langsmith_url") or metrics.get("langsmith_url") or langsmith_url
+        case_results.append(
+            {
+                "caseId": str(raw_case.get("case_id") or "unknown"),
+                "runId": str(raw_case.get("run_id") or run_id),
+                "lifecycle": str(raw_case.get("lifecycle") or "GOLDEN"),
+                "graph": graph,
+                "node": case_node,
+                "passed": bool(raw_case.get("passed")),
+                "failureReasons": list(raw_case.get("failure_reasons") or []),
+                "deterministicMetrics": dict(metrics),
+                "expectedFidelityPass": bool(raw_case.get("expected_fidelity_pass", True)),
+                "traceId": str(trace_id or "unavailable"),
+                "spanId": str(span_id or "unavailable"),
+                "artifactRef": str(artifact_ref or "unavailable"),
+                "langsmithUrl": str(case_langsmith_url or "unavailable"),
+                "judgeVerdicts": list(raw_case.get("judge_verdicts") or []),
+            }
+        )
+
+    return {
+        "schemaVersion": "045.eval-report.v1",
+        "runId": run_id,
+        "suite": suite,
+        "environment": str(out.get("environment") or "LOCAL").upper(),
+        "status": str(out.get("status") or ("PASSED" if int(out.get("failed_cases", 0) or 0) == 0 else "FAILED")),
+        "sourceRevision": str(out.get("source_revision") or out.get("git_sha") or "unknown"),
+        "branch": str(out.get("branch") or "unknown"),
+        "datasetVersion": dataset_version,
+        "promptFingerprint": str(out.get("prompt_fingerprint") or "unknown"),
+        "rubricVersion": str(out.get("rubric_version") or "unknown"),
+        "modelVersion": str(out.get("model_version") or out.get("model") or "unknown"),
+        "startedAt": str(out.get("started_at") or out.get("timestamp") or "unknown"),
+        "finishedAt": str(out.get("finished_at") or out.get("timestamp") or "unknown"),
+        "aggregatePassRate": float(out.get("aggregate_pass_rate", 0.0) or 0.0),
+        "knownRegressionRecall": float(out.get("known_regression_recall", 1.0) or 1.0),
+        "tokenUsage": {
+            "inputTokens": int(out.get("input_tokens", 0) or 0),
+            "outputTokens": int(out.get("output_tokens", 0) or 0),
+            "totalTokens": int(out.get("total_tokens", 0) or 0),
+        },
+        "costUsd": float(out.get("budget_cost_used_usd", 0.0) or 0.0),
+        "latencyMs": int(out.get("latency_ms", 0) or 0),
+        "langsmithExportStatus": langsmith_export_status,
+        "exportPolicyDecisionId": export_policy_decision_id,
+        "langsmithUrl": langsmith_url or "unavailable",
+        "artifacts": artifacts or {"json": "", "markdown": ""},
+        "caseResults": case_results,
+    }
+
+
+def render_req045_markdown_report(payload: dict[str, Any]) -> str:
+    """Render a concise Markdown companion for a REQ-045 JSON payload."""
+    has_judge = any(case.get("judgeVerdicts") for case in payload.get("caseResults", []))
+    lines = [
+        "# REQ-045 Eval Report\n\n",
+        f"- Run ID: `{payload['runId']}`\n",
+        f"- Status: `{payload['status']}`\n",
+        f"- Suite: `{payload['suite']}`\n",
+        f"- Environment: `{payload['environment']}`\n",
+        f"- Dataset: `{payload['datasetVersion']}`\n",
+        f"- Source Revision: `{payload['sourceRevision']}`\n",
+        f"- LangSmith: `{payload['langsmithExportStatus']}`\n\n",
+        "## Case Results\n\n",
+        "| Case ID | Lifecycle | Passed | Trace | Artifact | LangSmith"
+        + (" | Judge | Blocks |" if has_judge else " |")
+        + "\n",
+        "|---|---|---:|---|---|---"
+        + ("|---:|---:|" if has_judge else "|")
+        + "\n",
+    ]
+    for case in payload.get("caseResults", []):
+        judge_bits = ""
+        if has_judge:
+            verdicts = case.get("judgeVerdicts") or []
+            first = verdicts[0] if verdicts else {}
+            judge_bits = (
+                f" | `{first.get('score', 'unavailable')}` | "
+                f"{bool(first.get('blocksMerge', False))}"
+            )
+        lines.append(
+            f"| `{case['caseId']}` | `{case['lifecycle']}` | {case['passed']} | "
+            f"`{case['traceId']}` | `{case['artifactRef']}` | `{case['langsmithUrl']}`"
+            f"{judge_bits} |\n"
+        )
+    return "".join(lines)
+
+
+def write_req045_report_artifacts(
+    report: EvalReport | dict[str, Any],
+    *,
+    json_path: Path,
+    markdown_path: Path,
+    suite: str = "golden",
+    dataset_version: str = "golden-v1",
+    langsmith_export_status: str = "DISABLED",
+    langsmith_url: str = "unavailable",
+    export_policy_decision_id: str | None = None,
+) -> dict[str, Any]:
+    artifacts = {"json": str(json_path), "markdown": str(markdown_path)}
+    payload = normalize_req045_report(
+        report,
+        suite=suite,
+        dataset_version=dataset_version,
+        artifacts=artifacts,
+        langsmith_export_status=langsmith_export_status,
+        langsmith_url=langsmith_url,
+        export_policy_decision_id=export_policy_decision_id,
+    )
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text(render_req045_markdown_report(payload), encoding="utf-8")
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # EvalReportModel — Pydantic v2 stable eval report contract (T047)
 # ---------------------------------------------------------------------------
@@ -662,7 +801,10 @@ class EvalReportModel(BaseModel):
 __all__ = [
     "CaseResultModel",
     "EvalReportModel",
+    "normalize_req045_report",
     "parse_timestamp",
+    "render_req045_markdown_report",
     "render_json_report",
     "render_markdown_report",
+    "write_req045_report_artifacts",
 ]

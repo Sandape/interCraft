@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "045.eval-report.v1",
+  "runId": "7b95b3c3-3f31-4097-8982-4dc3f8f455c0",
+  "suite": "golden",
+  "environment": "CI",
+  "status": "PASSED",
+  "sourceRevision": "abc123",
+  "branch": "codex/045-llm-ops-eval-workflow",
+  "datasetVersion": "golden-v2",
+  "promptFingerprint": "pf_sample",
+  "rubricVersion": "rv_sample",
+  "modelVersion": "mock-llm",
+  "startedAt": "2026-07-05T01:00:00Z",
+  "finishedAt": "2026-07-05T01:03:00Z",
+  "aggregatePassRate": 1.0,
+  "knownRegressionRecall": 1.0,
+  "tokenUsage": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "totalTokens": 0
+  },
+  "costUsd": 0.0,
+  "latencyMs": 0,
+  "langsmithExportStatus": "DISABLED",
+  "exportPolicyDecisionId": null,
+  "langsmithUrl": "unavailable",
+  "artifacts": {
+    "json": "docs/evidence/045-llm-ops-eval-workflow/run/eval-report.json",
+    "markdown": "docs/evidence/045-llm-ops-eval-workflow/run/eval-report.md"
+  },
+  "caseResults": [
+    {
+      "caseId": "interview-score-regression-001",
+      "runId": "7b95b3c3-3f31-4097-8982-4dc3f8f455c0",
+      "lifecycle": "GOLDEN",
+      "graph": "interview",
+      "node": "interview.score_llm",
+      "passed": true,
+      "failureReasons": [],
+      "deterministicMetrics": {
+        "chinese_fidelity": 1.0
+      },
+      "expectedFidelityPass": true,
+      "traceId": "unavailable",
+      "spanId": "unavailable",
+      "artifactRef": "docs/evidence/045-llm-ops-eval-workflow/run/cases/interview-score-regression-001.json",
+      "langsmithUrl": "unavailable",
+      "judgeVerdicts": []
+    }
+  ]
+}

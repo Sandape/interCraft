@@ -26,6 +26,15 @@ function readSession(key: string): string | null {
   }
 }
 
+function readLocalAccessMirror(): string | null {
+  if (typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    return window.localStorage.getItem('access_token')
+  } catch {
+    return null
+  }
+}
+
 function writeSession(key: string, value: string | null): void {
   if (typeof sessionStorage === 'undefined') return
   try {
@@ -61,7 +70,7 @@ export function getAccessToken(): string | null {
   // need to fabricate a token. Returning null here makes `hasTokens()`
   // honest, which is what AuthGuard relies on.
   if (env.USE_MOCK) return null
-  const v = readSession(ACCESS_KEY)
+  const v = readSession(ACCESS_KEY) ?? readLocalAccessMirror()
   memory.access = v
   return v
 }

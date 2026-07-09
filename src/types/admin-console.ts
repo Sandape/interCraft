@@ -1,13 +1,11 @@
 /**
- * Admin Console / Log Center types — REQ-039 B2 + REQ-044 IA shell.
+ * Admin Console / Log Center types — REQ-039 B2 + REQ-044 IA shell + REQ-051.
  *
  * Mirrors backend/app/modules/admin_console/schemas.py.
  *
- * REQ-044 WorkspaceId + ConsoleRole are **trust-but-verify** front-end
- * unions. The actual RBAC enforcement lives in the backend; see the
- * CROSS-TEAM-DEBT tag in the REQ-044 IA AC matrix (Phase 2 US6 will
- * sync backend Pydantic Literal definitions with these string
- * literals).
+ * REQ-051: role model simplified to single is_admin boolean.
+ * ConsoleRole union type removed; admin-console access gated by
+ * PublicUser.is_admin field from backend.
  */
 
 // --- REQ-044 IA: 8 stable top-level workspaces ---------------------------
@@ -24,22 +22,10 @@ export type WorkspaceId =
   // reserved — internal "show all" sentinel, never a real route
   | 'all'
 
-// 5 角色 + reserved unknown — see FR-002 / AC-2.2
-export type ConsoleRole =
-  | 'pm'
-  | 'operations'
-  | 'maintainer'
-  | 'reviewer'
-  | 'owner'
-  // reserved — unknown role → fallback to pm
-  | 'unknown'
-
 // --- REQ-044 FR-006 saved views ------------------------------------------
 
-// 5 console roles (FR-002 / AC-2.5) can appear in shared_with.
-// Mirrors backend app/modules/admin_console/saved_views/schemas.py:
-// SharedWithRole Literal.
-export type SharedWithRole = 'pm' | 'operations' | 'maintainer' | 'reviewer' | 'owner'
+// SharedWithRole — admin-only now, kept for saved_views backward compat.
+export type SharedWithRole = 'admin'
 
 // Mirrors backend SavedViewTrustStatus Literal — verified / pending / deprecated.
 export type SavedViewTrustStatusStrict =
@@ -138,10 +124,8 @@ export interface SavedViewListResponse {
   warnings?: string[]
 }
 
-// Cross-team contract lock (memory feedback_cross_team_contract_l031):
-// widening the SharedWithRole union here MUST be synced with the
-// backend SharedWithRole Literal in
-// app/modules/admin_console/saved_views/schemas.py.
+// REQ-051: SharedWithRole simplified to single 'admin' role.
+// All admin console callers are admin; role-based filtering removed.
 
 export type NormalizedStatus = 'success' | 'failed' | 'pending' | 'running'
 export type NormalizedTaskType =
@@ -249,7 +233,6 @@ export interface AdminFilters {
 
 export interface CallerCapabilities {
   is_admin: boolean
-  capabilities: string[]
 }
 
 export type AdminPresetTag =

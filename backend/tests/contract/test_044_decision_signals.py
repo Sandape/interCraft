@@ -280,18 +280,7 @@ def test_quiet_steady_state_flag_consistent_with_severity_count() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.contract
-def test_command_center_view_capability_in_role_map() -> None:
-    """FR-031: COMMAND_CENTER_VIEW must be granted to pm/owner/admin
-    so the PM demo flow can hit /signals without manual seeding."""
-    from app.modules.admin_console.auth import (
-        COMMAND_CENTER_VIEW,
-        _ROLE_GRANTS,
-    )
-
-    assert COMMAND_CENTER_VIEW in _ROLE_GRANTS["admin"]
-    assert COMMAND_CENTER_VIEW in _ROLE_GRANTS["owner"]
-    assert COMMAND_CENTER_VIEW in _ROLE_GRANTS["pm"]
+# REQ-051: capability-matrix test removed — command-center now uses require_admin().
 
 
 # ---------------------------------------------------------------------------

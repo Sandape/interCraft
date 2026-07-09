@@ -1,9 +1,24 @@
 /** 019 — JobsDetailPanel CTAs: resume branch creation + interview start (mutation flow). */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createElement, type ReactNode } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { JobsDetailPanel } from '@/components/jobs/JobsDetailPanel'
 import type { Job } from '@/repositories/JobRepository'
+
+// REQ-053 (T068) — the panel calls useQueryClient() to invalidate the
+// report cache, so wrap every render in a fresh QueryClient.
+function wrap(ui: ReactNode) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
 
 const mockNavigate = vi.fn()
 const mockMutateAsync = vi.fn()
@@ -20,6 +35,14 @@ vi.mock('@/hooks/queries/useInterviewSessions', () => ({
   }),
 }))
 
+// REQ-053 (T068) — the panel now queries research reports to decide whether
+// to surface the "查看备战报告" entry. Default to no reports so the existing
+// 019 assertions still pass; the dedicated research-report test overrides
+// this via `vi.mocked(...).mockReturnValueOnce(...)`.
+vi.mock('@/hooks/queries/useResearchReports', () => ({
+  useResearchReports: () => ({ data: { data: [] }, isLoading: false }),
+}))
+
 const baseJob: Job = {
   id: 'job-1',
   company: '字节',
@@ -27,6 +50,7 @@ const baseJob: Job = {
   jd_url: null,
   branch_id: null,
   status: 'applied',
+  interview_time: null,
   status_history: [],
   notes_md: null,
   base_location: '北京',
@@ -46,7 +70,7 @@ beforeEach(() => {
 
 describe('JobsDetailPanel — CTAs (019)', () => {
   it('shows resume-branch CTA and binds nothing yet', () => {
-    render(<MemoryRouter><JobsDetailPanel job={baseJob} /></MemoryRouter>)
+    wrap(<JobsDetailPanel job={baseJob} />)
     const cta = screen.getByTestId('job-detail-resume-cta')
     expect(cta).toBeInTheDocument()
     expect(cta).toHaveTextContent('为该岗位创建简历分支')
@@ -54,13 +78,13 @@ describe('JobsDetailPanel — CTAs (019)', () => {
   })
 
   it('resume CTA navigates to /resume?new=true&source_job_id={id}', () => {
-    render(<MemoryRouter><JobsDetailPanel job={baseJob} /></MemoryRouter>)
+    wrap(<JobsDetailPanel job={baseJob} />)
     fireEvent.click(screen.getByTestId('job-detail-resume-cta'))
     expect(mockNavigate).toHaveBeenCalledWith('/resume?new=true&source_job_id=job-1')
   })
 
   it('interview CTA is disabled and shows hint when branch not bound', () => {
-    render(<MemoryRouter><JobsDetailPanel job={baseJob} /></MemoryRouter>)
+    wrap(<JobsDetailPanel job={baseJob} />)
     const cta = screen.getByTestId('job-detail-interview-cta')
     expect(cta).toBeDisabled()
     expect(screen.getByTestId('job-detail-interview-cta-hint')).toHaveTextContent('请先绑定简历分支')
@@ -68,7 +92,7 @@ describe('JobsDetailPanel — CTAs (019)', () => {
 
   it('interview CTA calls createFromJob mutation and navigates to /interview/{id}', async () => {
     const jobWithBranch: Job = { ...baseJob, branch_id: 'branch-9' }
-    render(<MemoryRouter><JobsDetailPanel job={jobWithBranch} /></MemoryRouter>)
+    wrap(<JobsDetailPanel job={jobWithBranch} />)
     const cta = screen.getByTestId('job-detail-interview-cta')
     expect(cta).not.toBeDisabled()
     fireEvent.click(cta)
@@ -87,7 +111,7 @@ describe('JobsDetailPanel — CTAs (019)', () => {
   it('interview CTA shows error message when mutation fails', async () => {
     mockMutateAsync.mockRejectedValueOnce(new Error('权限不足'))
     const jobWithBranch: Job = { ...baseJob, branch_id: 'branch-9' }
-    render(<MemoryRouter><JobsDetailPanel job={jobWithBranch} /></MemoryRouter>)
+    wrap(<JobsDetailPanel job={jobWithBranch} />)
     fireEvent.click(screen.getByTestId('job-detail-interview-cta'))
 
     const errEl = await screen.findByTestId('job-detail-interview-cta-error')
@@ -97,7 +121,7 @@ describe('JobsDetailPanel — CTAs (019)', () => {
 
   it('shows the bound-branch link that navigates to /resume/{branch_id}', () => {
     const jobWithBranch: Job = { ...baseJob, branch_id: 'branch-9' }
-    render(<MemoryRouter><JobsDetailPanel job={jobWithBranch} /></MemoryRouter>)
+    wrap(<JobsDetailPanel job={jobWithBranch} />)
     const link = screen.getByTestId('job-detail-bound-branch')
     expect(link).toBeInTheDocument()
     fireEvent.click(link)
@@ -106,7 +130,7 @@ describe('JobsDetailPanel — CTAs (019)', () => {
 
   it('hides the resume CTA once a branch is bound', () => {
     const jobWithBranch: Job = { ...baseJob, branch_id: 'branch-9' }
-    render(<MemoryRouter><JobsDetailPanel job={jobWithBranch} /></MemoryRouter>)
+    wrap(<JobsDetailPanel job={jobWithBranch} />)
     expect(screen.queryByTestId('job-detail-resume-cta')).not.toBeInTheDocument()
   })
 })

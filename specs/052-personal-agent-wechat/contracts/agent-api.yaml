@@ -1,0 +1,132 @@
+# Agent API Contracts — REQ-052
+# OpenAPI 3.0 subset — implementation reference for FastAPI endpoints
+
+# Base: /api/v1/agent/
+
+## QR Code Binding
+
+### GET /wechat/qrcode
+# Request: Authenticated user
+# Response 200:
+{
+  "qrcode_token": "abc123...",
+  "qrcode_url": "https://liteapp.weixin.qq.com/q/7GiQu1?qrcode=abc123...&bot_type=3",
+  "qrcode_image_url": "/api/v1/agent/wechat/qrcode/image?qrcode_token=abc123...",
+  "expires_at": "2026-07-07T12:05:00Z",
+  "expires_in_sec": 300
+}
+
+### GET /wechat/qrcode/status
+# Query: ?qrcode_token=abc123...
+# Request: Authenticated user (validated against qrcode creator)
+# Response 200 — polling:
+{"status": "waiting"}  # or "scanned" | "expired"
+# Response 200 — confirmed:
+{
+  "status": "confirmed",
+  "wechat_nickname": "张三",
+  "wechat_avatar_url": "https://..."
+}
+
+## Binding Management
+
+### GET /wechat/binding
+# Request: Authenticated user
+# Response 200 — bound:
+{
+  "bound": true,
+  "wechat_nickname": "张三",
+  "wechat_avatar_url": "https://...",
+  "bound_at": "2026-07-07T12:05:00Z",
+  "agent_status": "active"
+}
+# Response 200 — not bound:
+{"bound": false, "agent_status": "dormant"}
+
+### DELETE /wechat/binding
+# Request: Authenticated user
+# Response 200:
+{"message": "微信绑定已解除"}
+
+## Agent Status
+
+### GET /status
+# Request: Authenticated user
+# Response 200:
+{
+  "user_id": "019ec1be-...",
+  "status": "active",
+  "display_name": "我的求职助手",
+  "wechat_bound": true,
+  "last_heartbeat_at": "2026-07-07T12:00:00Z",
+  "messages_sent_total": 42,
+  "messages_received_total": 15
+}
+
+## Agent Preferences
+
+### GET /preferences
+# Request: Authenticated user
+# Response 200:
+{
+  "display_name": "我的求职助手",
+  "quiet_hours_start": null,
+  "quiet_hours_end": null,
+  "notification_mode": "realtime"
+}
+
+### PATCH /preferences
+# Request body — all fields optional:
+{
+  "display_name": "小助手",
+  "quiet_hours_start": "22:00",
+  "quiet_hours_end": "08:00",
+  "notification_mode": "hourly_digest"
+}
+# Response 200: updated preferences object
+
+## Internal (system-only) — Message Send
+
+### POST /internal/send-message
+# Called by ARQ workers, CLI, admin console
+# Authenticated via internal service token
+# Request body:
+{
+  "user_id": "019ec1be-...",
+  "content": "你的面试备战报告已生成...",
+  "priority": "high"
+}
+# Response 202:
+{
+  "message_id": "uuid",
+  "status": "queued",
+  "segment_count": 5
+}
+
+## Admin Endpoints
+
+### GET /admin/agents
+# Request: Admin role
+# Query: ?status=active&page=1&size=20
+# Response 200:
+{
+  "items": [
+    {
+      "user_id": "019ec1be-...",
+      "user_email": "demo@intercraft.io",
+      "agent_status": "active",
+      "wechat_nickname": "张三",
+      "last_heartbeat_at": "2026-07-07T12:00:00Z",
+      "messages_sent": 42,
+      "messages_received": 15
+    }
+  ],
+  "total": 156,
+  "page": 1,
+  "size": 20
+}
+
+### POST /admin/send-test-message
+# Request: Admin role
+# Body: {"user_id": "019ec1be-...", "content": "测试消息"}
+# Response 200: {"message_id": "uuid", "status": "queued"}

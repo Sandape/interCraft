@@ -77,10 +77,10 @@ export default defineConfig({
     // },
   ],
 
-  /* Run your local dev server before starting the tests */
-  // webServer: {
-  //   command: 'npm run start',
-  //   url: 'http://localhost:3000',
-  //   reuseExistingServer: !process.env.CI,
-  // },
+  /* Run your local dev server before starting the tests.
+     REQ-048 verification: backend (8001) + frontend (5173) already running
+     externally (started via ``uvicorn`` and Vite). Playwright skips its own
+     webServer startup by commenting this block out; tests use the existing
+     frontend on http://127.0.0.1:5173. */
+  // webServer: { ... disabled for REQ-048 manual verification ... },
 });

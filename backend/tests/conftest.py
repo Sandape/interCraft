@@ -99,10 +99,18 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 async def _reset_checkpointer_singleton(request):
     """Reset the checkpointer singleton + pool before and after each async test."""
     from app.agents.checkpointer import _force_rebuild
+    from app.core.db import dispose_engine
 
     await _force_rebuild()
+    # Also dispose the SQLAlchemy engine + reset the session factory so a new
+    # event loop (pytest-asyncio recreates it per test) starts with a fresh
+    # asyncpg pool. Without this, connections from a previous loop linger with
+    # stale RLS GUC bindings and the next test's ``SET LOCAL app.user_id``
+    # never reaches the INSERT path.
+    await dispose_engine()
     yield
     await _force_rebuild()
+    await dispose_engine()
 
 
 # ---- auth helpers ----

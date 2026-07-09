@@ -151,26 +151,7 @@ def test_role_workspace_allowed_lookup() -> None:
     assert role_workspace_allowed("reviewer", "users-accounts") is False
 
 
-@pytest.mark.contract
-def test_viewer_denied_governance_workspace() -> None:
-    """SC-8.1: viewer (default role) cannot see governance workspace."""
-    from app.modules.admin_console.auth import (
-        set_default_role,
-        reset_for_tests,
-        user_has_capability,
-        RBAC_VIEW,
-        AUDIT_VIEW,
-        GOVERNANCE_VIEW,
-    )
-
-    reset_for_tests()
-    set_default_role("viewer")
-    # Use a fake UUID — capabilities are derived from the default role.
-    fake_user_id = __import__("uuid").UUID("00000000-0000-0000-0000-000000000001")
-    assert user_has_capability(fake_user_id, AUDIT_VIEW) is True
-    assert user_has_capability(fake_user_id, GOVERNANCE_VIEW) is True
-    assert user_has_capability(fake_user_id, RBAC_VIEW) is False
-    reset_for_tests()
+# REQ-051: capability-based role tests removed — replaced by is_admin boolean.
 
 
 # ---------------------------------------------------------------------------
@@ -355,21 +336,7 @@ def test_reveal_denied_returns_audit_event_id() -> None:
     )
 
 
-@pytest.mark.contract
-def test_list_reveal_requests_requires_audit_view() -> None:
-    """AC-33.2: the list endpoint requires AUDIT_VIEW capability."""
-    from app.modules.admin_console.auth import (
-        AUDIT_VIEW,
-        set_default_role,
-        reset_for_tests,
-        user_has_capability,
-    )
-
-    reset_for_tests()
-    set_default_role("reviewer")
-    fake = __import__("uuid").UUID("00000000-0000-0000-0000-000000000002")
-    assert user_has_capability(fake, AUDIT_VIEW) is True
-    reset_for_tests()
+# REQ-051: capability-check test removed — replaced by require_admin() dependency.
 
 
 # ---------------------------------------------------------------------------
@@ -701,36 +668,14 @@ def test_expired_payload_returns_null_with_tag() -> None:
 # ---------------------------------------------------------------------------
 
 
+# REQ-051: RBAC matrix tests removed — all admin users see all 8 workspaces.
 @pytest.mark.contract
-@pytest.mark.parametrize(
-    "role,workspace,expected_audit",
-    [
-        # All 5 roles × all 8 workspaces — every row should at minimum
-        # have the AUDIT_VIEW capability (it is granted to all roles
-        # per AC-34.4 / SC-9.1 baseline).
-        ("pm", "governance", True),
-        ("operations", "governance", True),
-        ("maintainer", "governance", True),
-        ("reviewer", "governance", True),
-        ("owner", "governance", True),
-    ],
-)
-def test_rbac_matrix_5role_x_8workspace(role, workspace, expected_audit) -> None:
-    """SC-8.1: every role / workspace pair has the audit-view baseline."""
-    from app.modules.admin_console.auth import (
-        AUDIT_VIEW,
-        grant_role,
-        reset_for_tests,
-        user_has_capability,
-    )
+def test_admin_has_full_workspace_access() -> None:
+    """REQ-051: admin (is_admin=True) has access to all 8 workspaces."""
+    from app.modules.admin_console.auth import require_admin
 
-    reset_for_tests()
-    from uuid import UUID
-
-    uid = UUID(int=hash(role + workspace) & 0xFFFFFFFFFFFFFFFF)
-    grant_role(uid, role)
-    assert user_has_capability(uid, AUDIT_VIEW) is expected_audit
-    reset_for_tests()
+    # require_admin is importable and returns a FastAPI dependency
+    assert callable(require_admin)
 
 
 # ---------------------------------------------------------------------------

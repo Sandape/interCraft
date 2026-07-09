@@ -1,0 +1,15 @@
+{
+  "badcaseId": "bc-req045-candidate",
+  "type": "EVAL_REGRESSION",
+  "severity": "HIGH",
+  "status": "TRIAGED",
+  "source": "EVAL_FAILURE",
+  "reviewer": "pm",
+  "privacyClass": "REDACTED_SUMMARY",
+  "redactionStatus": "PASSED",
+  "runId": "00000000-0000-0000-0000-000000000045",
+  "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "datasetVersion": "candidate-v1",
+  "evalLifecycle": "CANDIDATE",
+  "exportPolicyDecisionId": "export-decision-req045"
+}

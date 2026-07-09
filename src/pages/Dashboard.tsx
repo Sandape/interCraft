@@ -21,6 +21,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Progress } from '@/components/ui/Progress'
 import { useMemo } from 'react'
 import { useResumeBranches } from '@/hooks/queries/useResumeBranches'
+// 036 Phase A.2 — Dashboard reads v2 resume count for the stat card.
+import { useResumeV2List } from '@/hooks/queries/useResumeV2List'
 import { useAbilities, useDimensionsMeta } from '@/hooks/queries/useAbilities'
 import { useTasks } from '@/hooks/queries/useTasks'
 import { useActivities } from '@/hooks/queries/useActivities'
@@ -32,6 +34,7 @@ import { timeAgo } from '@/lib/utils'
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user)
   const { data: resumeBranches = [] } = useResumeBranches()
+  const { data: v2Resumes = [] } = useResumeV2List()
   const { data: abilitiesData } = useAbilities()
   const { data: dimensionsMeta } = useDimensionsMeta()
   const { data: tasksData } = useTasks({ limit: 5 })
@@ -79,7 +82,9 @@ export default function Dashboard() {
     // Growth is computed via history API; show 0 as placeholder
   }, [abilities])
 
-  const activeCount = resumeBranches.filter((b) => b.status !== 'archived').length
+  // 036 Phase A.2 — v2 list is the only source of truth for resume count.
+  const activeCount = v2Resumes.length
+  const resumeTotal = v2Resumes.length
 
   return (
     <div className="px-8 py-6 max-w-7xl mx-auto">
@@ -97,7 +102,7 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="hidden md:flex items-center gap-2">
-            <Link to="/interview/new">
+            <Link to="/interview/mode">
               <Button variant="primary" leftIcon={<Zap className="h-3.5 w-3.5" />}>
                 开始模拟面试
               </Button>
@@ -115,11 +120,11 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <StatCard
           icon={<FileText className="h-4 w-4" />}
-          label="活跃简历"
+          label="简历"
           value={activeCount}
-          suffix={`/ ${resumeBranches.length}`}
-          change={resumeBranches.length > 0 ? +1 : 0}
-          changeLabel={resumeBranches.length > 0 ? `${resumeBranches.length} 个分支` : '暂无'}
+          suffix={`/ ${resumeTotal}`}
+          change={resumeTotal > 0 ? +1 : 0}
+          changeLabel={resumeTotal > 0 ? `${resumeTotal} 份` : '暂无'}
         />
         <StatCard
           icon={<MessageSquareText className="h-4 w-4" />}

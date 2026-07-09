@@ -440,21 +440,4 @@ def test_seed_covers_five_analysis_views() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.contract
-def test_product_analytics_capabilities_in_role_map() -> None:
-    """PRODUCT_ANALYTICS_VIEW + USER_LOOKUP must be granted to pm/owner/admin."""
-    from app.modules.admin_console.auth import (
-        PRODUCT_ANALYTICS_VIEW,
-        USER_LOOKUP,
-        _ROLE_GRANTS,
-    )
-
-    assert PRODUCT_ANALYTICS_VIEW in _ROLE_GRANTS["admin"]
-    assert PRODUCT_ANALYTICS_VIEW in _ROLE_GRANTS["owner"]
-    assert PRODUCT_ANALYTICS_VIEW in _ROLE_GRANTS["pm"]
-    assert USER_LOOKUP in _ROLE_GRANTS["admin"]
-    assert USER_LOOKUP in _ROLE_GRANTS["owner"]
-    assert USER_LOOKUP in _ROLE_GRANTS["pm"]
-    # FR-031 least-privilege: viewer is denied.
-    assert PRODUCT_ANALYTICS_VIEW not in _ROLE_GRANTS["viewer"]
-    assert USER_LOOKUP not in _ROLE_GRANTS["viewer"]
+# REQ-051: capability-matrix test removed — product-analytics now uses require_admin().

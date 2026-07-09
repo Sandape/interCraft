@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, Search, Command, HelpCircle, Plus, ChevronDown, Briefcase, FilePlus2, Sparkles } from 'lucide-react'
+import { Bell, Search, Command, HelpCircle, Plus, Shield } from 'lucide-react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useLogout } from '@/hooks/mutations/useLogout'
 import { useAvatarBlob } from '@/hooks/queries/useAvatarBlob'
-import { useJobs } from '@/hooks/queries/useJobs'
 
 export function Topbar({
   onOpenSearch,
@@ -16,15 +15,11 @@ export function Topbar({
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [newResumeMenu, setNewResumeMenu] = useState(false)
-  const newResumeRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const logout = useLogout()
   const avatarSrc = useAvatarBlob(user?.avatar_url ?? null)
-  const { data: jobsData, isLoading: jobsLoading } = useJobs({ limit: 10 })
-  const jobs = jobsData?.data ?? []
 
   const displayName = user?.display_name ?? user?.email.split('@')[0] ?? '未登录'
   const title = user?.title ?? user?.target_role ?? ''
@@ -106,81 +101,17 @@ export function Topbar({
 
       {/* 右侧操作 */}
       <div className="flex items-center gap-1">
-        {/* 019 — 新建简历下拉 (US2: 空白创建 / 基于岗位创建) */}
-        <div className="relative" ref={newResumeRef}>
-          <Button
-            size="sm"
-            variant="primary"
-            leftIcon={<Plus className="h-3.5 w-3.5" />}
-            rightIcon={<ChevronDown className="h-3 w-3" />}
-            data-testid="topbar-new-resume-button"
-            onClick={() => setNewResumeMenu((v) => !v)}
-            aria-haspopup="menu"
-            aria-expanded={newResumeMenu}
-          >
-            <span className="hidden sm:inline">新建简历</span>
-          </Button>
-          {newResumeMenu && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setNewResumeMenu(false)} />
-              <div
-                data-testid="topbar-new-resume-menu"
-                role="menu"
-                className="absolute right-0 top-full mt-1.5 w-64 z-50 surface-1 rounded-md border border-surface-border dark:border-dark-surface-border shadow-notion-md py-1.5 animate-fade-in"
-              >
-                <MenuItem
-                  testId="topbar-new-resume-blank"
-                  onClick={() => { setNewResumeMenu(false); navigate('/resume?new=true') }}
-                >
-                  <div className="flex items-center gap-2">
-                    <FilePlus2 className="h-3.5 w-3.5" />
-                    <span>空白创建（v1）</span>
-                  </div>
-                </MenuItem>
-                <MenuItem
-                  testId="topbar-new-resume-v2"
-                  onClick={() => { setNewResumeMenu(false); navigate('/resume-v2/new') }}
-                >
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    <span>v2 简历（结构化编辑器）</span>
-                  </div>
-                </MenuItem>
-                <div className="px-3 pt-1.5 pb-1 text-2xs text-ink-3 uppercase tracking-wide">
-                  基于岗位创建
-                </div>
-                <div className="max-h-60 overflow-y-auto" data-testid="topbar-new-resume-from-job">
-                  {jobsLoading ? (
-                    <div className="px-3 py-2 text-xs text-ink-3">加载中…</div>
-                  ) : jobs.length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-ink-3">暂无岗位,请先在「求职追踪」中登记</div>
-                  ) : (
-                    jobs.map((j) => (
-                      <MenuItem
-                        key={j.id}
-                        testId={`topbar-new-resume-from-job-${j.id}`}
-                        onClick={() => {
-                          setNewResumeMenu(false)
-                          navigate(`/resume?new=true&source_job_id=${j.id}`)
-                        }}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Briefcase className="h-3.5 w-3.5 flex-shrink-0" />
-                          <div className="min-w-0">
-                            <div className="truncate text-ink-1">{j.company} · {j.position}</div>
-                            {j.base_location && (
-                              <div className="text-2xs text-ink-3 truncate">{j.base_location}</div>
-                            )}
-                          </div>
-                        </div>
-                      </MenuItem>
-                    ))
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        {/* 036 US4 — single "新建简历" button; opens the Template Gallery modal
+            inside ResumeList via ?new=true. No dropdown / no v1 split. */}
+        <Button
+          size="sm"
+          variant="primary"
+          leftIcon={<Plus className="h-3.5 w-3.5" />}
+          data-testid="topbar-new-resume-button"
+          onClick={() => navigate('/resume?new=true')}
+        >
+          <span className="hidden sm:inline">新建简历</span>
+        </Button>
 
         <button
           type="button"
@@ -191,6 +122,19 @@ export function Topbar({
         >
           <HelpCircle className="h-4 w-4" />
         </button>
+
+        {/* REQ-051: admin console entry — shield icon, visible only to admin users. */}
+        {user?.is_admin && (
+          <button
+            type="button"
+            data-testid="topbar-admin-console-button"
+            onClick={() => goTo('/admin-console/command-center')}
+            className="hidden sm:inline-flex h-7 w-7 items-center justify-center rounded text-ink-3 hover:bg-surface-muted hover:text-ink-1 dark:hover:bg-dark-surface-muted dark:hover:text-dark-ink-primary transition-colors"
+            aria-label="管理后台"
+          >
+            <Shield className="h-4 w-4" />
+          </button>
+        )}
 
         <div className="relative" ref={notificationsRef}>
           <button
@@ -275,6 +219,18 @@ export function Topbar({
                   )}
                 </div>
                 <div className="py-1">
+                  {/* REQ-051: admin console entry in user dropdown. */}
+                  {user?.is_admin ? (
+                    <MenuItem data-testid="topbar-menu-admin-console" onClick={() => goTo('/admin-console/command-center')}>
+                      <Shield className="h-3.5 w-3.5 mr-1.5 inline" />
+                      管理后台
+                    </MenuItem>
+                  ) : (
+                    <MenuItem data-testid="topbar-menu-admin-console" disabled>
+                      <Shield className="h-3.5 w-3.5 mr-1.5 inline" />
+                      管理后台
+                    </MenuItem>
+                  )}
                   <MenuItem data-testid="topbar-menu-profile" onClick={() => goTo('/profile')}>个人资料</MenuItem>
                   <MenuItem data-testid="topbar-menu-settings" onClick={() => goTo('/settings?tab=profile')}>账户设置</MenuItem>
                   <MenuItem data-testid="topbar-menu-subscription" onClick={() => goTo('/settings?tab=subscription')}>升级到 Enterprise</MenuItem>

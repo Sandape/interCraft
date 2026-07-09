@@ -148,6 +148,20 @@ from app.modules.telemetry_contracts.repository import (
     run_id_for_display,
     trace_id_for_display,
 )
+from app.modules.telemetry_contracts.export_policy import (
+    DestinationPolicyInput,
+    DestinationPolicyResult,
+    SecretScanResult,
+    decide_export_policy,
+    scan_for_operational_secrets,
+)
+from app.modules.telemetry_contracts.llm_ops_repository import (
+    EvalRunIdentity,
+    build_eval_run_identity,
+    export_decision_to_row,
+    normalize_trace_run_ref,
+)
+from app.modules.telemetry_contracts import models as models
 
 TRACE_UNAVAILABLE = _TRACE_UNAVAILABLE
 
@@ -163,6 +177,9 @@ __all__ = [
     "TRACE_UNAVAILABLE",
     "VALID_ENVIRONMENTS",
     "Aggregation",
+    "DestinationPolicyInput",
+    "DestinationPolicyResult",
+    "EvalRunIdentity",
     "MetricCatalog",
     "MetricDefinition",
     "MetricSnapshot",
@@ -177,14 +194,19 @@ __all__ = [
     "apply_redaction",
     "audit_redaction",
     "build_default_catalog",
+    "build_eval_run_identity",
     "build_trace_run_ref",
+    "decide_export_policy",
     "dict_to_event",
     "enforce_retention",
     "event_to_dict",
+    "export_decision_to_row",
     "extract_trace_id_from_ai_invocation",
     "langsmith_url_for_display",
     "lookup_run_metadata",
+    "models",
     "next_cleanup_at",
+    "normalize_trace_run_ref",
     "redaction_dev_default_context",
     "redaction_production_default_context",
     "redaction_staging_default_context",
@@ -192,6 +214,8 @@ __all__ = [
     "retention_production_default_context",
     "retention_staging_default_context",
     "run_id_for_display",
+    "scan_for_operational_secrets",
+    "SecretScanResult",
     "trace_id_for_display",
     "validate_redaction",
 ]

@@ -76,4 +76,14 @@ from app.modules.resumes_v2.api import router as resumes_v2_router
 
 router.include_router(resumes_v2_router, tags=["resumes-v2"])
 
+# REQ-052 — Personal Agent + WeChat Channel
+from app.modules.agent.api import router as agent_router
+
+router.include_router(agent_router)
+
+# REQ-053 — Interview Intelligence Engine
+from app.modules.research.api import router as research_router
+
+router.include_router(research_router, tags=["research"])
+
 __all__ = ["router"]

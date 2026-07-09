@@ -243,12 +243,7 @@ def test_add_comment_appends_to_in_memory_buffer() -> None:
     assert new_comment.actor == "@test-user"
 
 
-@pytest.mark.contract
-def test_add_comment_requires_incident_change_capability() -> None:
-    """AC-22.2: POST /comments endpoint requires INCIDENT_CHANGE capability."""
-    from app.modules.admin_console.incidents.api import INCIDENT_CHANGE
-
-    assert INCIDENT_CHANGE == "INCIDENT_CHANGE"
+# REQ-051: capability token tests removed — replaced by require_admin() dependency.
 
 
 @pytest.mark.contract
@@ -435,59 +430,9 @@ def test_status_change_audit_trail_five_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.contract
-def test_incident_view_capability_in_role_map() -> None:
-    """INCIDENT_VIEW must be granted to admin/owner/pm/operations/maintainer/reviewer."""
-    from app.modules.admin_console.auth import (
-        INCIDENT_VIEW,
-        _ROLE_GRANTS,
-    )
-
-    for role in ("admin", "owner", "pm", "operations", "maintainer", "reviewer"):
-        assert INCIDENT_VIEW in _ROLE_GRANTS[role], f"{role} missing INCIDENT_VIEW"
-    # FR-031 least-privilege: viewer is denied.
-    assert INCIDENT_VIEW not in _ROLE_GRANTS["viewer"]
-
-
-@pytest.mark.contract
-def test_incident_change_capability_restricted() -> None:
-    """INCIDENT_CHANGE granted to admin/owner/pm/operations/maintainer (NOT reviewer)."""
-    from app.modules.admin_console.auth import (
-        INCIDENT_CHANGE,
-        _ROLE_GRANTS,
-    )
-
-    for role in ("admin", "owner", "pm", "operations", "maintainer"):
-        assert INCIDENT_CHANGE in _ROLE_GRANTS[role], f"{role} missing INCIDENT_CHANGE"
-    # reviewer cannot mutate incidents
-    assert INCIDENT_CHANGE not in _ROLE_GRANTS["reviewer"]
-    # viewer cannot mutate
-    assert INCIDENT_CHANGE not in _ROLE_GRANTS["viewer"]
-
-
-@pytest.mark.contract
-def test_badcase_view_capability_in_role_map() -> None:
-    """BADCASE_VIEW must be granted to admin/owner/pm/operations/maintainer/reviewer."""
-    from app.modules.admin_console.auth import (
-        BADCASE_VIEW,
-        _ROLE_GRANTS,
-    )
-
-    for role in ("admin", "owner", "pm", "operations", "maintainer", "reviewer"):
-        assert BADCASE_VIEW in _ROLE_GRANTS[role], f"{role} missing BADCASE_VIEW"
-    assert BADCASE_VIEW not in _ROLE_GRANTS["viewer"]
-
-
-@pytest.mark.contract
-def test_badcase_change_capability_in_role_map() -> None:
-    """BADCASE_CHANGE granted to admin/owner/operations/reviewer."""
-    from app.modules.admin_console.auth import (
-        BADCASE_CHANGE,
-        _ROLE_GRANTS,
-    )
-
-    for role in ("admin", "owner", "operations", "reviewer"):
-        assert BADCASE_CHANGE in _ROLE_GRANTS[role], f"{role} missing BADCASE_CHANGE"
+# REQ-051: capability-matrix contract tests removed — all endpoints now
+# use single require_admin() dependency. Admin access is verified via
+# the backend conftest fixtures and integration-level 403 tests.
 
 
 # ---------------------------------------------------------------------------
@@ -529,12 +474,4 @@ def test_audit_target_kinds_cover_incident_and_badcase() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.contract
-def test_capability_tokens_exported() -> None:
-    """All 4 US4 capability tokens must be importable from incidents.api."""
-    from app.modules.admin_console.incidents import api
-
-    assert api.INCIDENT_VIEW == "INCIDENT_VIEW"
-    assert api.INCIDENT_CHANGE == "INCIDENT_CHANGE"
-    assert api.BADCASE_VIEW == "BADCASE_VIEW"
-    assert api.BADCASE_CHANGE == "BADCASE_CHANGE"
+# REQ-051: capability token tests removed — incidents.api uses require_admin().

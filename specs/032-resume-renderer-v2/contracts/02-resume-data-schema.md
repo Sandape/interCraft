@@ -144,17 +144,38 @@ fields below. Full definitions live in
 | Type | Fields |
 |---|---|
 | ProfileItem | network, username, website (ItemWebsite), icon, iconColor |
-| ExperienceItem | company, position, location, period, website, description, roles[] |
-| EducationItem | school, degree, area, grade, location, period, website, description |
-| ProjectItem | name, period, website, description |
+| ExperienceItem | company, position, location, **period (string)**, website, description, roles[] |
+| EducationItem | school, degree, area, grade, location, **period (string)**, website, description |
+| ProjectItem | name, **period (string)**, website, description |
 | SkillItem | name, proficiency, level (0..5), keywords[], icon, iconColor |
 | LanguageItem | language, fluency, level (0..5) |
 | InterestItem | name, keywords[], icon, iconColor |
-| AwardItem | title, awarder, date, website, description |
-| CertificationItem | title, issuer, date, website, description |
-| PublicationItem | title, publisher, date, website, description |
-| VolunteerItem | organization, location, period, website, description |
+| AwardItem | title, awarder, **date (string)**, website, description |
+| CertificationItem | title, issuer, **date (string)**, website, description |
+| PublicationItem | title, publisher, **date (string)**, website, description |
+| VolunteerItem | organization, location, **period (string)**, website, description |
 | ReferenceItem | name, position, website, phone, description |
+
+> **BUG #4 fix 2026-07-06 — date / period are flat strings, not objects.**
+> Every `period` (ExperienceItem / EducationItem / ProjectItem / RoleItem /
+> VolunteerItem) and every `date` (AwardItem / CertificationItem /
+> PublicationItem) is a single free-form string. There is no `{start, end}`
+> object. The backend's Pydantic schema enforces `period: str` and the
+> frontend Zod parser enforces the same; sending `{ "start": "2024-01",
+> "end": "present" }` will pass schema validation (string fields accept
+> anything JSON-serializable on the loose `dict` PUT path) but the Onyx
+> template renders it as `[object Object]`.
+>
+> Recommended free-form values (no format is enforced):
+>
+> - Single range: `"2024.01 – present"` (em-dash) or `"2024.01 - 2026.06"`
+> - Year only: `"2024"`
+> - Quarter: `"2024-Q1"`
+>
+> If you need machine-parseable ranges later, add a sibling field
+> (e.g. `periodRange: { start: "2024-01", end: "2026-06" }`) — do NOT
+> repurpose the existing string `period` field, since that breaks every
+> template that already consumes it.
 
 ### 2.7 Metadata
 

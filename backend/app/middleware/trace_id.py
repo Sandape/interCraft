@@ -25,6 +25,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from app.observability.tracing import bind_trace_context, clear_trace_context
+
 # 32-char lowercase hex (OTel trace_id convention).
 _TRACE_ID_PATTERN = r"[0-9a-f]{32}"
 
@@ -60,9 +62,15 @@ class TraceIDMiddleware(BaseHTTPMiddleware):
         else:
             trace_id = uuid.uuid4().hex
         request.state.trace_id = trace_id
-        response = await call_next(request)
-        response.headers[self.HEADER] = trace_id
-        return response
+        run_id = request.headers.get("X-Run-Id") or trace_id
+        bind_trace_context(run_id=run_id, trace_id=trace_id)
+        try:
+            response = await call_next(request)
+            response.headers[self.HEADER] = trace_id
+            response.headers["X-Run-Id"] = run_id
+            return response
+        finally:
+            clear_trace_context()
 
 
 __all__ = ["TraceIDMiddleware"]

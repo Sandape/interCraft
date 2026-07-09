@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     master_key: str = "ZGV2LW9ubHktZHVtbXktMzJiLWJhc2U2NC0xMjM0NTY3ODkwYWI="
 
     # ---- Sessions ----
-    max_active_sessions: int = 5
+    max_active_sessions: int = 10
 
     # ---- Export ----
     export_storage_path: str = "/tmp/exports/"
@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     # Empty default by design: ``tavily_search.ainvoke`` raises
     # ``TavilyAPIKeyMissingError`` (per AC-4.1a) when this is empty.
     tavily_api_key: str = ""
+    tavily_mock_mode: bool = False
 
     # ---- Crypto versioning ----
     crypto_key_version: int = 1
@@ -163,6 +164,19 @@ class Settings(BaseSettings):
     langsmith_api_key: str = ""
     langsmith_project: str = "intercraft-prod"
 
+    # ---- REQ-045 LLM Ops / OTel-first eval workflow ----
+    otel_enabled: bool = False
+    otel_service_name: str = "intercraft-backend"
+    otel_exporter_otlp_endpoint: str = ""
+    otel_trace_sample_ratio: float = 1.0
+    otel_propagators: str = "tracecontext,baggage"
+    llm_ops_langsmith_sync_mode: str = "disabled"
+    llm_ops_default_export_policy_version: str = "req045.v1"
+    llm_ops_allow_prod_langsmith_full_content: bool = False
+    llm_ops_langsmith_full_content_owner: str = ""
+    llm_ops_langsmith_full_content_access_scope: str = ""
+    llm_ops_langsmith_full_content_retention_days: int = 30
+
     # ---- REQ-043 US-2 FR-005 + FR-006 — Checkpointer 8-pool + 3-tier reconnect ----
     # ``us3_use_v2_checkpoint_pool`` toggles the new 8-pool sharding path
     # on/off (per FR-005 + FR-007 dual-track). Default ``false`` ⇒ use the
@@ -177,6 +191,28 @@ class Settings(BaseSettings):
     us3_use_v2_checkpoint_pool: bool = False
     checkpoint_pool_count: int = 8
 
+    # ---- REQ-048 — Interview Mode Split + Doubao Card ----
+    # Embedding + reranker service (single-process, both /embed + /rerank).
+    embedding_service_url: str = "http://127.0.0.1:8765"
+    embedding_model_name: str = "bge-small-zh-v1.5"
+    embedding_timeout_seconds: int = 10
+    reranker_service_url: str = "http://127.0.0.1:8765"
+    reranker_model_name: str = "bge-reranker-v2-m3"
+    reranker_timeout_seconds: int = 30
+    # Card renderer (satori + resvg + sharp).
+    card_renderer_url: str = "http://127.0.0.1:8766"
+    card_render_timeout_seconds: int = 10
+    # Cache TTLs.
+    drill_cache_ttl_seconds: int = 300
+    card_cache_ttl_days: int = 7
+    # Full interview question-count envelope (FR-023).
+    hard_min_questions_full: int = 7
+    hard_max_questions_full: int = 15
+    min_questions_full: int = 7
+    max_questions_full: int = 15
+    adaptive_termination_threshold: float = 8.0
+    adaptive_termination_window: int = 3
+
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
@@ -187,6 +223,23 @@ class Settings(BaseSettings):
         if u not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             return "INFO"
         return u
+
+    @field_validator("otel_trace_sample_ratio")
+    @classmethod
+    def _norm_otel_sample_ratio(cls, v: float) -> float:
+        if v < 0:
+            return 0.0
+        if v > 1:
+            return 1.0
+        return v
+
+    @field_validator("llm_ops_langsmith_sync_mode")
+    @classmethod
+    def _norm_langsmith_sync_mode(cls, v: str) -> str:
+        normalized = v.strip().lower()
+        if normalized not in {"disabled", "optional", "required", "mock"}:
+            return "disabled"
+        return normalized
 
 
 @lru_cache(maxsize=1)

@@ -1,11 +1,73 @@
-/** 019 — Job detail panel with the two cross-module CTAs (US2/US3). */
+/** 019 — Job detail panel with the two cross-module CTAs (US2/US3).
+ *  REQ-053 (T068) — adds a "查看备战报告" entry when an interview time
+ *  is set AND a research report exists for the job.
+ */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, MessageSquare, Loader2 } from 'lucide-react'
+import {
+  Calendar,
+  ExternalLink,
+  FileText,
+  History,
+  Loader2,
+  MessageSquare,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Card, CardHeader } from '@/components/ui/Card'
 import { JobsDetailBasicInfo } from '@/pages/Jobs'
+import { InterviewTimeRow } from '@/components/jobs/JobTimeline'
 import { useCreateInterviewFromJob } from '@/hooks/queries/useInterviewSessions'
+import { useResearchReports } from '@/hooks/queries/useResearchReports'
+import { useQueryClient } from '@tanstack/react-query'
 import type { Job } from '@/repositories/JobRepository'
+
+/**
+ * REQ-053 (T070) — when the user has multiple reports (multi-round interviews),
+ * list the most recent first with a "查看" link per row.
+ */
+function ResearchReportHistoryList({ jobId }: { jobId: string }) {
+  const navigate = useNavigate()
+  const { data, isLoading } = useResearchReports(jobId)
+  const reports = data?.data ?? []
+  if (isLoading) {
+    return (
+      <div className="text-2xs text-ink-3 flex items-center gap-1.5" data-testid="research-reports-loading">
+        <Loader2 className="h-3 w-3 animate-spin" /> 加载报告列表…
+      </div>
+    )
+  }
+  if (reports.length === 0) {
+    return (
+      <div className="text-2xs text-ink-3" data-testid="research-reports-empty">
+        暂无面试备战报告
+      </div>
+    )
+  }
+  // API contract: sorted by interview_time DESC. Re-sort defensively.
+  const ordered = [...reports].sort(
+    (a, b) => new Date(b.interview_time).getTime() - new Date(a.interview_time).getTime(),
+  )
+  return (
+    <div className="space-y-1.5" data-testid="research-reports-history">
+      {ordered.map((r) => (
+        <button
+          key={r.id}
+          type="button"
+          data-testid={`research-report-link-${r.id}`}
+          onClick={() => navigate(`/research-reports/${jobId}/${r.id}`)}
+          className="w-full text-left flex items-center gap-2 rounded-md border border-surface-border dark:border-dark-surface-border px-2.5 py-1.5 text-xs hover:bg-surface-muted dark:hover:bg-dark-surface-muted"
+        >
+          <History className="h-3 w-3 text-ink-3 flex-shrink-0" />
+          <span className="font-medium text-ink-1 flex-1 min-w-0 truncate">
+            {new Date(r.interview_time).toLocaleString('zh-CN')}
+          </span>
+          <span className="text-2xs text-ink-3">评分 {r.rating ?? '—'}/5</span>
+          <ExternalLink className="h-3 w-3 text-ink-3 flex-shrink-0" />
+        </button>
+      ))}
+    </div>
+  )
+}
 
 export function JobsDetailPanel({
   job,
@@ -15,10 +77,21 @@ export function JobsDetailPanel({
   onClose?: () => void
 }) {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [startError, setStartError] = useState<string | null>(null)
   const createInterview = useCreateInterviewFromJob()
   const branchBound = !!job.branch_id
   const hasRequirements = !!(job.requirements_md && job.requirements_md.length > 0)
+
+  // REQ-053 (T068) — gate the entry button on interview_time set + a report
+  // existing. `useResearchReports` returns [] when the backend has no row,
+  // so we treat "non-empty list" as `has_research_report === true`.
+  const { data: reportsData } = useResearchReports(job.id)
+  const reports = reportsData?.data ?? []
+  const latestReport = reports[0] ?? null
+  const hasResearchReport =
+    !!job.interview_time && !!latestReport
+  const showReportHistory = reports.length > 1
 
   async function startInterview() {
     if (!branchBound || !job.branch_id) return
@@ -29,19 +102,51 @@ export function JobsDetailPanel({
         branchId: job.branch_id,
       })
       navigate(`/interview/${session.id}`)
-    } catch (err: any) {
-      setStartError(err?.message || '创建面试失败')
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : '创建面试失败'
+      setStartError(msg)
     }
+  }
+
+  function openLatestReport() {
+    if (!latestReport) return
+    // Invalidate so the detail page always re-fetches on entry.
+    qc.invalidateQueries({ queryKey: ['researchReport', job.id, latestReport.id] })
+    navigate(`/research-reports/${job.id}/${latestReport.id}`)
   }
 
   return (
     <div className="space-y-4" data-testid="job-detail-panel">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold text-ink-1">{job.company} · {job.position}</h2>
+        <h2 className="text-lg font-semibold text-ink-1">
+          {job.company} · {job.position}
+        </h2>
         {onClose && (
-          <button onClick={onClose} className="text-xs text-ink-3 hover:text-ink-1" aria-label="关闭">×</button>
+          <button
+            onClick={onClose}
+            className="text-xs text-ink-3 hover:text-ink-1"
+            aria-label="关闭"
+          >
+            ×
+          </button>
         )}
       </div>
+
+      {/* REQ-053 (T028) — interview time surfaces right under the title. */}
+      <div
+        data-testid="job-detail-interview-time"
+        className="rounded-md bg-surface-muted/60 dark:bg-dark-surface-muted/40 px-3 py-2"
+      >
+        <div className="flex items-center gap-2 text-2xs text-ink-3 mb-1">
+          <Calendar className="h-3 w-3" />
+          <span>面试时间</span>
+        </div>
+        <InterviewTimeRow interviewTime={job.interview_time} />
+      </div>
+
       {/* 019 — basic info with the 5 extended fields */}
       <JobsDetailBasicInfo job={job} />
 
@@ -74,6 +179,18 @@ export function JobsDetailPanel({
         </Button>
       )}
 
+      {/* REQ-053 (T068) — report entry is gated on interview_time + report existence. */}
+      {hasResearchReport && (
+        <Button
+          variant="primary"
+          leftIcon={<FileText className="h-3.5 w-3.5" />}
+          data-testid="job-detail-research-report-cta"
+          onClick={openLatestReport}
+        >
+          查看备战报告
+        </Button>
+      )}
+
       {/* 019 — US3 CTA: start mock interview (disabled until branch is bound) */}
       <Button
         variant={branchBound ? 'primary' : 'secondary'}
@@ -97,9 +214,23 @@ export function JobsDetailPanel({
         </p>
       )}
       {startError && (
-        <p className="text-2xs text-red-500 -mt-3" data-testid="job-detail-interview-cta-error">
+        <p
+          className="text-2xs text-red-500 -mt-3"
+          data-testid="job-detail-interview-cta-error"
+        >
           {startError}
         </p>
+      )}
+
+      {/* REQ-053 (T070) — multi-round history list. Only shown when > 1. */}
+      {showReportHistory && (
+        <Card padding="sm" data-testid="job-detail-report-history-card">
+          <CardHeader
+            title="历史备战报告"
+            description="按面试时间倒序排列，点击进入详情"
+          />
+          <ResearchReportHistoryList jobId={job.id} />
+        </Card>
       )}
     </div>
   )

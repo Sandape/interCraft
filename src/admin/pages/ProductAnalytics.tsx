@@ -64,9 +64,9 @@ export function ProductAnalytics() {
       data-testid="product-analytics"
     >
       <div className="ac-page__header">
-        <h1 className="ac-page__title">Product Analytics</h1>
+        <h1 className="ac-page__title">产品分析</h1>
         <span className="ac-page__hint">
-          question-first workspace · funnel · cohort · retention · adoption
+          问题驱动分析 · 漏斗 · 队列 · 留存 · 功能采用
         </span>
       </div>
 

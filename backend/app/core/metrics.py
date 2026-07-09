@@ -31,6 +31,11 @@ auth_active_sessions = Gauge(
     "auth_active_sessions",
     "Current number of active auth sessions",
 )
+auth_refresh_attempts_total = Counter(
+    "auth_refresh_attempts_total",
+    "Total auth refresh attempts by result and reason",
+    ["result", "reason"],
+)
 
 # ---- Resume ----
 resume_branches_total = Gauge("resume_branches_total", "Current number of active resume branches")
@@ -149,6 +154,34 @@ langsmith_export_total = Counter(
     ["outcome"],  # ok | skip | error
 )
 
+# ---- REQ-045: LLM Ops eval workflow ----
+llm_ops_eval_runs_total = Counter(
+    "llm_ops_eval_runs_total",
+    "Total REQ-045 LLM Ops eval runs by bounded suite/environment/status labels",
+    ["suite", "environment", "status"],
+)
+llm_ops_export_decisions_total = Counter(
+    "llm_ops_export_decisions_total",
+    "Total REQ-045 external export decisions",
+    ["destination", "environment", "representation_level", "decision"],
+)
+llm_ops_judge_calibration_total = Counter(
+    "llm_ops_judge_calibration_total",
+    "Total REQ-045 judge calibration outcomes",
+    ["rubric", "status"],
+)
+llm_ops_trace_coverage_ratio = Gauge(
+    "llm_ops_trace_coverage_ratio",
+    "REQ-045 covered AI workflow trace correlation ratio",
+    ["surface", "environment"],
+)
+llm_ops_langsmith_sync_latency_seconds = Histogram(
+    "llm_ops_langsmith_sync_latency_seconds",
+    "REQ-045 LangSmith sync latency in seconds",
+    ["mode", "status"],
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0),
+)
+
 
 __all__ = [
     "arq_jobs_failed_total",
@@ -156,6 +189,7 @@ __all__ = [
     "structured_invocation_total",
     "auth_active_sessions",
     "auth_login_attempts_total",
+    "auth_refresh_attempts_total",
     "auth_register_attempts_total",
     "checkpointer_pool_size",
     "checkpointer_reconnect_attempts_total",
@@ -163,6 +197,11 @@ __all__ = [
     "http_request_duration_seconds",
     "http_requests_total",
     "langsmith_export_total",
+    "llm_ops_eval_runs_total",
+    "llm_ops_export_decisions_total",
+    "llm_ops_judge_calibration_total",
+    "llm_ops_langsmith_sync_latency_seconds",
+    "llm_ops_trace_coverage_ratio",
     "llm_call_latency_seconds",
     "llm_call_total",
     "llm_quota_available",

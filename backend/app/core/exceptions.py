@@ -51,6 +51,14 @@ class TokenInvalidError(AuthError):
     message = "Invalid or expired token"
 
 
+class TokenExpiredError(AuthError):
+    # BUG #1 fix 2026-07-06: distinguish expiration from a malformed /
+    # revoked token so the frontend can prompt "please re-login" instead
+    # of the misleading "Missing Authorization header" code path.
+    code = "auth.token_expired"
+    message = "Access token has expired"
+
+
 class TokenMissingError(AuthError):
     code = "auth.token_missing"
     message = "Missing Authorization header"
@@ -59,6 +67,18 @@ class TokenMissingError(AuthError):
 class RefreshInvalidError(AuthError):
     code = "auth.refresh_invalid"
     message = "Refresh token invalid, expired, or revoked"
+
+
+class SessionEvictedError(AuthError):
+    """Session was evicted due to max devices exceeded (FR-004)."""
+    code = "auth.session_evicted"
+    message = "Session has been evicted by a newer login"
+
+
+class RefreshReuseError(AuthError):
+    """Refresh token hash mismatch — possible token reuse (FR-008)."""
+    code = "auth.refresh_reuse"
+    message = "Refresh token reuse detected"
 
 
 class NotFoundError(AppError):
@@ -184,13 +204,16 @@ def install_exception_handlers(app: FastAPI) -> None:
         detail = exc.detail
         if isinstance(detail, dict) and isinstance(detail.get("error"), dict):
             inner = detail["error"]
+            details = inner.get("details")
+            if details is None:
+                details = inner.get("ctx")
             return JSONResponse(
                 status_code=exc.status_code,
                 content=_envelope(
                     code=inner.get("code", f"http.{exc.status_code}"),
                     message=inner.get("message", "HTTP error"),
                     request_id=rid,
-                    details=inner.get("details"),
+                    details=details,
                 ),
                 headers={"X-Request-ID": rid},
             )
@@ -231,6 +254,7 @@ __all__ = [
     "PasswordTooWeakError",
     "RateLimitError",
     "RefreshInvalidError",
+    "SessionEvictedError",
     "SessionOtherUserError",
     "TokenInvalidError",
     "TokenMissingError",

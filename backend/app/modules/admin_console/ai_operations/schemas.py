@@ -431,16 +431,100 @@ class EvalBadcaseSummary(BaseModel):
     freshness_at: str = Field(default="unknown", max_length=64)
 
 
+class ExperimentCompareRequest(BaseModel):
+    """Baseline/candidate eval reports for REQ-045 comparison."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    baseline: dict
+    candidate: dict
+    min_quality_delta: float = Field(default=0.0, ge=-1.0, le=1.0)
+
+
+class ExperimentCompareResponse(BaseModel):
+    """Quality/cost/latency comparison result for AI Ops."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    comparison_id: str
+    baseline_run_id: str
+    candidate_run_id: str
+    baseline_pass_rate: float = Field(ge=0.0, le=1.0)
+    candidate_pass_rate: float = Field(ge=0.0, le=1.0)
+    quality_delta: float = Field(ge=-1.0, le=1.0)
+    cost_delta_usd: float
+    latency_delta_ms: int
+    recommendation: Literal["candidate_wins", "baseline_wins"]
+    risk_flags: list[str] = Field(default_factory=list)
+
+
+class BadcasePromotionRequest(BaseModel):
+    """Request to promote a badcase into an eval dataset lifecycle."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    badcase: dict
+    lifecycle: Literal["GOLDEN", "CANDIDATE", "REPORT_ONLY"] = "CANDIDATE"
+    dataset_version: str = Field(default="candidate-v1", min_length=1, max_length=128)
+    export_policy_decision_id: str | None = None
+    reviewer: str = Field(..., min_length=1, max_length=128)
+    reason: str = Field(..., min_length=1, max_length=512)
+
+
+class BadcasePromotionResponse(BaseModel):
+    """Eval-case payload produced from a badcase promotion."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    eval_case: dict
+    lifecycle: Literal["GOLDEN", "CANDIDATE", "REPORT_ONLY"]
+    dataset_version: str
+
+
+class PromptProposalCreateRequest(BaseModel):
+    """Create a REQ-045 prompt improvement proposal."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    source_run_ids: list[str] = Field(min_length=1)
+    source_case_ids: list[str] = Field(min_length=1)
+    target_graph: str = Field(..., min_length=1, max_length=128)
+    target_node: str = Field(..., min_length=1, max_length=128)
+    candidate_fingerprint: str = Field(..., min_length=1, max_length=256)
+    expected_impact: str = Field(..., min_length=1, max_length=512)
+
+
+class PromptProposalResponse(BaseModel):
+    """Prompt proposal response for PM/admin review."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    proposal_id: str
+    status: str
+    source_run_ids: list[str]
+    source_case_ids: list[str]
+    target_graph: str
+    target_node: str
+    candidate_fingerprint: str
+    expected_impact: str
+    comparison_run_id: str | None = None
+    approval_owner: str | None = None
+
+
 __all__ = [
     "AIQualityIssue",
     "AIQualityIssueListResponse",
     "AIQualityIssueStatus",
     "BadcaseRow",
+    "BadcasePromotionRequest",
+    "BadcasePromotionResponse",
     "CostFeatureBreakdown",
     "CostQualityFlag",
     "CostSummaryResponse",
     "EvalBadcaseSummary",
     "EvalRunSummary",
+    "ExperimentCompareRequest",
+    "ExperimentCompareResponse",
     "FailureCategory",
     "FailureCategoryBreakdown",
     "FailureCategoryResponse",
@@ -449,6 +533,8 @@ __all__ = [
     "KPIBundleResponse",
     "LatencyBandEntry",
     "LatencyBands",
+    "PromptProposalCreateRequest",
+    "PromptProposalResponse",
     "TokenUsageResponse",
     "TokenUsageRow",
     "VersionDimension",

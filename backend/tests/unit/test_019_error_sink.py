@@ -2,8 +2,8 @@
 
 Tests:
 1. _derive_source_qid produces deterministic UUIDs
-2. ERROR_THRESHOLD = 60 (REQ-040 US2 R4'' 修订 — was 6 in 019 US4, now 60
-   to match the 0-100 score scale used by the LLM score prompt)
+2. ERROR_THRESHOLD = 6 to match the 0-10 score scale used by the LLM score
+   prompt and the error_questions database constraint.
 """
 from __future__ import annotations
 
@@ -42,8 +42,7 @@ class TestDeriveSourceQid:
         assert qid1 != qid2
 
     def test_error_threshold_value(self) -> None:
-        # REQ-040 US2 R4'' 修订：0-100 scale, was 6 (0-10 scale)
-        assert ERROR_THRESHOLD == 60
+        assert ERROR_THRESHOLD == 6
 
     def test_derive_source_qid_returns_uuid(self) -> None:
         result = _derive_source_qid(str(uuid4()), 0)

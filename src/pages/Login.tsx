@@ -2,7 +2,7 @@
  * Login page — uses `useLogin` mutation; on success navigates to /dashboard.
  */
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Mail, Lock, ArrowRight, Eye, EyeOff, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -23,7 +23,6 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
   const [displayName, setDisplayName] = useState('')
   const [showPwd, setShowPwd] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const navigate = useNavigate()
   const setUser = useAuthStore((s) => s.setUser)
 
   const login = useLogin()
@@ -38,7 +37,6 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
         {
           onSuccess: (data) => {
             setUser(data.user)
-            navigate('/dashboard', { replace: true })
           },
           onError: (err) => setErrorMsg(humanizeError(err)),
         },
@@ -49,7 +47,6 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
         {
           onSuccess: (data) => {
             setUser(data.user)
-            navigate('/dashboard', { replace: true })
           },
           onError: (err) => setErrorMsg(humanizeError(err)),
         },

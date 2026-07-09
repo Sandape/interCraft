@@ -28,7 +28,7 @@ function readStr(name: string, fallback: string): string {
 }
 
 export const env: Env = {
-  USE_MOCK: readBool('VITE_USE_MOCK', true),
+  USE_MOCK: readBool('VITE_USE_MOCK', false),
   // Default to relative URL so requests go to the Vite dev server, which
   // proxies /api and /openapi.json to the FastAPI backend (see vite.config.ts).
   // This avoids the Windows "localhost resolves to ::1 first" pitfall and

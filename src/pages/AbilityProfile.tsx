@@ -66,7 +66,7 @@ export default function AbilityProfile() {
           <p className="text-sm text-ink-3 mb-4">
             完成模拟面试或进行自评后，你的能力画像将在这里展示
           </p>
-          <Button variant="primary" onClick={() => navigate('/interview/new')}>
+          <Button variant="primary" onClick={() => navigate('/interview/mode')}>
             开始面试
           </Button>
         </Card>

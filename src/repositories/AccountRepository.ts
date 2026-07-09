@@ -36,6 +36,7 @@ export class MockAccountRepository implements AccountRepository {
     target_role: '高级前端工程师',
     bio: null,
     subscription: 'free',
+    is_admin: false,
     avatar_url: null,
     created_at: '2026-06-01T00:00:00Z',
     updated_at: '2026-06-12T00:00:00Z',

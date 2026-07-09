@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import hashlib
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt as pyjwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,7 @@ def _user_to_public(user: User) -> PublicUser:
         target_role=user.target_role,
         bio=user.bio,
         subscription=user.subscription or "free",
+        is_admin=bool(user.is_admin),
         avatar_url=avatar_url,
         created_at=user.created_at,
         updated_at=user.updated_at,
@@ -94,7 +95,7 @@ class AuthService:
         await abilities_repo.seed_for_new_user(user.id)
 
         device_fingerprint = payload.device_fingerprint or "unknown-device"
-        device_id = compute_device_id(device_fingerprint)
+        device_id = _sha256_hex(f"{device_fingerprint}:{uuid4()}")
         session, _evicted = await self.sessions_svc.register_session(
             user_id=user.id,
             device_id=device_id,
@@ -136,7 +137,7 @@ class AuthService:
         await set_rls_user_id(self.session, user.id)
 
         device_fingerprint = payload.device_fingerprint or "unknown-device"
-        device_id = compute_device_id(device_fingerprint)
+        device_id = _sha256_hex(f"{device_fingerprint}:{uuid4()}")
         session, evicted_id = await self.sessions_svc.register_session(
             user_id=user.id,
             device_id=device_id,
@@ -160,20 +161,41 @@ class AuthService:
         self,
         refresh_token: str,
     ) -> TokenPair:
+        from app.core.metrics import auth_refresh_attempts_total
+
         try:
             payload = decode_token(refresh_token, expected_type="refresh")
         except pyjwt.PyJWTError as e:
+            auth_refresh_attempts_total.labels(result="failure", reason="invalid_token").inc()
             raise RefreshInvalidError() from e
         # Bind RLS so the session lookup + UPDATE pass.
         from app.core.db import set_rls_user_id
         await set_rls_user_id(self.session, UUID(payload.sub))
-        from app.modules.sessions.service import SessionService
+
+        from app.core.exceptions import NotFoundError, RefreshReuseError
+        from app.modules.sessions.service import SessionService, is_session_alive
+
         svc = SessionService(self.session)
-        rotated, _evicted = await svc.rotate_refresh(
-            user_id=UUID(payload.sub),
-            session_id=UUID(payload.session_id) if payload.session_id else None,
-            old_refresh_token=refresh_token,
-        )
+        try:
+            rotated, _evicted = await svc.rotate_refresh(
+                user_id=UUID(payload.sub),
+                session_id=UUID(payload.session_id) if payload.session_id else None,
+                old_refresh_token=refresh_token,
+            )
+        except NotFoundError:
+            # FR-009 defensive: session may have been evicted or deleted.
+            # Check liveness to distinguish eviction from other causes.
+            sid = UUID(payload.session_id) if payload.session_id else None
+            if sid and not await is_session_alive(self.session, sid):
+                from app.core.exceptions import SessionEvictedError
+                auth_refresh_attempts_total.labels(result="failure", reason="session_evicted").inc()
+                raise SessionEvictedError() from None
+            auth_refresh_attempts_total.labels(result="failure", reason="session_not_found").inc()
+            raise
+        except RefreshReuseError:
+            auth_refresh_attempts_total.labels(result="failure", reason="reuse_detected").inc()
+            raise
+        auth_refresh_attempts_total.labels(result="success", reason="").inc()
         access, _ = create_access_token(str(rotated.user_id), str(rotated.id))
         new_refresh, _ = create_refresh_token(str(rotated.user_id), str(rotated.id))
         rotated.refresh_token_hash = hash_refresh_token(new_refresh)

@@ -14,10 +14,12 @@
  * incidents-badcases → logs-and-traces?from=<id>：路由层预留
  * useSearchParams hook 入口（AC-4.4b 静态可达性守卫）。
  */
-import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { hasTokens } from '@/api/token-storage'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useCurrentUser } from '@/hooks/queries/useCurrentUser'
+import './styles/admin.css'
+import './styles/ai-operations.css'
 import { AdminShell } from './components/AdminShell'
 import { CommandCenter } from './pages/CommandCenter'
 import { ProductAnalytics } from './pages/ProductAnalytics'
@@ -43,10 +45,11 @@ function _drilldownSearchParamsProbe() {
 
 function AdminAuthGuard({ children }: { children: JSX.Element }) {
   useCurrentUser()
+  const user = useAuthStore((s) => s.user)
   const status = useAuthStore((s) => s.status)
   const location = useLocation()
   if (!hasTokens()) {
-    return <Navigate to="/login" replace state={{ from: location }} />
+    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname)}`} replace state={{ from: location }} />
   }
   if (status === 'unknown') {
     return (
@@ -65,32 +68,17 @@ function AdminAuthGuard({ children }: { children: JSX.Element }) {
       </div>
     )
   }
+  // REQ-051 FR-016: non-admin users are redirected to /dashboard.
+  if (!user?.is_admin) {
+    return <Navigate to="/dashboard" replace />
+  }
   return children
 }
 
 export function AdminAppRoutes() {
   return (
-    <Routes>
-      <Route
-        path="/admin-console/*"
-        element={(
-          <AdminAuthGuard>
-            <AdminShell />
-          </AdminAuthGuard>
-        )}
-      >
-        <Route index element={<Navigate to="command-center" replace />} />
-        <Route path="command-center" element={<CommandCenter />} />
-        <Route path="product-analytics" element={<ProductAnalytics />} />
-        <Route path="ai-operations" element={<AIOperations />} />
-        <Route path="incidents-badcases" element={<IncidentsBadcases />} />
-        <Route path="logs-and-traces" element={<LogsAndTraces />} />
-        <Route path="users-accounts" element={<UsersAccounts />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="governance" element={<Governance />} />
-      </Route>
-      <Route path="/index.admin.html" element={<Navigate to="/admin-console/command-center" replace />} />
-      <Route path="*" element={<Navigate to="/admin-console/command-center" replace />} />
-    </Routes>
+    <AdminAuthGuard>
+      <AdminShell />
+    </AdminAuthGuard>
   )
 }

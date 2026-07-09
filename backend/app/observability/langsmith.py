@@ -26,6 +26,14 @@ import structlog
 logger = structlog.get_logger("observability.langsmith")
 
 
+def _metadata_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (tuple, list)):
+        return [_metadata_value(item) for item in value]
+    return str(value)
+
+
 class LangSmithExporter:
     """Send OTel spans to LangSmith alongside the local OTel pipeline.
 
@@ -81,6 +89,49 @@ class LangSmithExporter:
         no-op — spans are dropped silently. Each per-span error is
         logged but does not abort the batch.
         """
+        self.export_with_policy(spans)
+
+    def export_with_policy(
+        self,
+        spans: list[Any],
+        *,
+        export_policy_decision: Any | None = None,
+        environment: str = "LOCAL",
+        representation_level: str = "REDACTED",
+    ) -> None:
+        """Send spans to LangSmith after optional destination-policy checks."""
+
+        env = str(environment).upper()
+        level = str(representation_level).upper()
+        if env == "PRODUCTION" and level == "FULL_CONTENT":
+            if export_policy_decision is None:
+                logger.warning(
+                    "langsmith.exporter.blocked_missing_policy",
+                    environment=env,
+                    representation_level=level,
+                )
+                return
+            policy_level = str(
+                getattr(
+                    getattr(export_policy_decision, "representation_level", None),
+                    "value",
+                    getattr(export_policy_decision, "representation_level", ""),
+                )
+            ).upper()
+            destination = str(
+                getattr(
+                    getattr(export_policy_decision, "destination", None),
+                    "value",
+                    getattr(export_policy_decision, "destination", ""),
+                )
+            ).upper()
+            if destination != "LANGSMITH" or policy_level == "BLOCKED":
+                logger.warning(
+                    "langsmith.exporter.blocked_by_policy",
+                    destination=destination,
+                    representation_level=policy_level,
+                )
+                return
         if not self.api_key or self._client is None:
             return  # no-op
 
@@ -90,16 +141,34 @@ class LangSmithExporter:
                 inputs = attrs.get("input", {})
                 outputs = attrs.get("output", {})
                 agent = attrs.get("agent.name", "unknown")
+                trace_id = attrs.get("trace.id")
+                run_id = attrs.get("run.id")
+                metadata = {
+                    str(key): _metadata_value(value)
+                    for key, value in attrs.items()
+                    if value is not None
+                }
+                metadata["span.name"] = getattr(span, "name", "node.unknown")
+                tags = [
+                    "langsmith:nostream",
+                    f"agent:{agent}",
+                ]
+                if trace_id:
+                    tags.append(f"trace:{trace_id}")
+                if run_id:
+                    tags.append(f"run:{run_id}")
                 self._client.create_run(
                     project_name=self.project,
                     name=getattr(span, "name", "node.unknown"),
-                    run_type="chain",
+                    run_type=(
+                        "llm"
+                        if str(getattr(span, "name", "")).startswith("llm.")
+                        else "chain"
+                    ),
                     inputs=inputs if isinstance(inputs, dict) else {"value": inputs},
                     outputs=outputs if isinstance(outputs, dict) else {"value": outputs},
-                    tags=[
-                        "langsmith:nostream",
-                        f"agent:{agent}",
-                    ],
+                    tags=tags,
+                    extra={"metadata": metadata},
                 )
             except Exception:
                 # Per-span error: log + continue. Never abort the batch.

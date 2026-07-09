@@ -204,3 +204,59 @@ Path("report.md").write_text(md)
   `"unavailable"` in every report path until the SDK is installed.
 - US8 will wire `set_override_record_sink` to the `override_records`
   DB table so records survive process restart.
+
+## REQ-045 LLM Ops eval workflow
+
+REQ-045 promotes this package from a local eval/report renderer into the
+canonical LLM Ops automation surface:
+
+- `python -m app.eval.cli run` remains the blocking local verdict source for CI.
+- LangSmith sync is optional and auxiliary; it may add dataset, experiment,
+  feedback, and deep-link context, but it must not decide pass/fail status.
+- Planned commands extend this module with `langsmith-sync`, `export-audit`,
+  `judge-run`, `judge-calibrate`, `experiment-compare`, and prompt proposal
+  workflows.
+- Every report must keep stable local JSON and Markdown artifacts even when
+  LangSmith is disabled or unavailable.
+- Production LangSmith export may include full AI prompt/output content only
+  after the destination policy authorizes it. Operational secrets are forbidden
+  in every destination.
+
+The feature spec, contracts, and validation checklist live under
+`specs/045-llm-ops-eval-workflow/`.
+
+### REQ-045 examples
+
+LangSmith disabled/local canonical mode:
+
+```bash
+uv run python -m app.eval.cli run \
+  --suite golden \
+  --env ci \
+  --report-out docs/evidence/045-llm-ops-eval-workflow/run/eval-report.json \
+  --markdown-out docs/evidence/045-llm-ops-eval-workflow/run/eval-report.md \
+  --sync-langsmith never \
+  --json
+```
+
+LangSmith required mode:
+
+```bash
+uv run python -m app.eval.cli run \
+  --suite golden \
+  --env ci \
+  --report-out docs/evidence/045-llm-ops-eval-workflow/run/eval-report.json \
+  --markdown-out docs/evidence/045-llm-ops-eval-workflow/run/eval-report.md \
+  --sync-langsmith require \
+  --json
+```
+
+Sync an existing local report:
+
+```bash
+uv run python -m app.eval.cli langsmith-sync \
+  --report docs/evidence/045-llm-ops-eval-workflow/run/eval-report.json \
+  --project intercraft-production \
+  --destination-policy production-langsmith-full-content-v1 \
+  --json
+```

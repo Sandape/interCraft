@@ -54,6 +54,7 @@ const baseJob: Job = {
   jd_url: null,
   branch_id: null,
   status: 'applied',
+  interview_time: null,
   status_history: [],
   notes_md: null,
   base_location: '北京',

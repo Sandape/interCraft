@@ -236,6 +236,32 @@ class TestAIInvocationHookFires:
         assert s.error_category is None
 
     @pytest.mark.asyncio
+    async def test_interview_nodes_are_recorded_with_interview_graph(
+        self, client: LLMClient
+    ) -> None:
+        """Interview LLM calls must be groupable by graph in ops tables."""
+        client._client.chat.completions.create.return_value = _make_completion()
+
+        captured: list[AIInvocationSummary] = []
+
+        with patch.object(client, "_pre_deduct", AsyncMock()), \
+             patch.object(client, "_actual_adjust", AsyncMock()), \
+             patch.object(client, "_write_ai_message", AsyncMock()), \
+             patch(
+                 "app.agents.llm_client._extract_and_record_ai_invocation",
+                 new=lambda s: captured.append(s),
+             ):
+            await client.invoke(
+                messages=[{"role": "user", "content": "hi"}],
+                estimated_tokens=2500,
+                user_id="user-1",
+                thread_id="00000000-0000-0000-0000-000000000123",
+                node_name="score_llm",
+            )
+
+        assert captured[0].graph == "interview"
+
+    @pytest.mark.asyncio
     async def test_invoke_failure_triggers_hook_with_failure_status(
         self, client: LLMClient
     ) -> None:

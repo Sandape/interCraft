@@ -7,22 +7,7 @@ Mounted by ``app.main`` at two prefixes:
 - ``/api/v1/admin-console/badcases`` (exported as ``badcases_router``)
   — badcase list, detail, escalate.
 
-Auth: capability check via :func:`app.modules.admin_console.auth.require_capability`
-with the 4 new US4 capabilities (added to ``admin_console.auth`` role map):
-
-- ``INCIDENT_VIEW`` — required for GET incident list / detail / evidence.
-- ``INCIDENT_CHANGE`` — required for POST comment + PATCH status.
-- ``BADCASE_VIEW`` — required for GET badcase list / detail.
-- ``BADCASE_CHANGE`` — required for POST badcase escalate.
-
-Role grants (mirrors US3 pattern):
-
-- ``admin`` / ``owner`` / ``pm`` / ``operations`` / ``maintainer`` /
-  ``reviewer`` → ``INCIDENT_VIEW`` + ``BADCASE_VIEW`` (read)
-- ``operations`` + ``admin`` + ``owner`` → ``INCIDENT_CHANGE`` + ``BADCASE_CHANGE`` (write)
-- ``pm`` + ``maintainer`` → ``INCIDENT_CHANGE`` (write incident)
-- ``reviewer`` → ``BADCASE_CHANGE`` (write badcase)
-- ``viewer`` → none (FR-031 least-privilege)
+Auth: admin-only via :func:`app.modules.admin_console.auth.require_admin`.
 
 Endpoints:
 
@@ -41,7 +26,7 @@ Endpoints:
 
 Error mapping:
 
-- 403 ``missing_capability`` (FR-031)
+- 403 ``admin_required``
 - 404 ``incident_not_found`` / ``badcase_not_found`` (404 envelope)
 - 200 + empty data with explicit zero markers (FR-028 valid zero)
 - 500 unexpected (default FastAPI handler)
@@ -55,7 +40,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_current_user_id_optional as _resolve_user_id_from_jwt
-from app.modules.admin_console.auth import require_capability
+from app.modules.admin_console.auth import require_admin
 from app.modules.admin_console.incidents import service
 from app.modules.admin_console.incidents.schemas import (
     AuditTrail,
@@ -72,17 +57,6 @@ from app.modules.admin_console.incidents.schemas import (
 )
 
 log = structlog.get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Capability tokens
-# ---------------------------------------------------------------------------
-
-
-INCIDENT_VIEW = "INCIDENT_VIEW"
-INCIDENT_CHANGE = "INCIDENT_CHANGE"
-BADCASE_VIEW = "BADCASE_VIEW"
-BADCASE_CHANGE = "BADCASE_CHANGE"
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +79,21 @@ def _actor_handle(user_id: UUID) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Endpoint: GET /incidents/health (must precede /{incident_id} to avoid capture)
+# ---------------------------------------------------------------------------
+
+
+@incidents_router.get(
+    "/health",
+    status_code=200,
+    responses={200: {"description": "Module liveness"}},
+)
+async def incidents_health() -> dict[str, str]:
+    """Module liveness check (parity with /command-center/health)."""
+    return {"status": "ok", "module": "incidents"}
+
+
+# ---------------------------------------------------------------------------
 # Endpoint: GET /incidents (FR-021)
 # ---------------------------------------------------------------------------
 
@@ -115,12 +104,12 @@ def _actor_handle(user_id: UUID) -> str:
     status_code=200,
     responses={
         200: {"description": "Incident list (10 FR-021 fields + EC-1/2/3 fields)"},
-        403: {"description": "Missing INCIDENT_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def list_incidents(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(INCIDENT_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> IncidentListResponse:
     """Return the incident list (FR-021 + EC-1/2/3)."""
     log.info("incidents.list.request")
@@ -138,14 +127,14 @@ async def list_incidents(
     status_code=200,
     responses={
         200: {"description": "Single incident detail (10 FR-021 fields + EC-2 cross-link)"},
-        403: {"description": "Missing INCIDENT_VIEW capability"},
+        403: {"description": "Admin required"},
         404: {"description": "Incident not found"},
     },
 )
 async def get_incident(
     incident_id: str,
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(INCIDENT_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> Incident:
     """Return a single incident by id (AC-21.3)."""
     log.info("incidents.get.request", incident_id=incident_id)
@@ -173,13 +162,13 @@ async def get_incident(
     status_code=200,
     responses={
         200: {"description": "8-type evidence link list (FR-022)"},
-        403: {"description": "Missing INCIDENT_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_incident_evidence(
     incident_id: str,
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(INCIDENT_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> EvidenceLinkListResponse:
     """Return the 8-type evidence link list (FR-022 + AC-22.1)."""
     log.info("incidents.evidence.request", incident_id=incident_id)
@@ -197,13 +186,13 @@ async def get_incident_evidence(
     status_code=200,
     responses={
         200: {"description": "Comment list for the incident"},
-        403: {"description": "Missing INCIDENT_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def list_incident_comments(
     incident_id: str,
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(INCIDENT_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> CommentListResponse:
     """Return the comment list (FR-022)."""
     log.info("incidents.comments.list.request", incident_id=incident_id)
@@ -221,7 +210,7 @@ async def list_incident_comments(
     status_code=201,
     responses={
         201: {"description": "Comment added"},
-        403: {"description": "Missing INCIDENT_CHANGE capability"},
+        403: {"description": "Admin required"},
         404: {"description": "Incident not found"},
     },
 )
@@ -229,7 +218,7 @@ async def add_incident_comment(
     incident_id: str,
     body: CommentCreateRequest,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(INCIDENT_CHANGE))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> Comment:
     """Add a comment to the incident (FR-022 + AC-22.2)."""
     log.info("incidents.comments.add.request", incident_id=incident_id)
@@ -262,7 +251,7 @@ async def add_incident_comment(
     status_code=200,
     responses={
         200: {"description": "Status changed + audit trail returned"},
-        403: {"description": "Missing INCIDENT_CHANGE capability"},
+        403: {"description": "Admin required"},
         404: {"description": "Incident not found"},
     },
 )
@@ -270,7 +259,7 @@ async def change_incident_status(
     incident_id: str,
     body: StatusChangeRequest,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(INCIDENT_CHANGE))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> AuditTrail:
     """Change incident status and return the full audit trail (EC-4)."""
     log.info(
@@ -314,13 +303,13 @@ async def change_incident_status(
     status_code=200,
     responses={
         200: {"description": "EC-4 audit trail"},
-        403: {"description": "Missing INCIDENT_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_incident_audit_trail(
     incident_id: str,
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(INCIDENT_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> AuditTrail:
     """Return the full audit trail for the incident (EC-4)."""
     log.info("incidents.audit_trail.request", incident_id=incident_id)
@@ -333,18 +322,18 @@ async def get_incident_audit_trail(
 
 
 # ---------------------------------------------------------------------------
-# Endpoint: GET /incidents/health
+# Endpoint: GET /badcases/health (must precede /{badcase_id} to avoid capture)
 # ---------------------------------------------------------------------------
 
 
-@incidents_router.get(
+@badcases_router.get(
     "/health",
     status_code=200,
     responses={200: {"description": "Module liveness"}},
 )
-async def incidents_health() -> dict[str, str]:
-    """Module liveness check (parity with /command-center/health)."""
-    return {"status": "ok", "module": "incidents"}
+async def badcases_health() -> dict[str, str]:
+    """Module liveness check."""
+    return {"status": "ok", "module": "badcases"}
 
 
 # ---------------------------------------------------------------------------
@@ -358,12 +347,12 @@ async def incidents_health() -> dict[str, str]:
     status_code=200,
     responses={
         200: {"description": "Badcase list (10 FR-023 fields)"},
-        403: {"description": "Missing BADCASE_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def list_badcases(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(BADCASE_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> BadcaseListResponse:
     """Return the badcase list (FR-023 + AC-23.1)."""
     log.info("badcases.list.request")
@@ -381,14 +370,14 @@ async def list_badcases(
     status_code=200,
     responses={
         200: {"description": "Single badcase detail"},
-        403: {"description": "Missing BADCASE_VIEW capability"},
+        403: {"description": "Admin required"},
         404: {"description": "Badcase not found"},
     },
 )
 async def get_badcase(
     badcase_id: str,
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(BADCASE_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> Badcase:
     """Return a single badcase by id."""
     log.info("badcases.get.request", badcase_id=badcase_id)
@@ -416,14 +405,14 @@ async def get_badcase(
     status_code=201,
     responses={
         201: {"description": "Badcase escalated to incident"},
-        403: {"description": "Missing BADCASE_CHANGE capability"},
+        403: {"description": "Admin required"},
         404: {"description": "Badcase not found"},
     },
 )
 async def escalate_badcase(
     badcase_id: str,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(BADCASE_CHANGE))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> BadcaseEscalateResponse:
     """Escalate the badcase to a new incident (FR-023 + AC-23.4)."""
     log.info("badcases.escalate.request", badcase_id=badcase_id)
@@ -443,26 +432,7 @@ async def escalate_badcase(
         )
 
 
-# ---------------------------------------------------------------------------
-# Endpoint: GET /badcases/health
-# ---------------------------------------------------------------------------
-
-
-@badcases_router.get(
-    "/health",
-    status_code=200,
-    responses={200: {"description": "Module liveness"}},
-)
-async def badcases_health() -> dict[str, str]:
-    """Module liveness check."""
-    return {"status": "ok", "module": "badcases"}
-
-
 __all__ = [
-    "BADCASE_CHANGE",
-    "BADCASE_VIEW",
-    "INCIDENT_CHANGE",
-    "INCIDENT_VIEW",
     "badcases_router",
     "incidents_router",
 ]

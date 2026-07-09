@@ -17,6 +17,7 @@ from app.core.exceptions import install_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import InternalIPMiddleware, MetricsMiddleware, RequestIDMiddleware
 from app.core.redis import close_redis, redis_ping
+from app.observability.tracing import TracingConfig, init_tracing, shutdown_tracing
 
 # psycopg (langgraph-checkpoint-postgres) requires SelectorEventLoop on Windows.
 # uvicorn's default on Windows is ProactorEventLoop which psycopg rejects.
@@ -39,6 +40,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         env=settings.app_env,
         log_level=settings.log_level,
     )
+    init_tracing(
+        TracingConfig(
+            service_name=settings.otel_service_name,
+            exporter="otlp" if settings.otel_enabled else "none",
+            otlp_endpoint=settings.otel_exporter_otlp_endpoint or None,
+            sample_ratio=settings.otel_trace_sample_ratio,
+            langsmith_api_key=settings.langsmith_api_key or None,
+            langsmith_project=settings.langsmith_project,
+        )
+    )
     # Soft-touch DB + Redis on boot (best-effort).
     log.info("deps.probe", db=await db_ping(), redis=await redis_ping())
 
@@ -47,14 +58,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await checkpointer_preheat()
 
+    # 052: Start the iLink connection pool — recover all active WeChat long-poll
+    # connections from the database and spawn per-user asyncio poll tasks.
+    from app.channels.ilink_pool import get_connection_pool, shutdown_connection_pool
+
+    try:
+        await get_connection_pool().startup()
+    except Exception:
+        log.exception("pool.startup_failed")
+
     try:
         yield
     finally:
         from app.agents.checkpointer import close_checkpointer
 
         await close_checkpointer()
+        try:
+            await shutdown_connection_pool()
+        except Exception:
+            log.exception("pool.shutdown_failed")
+        try:
+            from app.channels.message_handler import shutdown_llm_client
+            await shutdown_llm_client()
+        except Exception:
+            log.exception("llm_client.shutdown_failed")
         await close_redis()
         await dispose_engine()
+        shutdown_tracing()
         log.info("app.stop")
 
 
@@ -114,6 +144,15 @@ def create_app() -> FastAPI:
     from app.api.v1 import router as v1_router
 
     app.include_router(v1_router, prefix=settings.api_v1_prefix)
+
+    # iLink 4-step probe endpoints (manual verification only — no auth, no DB).
+    # Only mount in non-production environments. Production deployments
+    # must NOT expose these (they can drain iLink resources and impersonate
+    # outbound sends without auth).
+    if settings.app_env != "production":
+        from app.channels.ilink_probe import router as ilink_probe_router
+
+        app.include_router(ilink_probe_router, prefix=settings.api_v1_prefix)
 
     # Internal router (no auth — guarded by InternalIPMiddleware)
     from app.api.v1.internal import router as internal_router

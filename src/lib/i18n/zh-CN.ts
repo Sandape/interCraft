@@ -22,6 +22,22 @@ export const zhCN = {
     unauthorized: '会话已过期，请重新登录',
     invalid: '导出参数无效',
   },
+  resume: {
+    sectionsPanel: {
+      profiles: '个人链接',
+      experience: '工作经历',
+      education: '教育经历',
+      projects: '项目经历',
+      skills: '技能',
+      languages: '语言',
+      interests: '兴趣',
+      awards: '奖项',
+      certifications: '证书',
+      publications: '出版物',
+      volunteer: '志愿经历',
+      references: '推荐人',
+    },
+  },
   login: {
     welcomeBack: '欢迎回来',
   },

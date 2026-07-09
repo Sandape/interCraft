@@ -45,6 +45,7 @@ beforeEach(() => {
       bio: null,
       avatar_url: null,
       subscription: 'free',
+      is_admin: true,
       created_at: '2026-06-01T00:00:00Z',
       updated_at: '2026-06-12T00:00:00Z',
     },

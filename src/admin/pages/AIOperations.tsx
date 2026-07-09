@@ -125,7 +125,7 @@ export function AIOperations() {
   return (
     <div className="ac-page ac-ao-page" data-testid="ai-operations">
       <div className="ac-page__header">
-        <h1 className="ac-page__title">AI Operations</h1>
+        <h1 className="ac-page__title">AI 运营</h1>
         <span className="ac-page__hint">
           质量 · 成本 · 时延 · 版本 · 评测 · Badcase
         </span>
@@ -148,7 +148,7 @@ export function AIOperations() {
               className="ac-ao-page__kpis"
               data-testid="ai-operations-kpis-section"
             >
-              <h2 className="ac-ao-page__section-title">Headline KPIs</h2>
+              <h2 className="ac-ao-page__section-title">核心指标</h2>
               <KPITiles kpis={kpisQuery.data.kpis} />
             </section>
           )}
@@ -159,7 +159,7 @@ export function AIOperations() {
               className="ac-ao-page__version-selector"
               data-testid="ai-operations-version-selector-section"
             >
-              <h2 className="ac-ao-page__section-title">Version selector</h2>
+              <h2 className="ac-ao-page__section-title">版本选择器</h2>
               <VersionSelector
                 data={versionSelectorData}
                 onChange={handleVersionChange}
@@ -170,8 +170,8 @@ export function AIOperations() {
                   data-testid="comparing-banner"
                   role="status"
                 >
-                  Comparing against baseline ({versionSelectorData.baselineLabel}) —
-                  filter applied
+                  正在与基线比较 ({versionSelectorData.baselineLabel}) —
+                  筛选器已应用
                 </div>
               )}
             </section>
@@ -185,7 +185,7 @@ export function AIOperations() {
                 data-testid="ai-operations-volume-section"
               >
                 <h2 className="ac-ao-page__section-title">
-                  Volume by feature area
+                  按功能区域统计调用量
                 </h2>
                 <VolumeByFeatureChart
                   rows={volumeQuery.data.rows}
@@ -200,7 +200,7 @@ export function AIOperations() {
                 data-testid="ai-operations-failure-section"
               >
                 <h2 className="ac-ao-page__section-title">
-                  Failure categories
+                  失败分类
                 </h2>
                 <FailureCategoriesPie
                   rows={failureQuery.data.breakdown}
@@ -217,7 +217,7 @@ export function AIOperations() {
                 className="ac-ao-page__panel"
                 data-testid="ai-operations-latency-section"
               >
-                <h2 className="ac-ao-page__section-title">Latency bands</h2>
+                <h2 className="ac-ao-page__section-title">时延分布</h2>
                 <LatencyBandsChart
                   entries={latencyQuery.data.entries}
                   versionSelector={versionSelectorData}
@@ -230,7 +230,7 @@ export function AIOperations() {
                 className="ac-ao-page__panel"
                 data-testid="ai-operations-token-section"
               >
-                <h2 className="ac-ao-page__section-title">Token usage</h2>
+                <h2 className="ac-ao-page__section-title">Token 用量</h2>
                 <TokenUsageChart
                   rows={tokenQuery.data.rows}
                   versionSelector={versionSelectorData}
@@ -246,7 +246,7 @@ export function AIOperations() {
                 className="ac-ao-page__panel"
                 data-testid="ai-operations-cost-section"
               >
-                <h2 className="ac-ao-page__section-title">Cost summary</h2>
+                <h2 className="ac-ao-page__section-title">成本概览</h2>
                 <CostSummaryCard summary={costSummaryQuery.data} />
               </section>
             )}
@@ -270,7 +270,7 @@ export function AIOperations() {
               className="ac-ao-page__panel"
               data-testid="ai-operations-quality-issues-section"
             >
-              <h2 className="ac-ao-page__section-title">AI quality issues</h2>
+              <h2 className="ac-ao-page__section-title">AI 质量议题</h2>
               <ul className="ac-ao-page__issues-list">
                 {qualityIssuesQuery.data.issues.map((issue) => (
                   <li

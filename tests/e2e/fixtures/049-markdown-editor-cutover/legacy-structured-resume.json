@@ -1,0 +1,58 @@
+{
+  "data_format_version": "v1",
+  "basics": {
+    "name": "Legacy Lin",
+    "headline": "AI Product Engineer",
+    "email": "legacy.lin@example.com",
+    "phone": "13800000000",
+    "location": "Shanghai",
+    "website": { "label": "Portfolio", "url": "https://example.com/legacy" },
+    "customFields": [
+      { "name": "GitHub", "value": "https://github.com/legacy-lin" }
+    ]
+  },
+  "summary": {
+    "title": "Summary",
+    "hidden": false,
+    "content": "<p>Legacy structured summary that must remain visible.</p>"
+  },
+  "sections": {
+    "experience": {
+      "title": "Experience",
+      "hidden": false,
+      "items": [
+        {
+          "company": "Old Resume Co",
+          "position": "Engineer",
+          "date": "2021 - 2024",
+          "summary": "Built structured resume workflows."
+        }
+      ]
+    },
+    "education": {
+      "title": "Education",
+      "hidden": false,
+      "items": [
+        { "institution": "Legacy University", "area": "Computer Science", "date": "2018 - 2021" }
+      ]
+    },
+    "skills": {
+      "title": "Skills",
+      "hidden": false,
+      "items": [
+        { "name": "Markdown", "keywords": ["Rendering", "Pagination"] }
+      ]
+    }
+  },
+  "customSections": [
+    {
+      "id": "custom-impact",
+      "title": "Impact",
+      "hidden": false,
+      "items": [
+        { "name": "Migration", "description": "Preserved visible legacy content." }
+      ]
+    }
+  ],
+  "metadata": {}
+}

@@ -3,15 +3,7 @@
 Mounted at ``/api/v1/admin-console/governance`` by :mod:`app.main`
 (US6 wiring block; added in this US).
 
-Auth: capability check via :func:`app.modules.admin_console.auth.require_capability`
-with the 6 US6 capabilities (added to ``admin_console.auth`` role map):
-
-- ``RBAC_VIEW`` — GET access-matrix (FR-031 AC-31.1)
-- ``SENSITIVE_REVEAL`` — POST reveal-requests (FR-033 + EC-1)
-- ``AUDIT_VIEW`` — GET audit-events + reveal-requests list (FR-034)
-- ``EXPORT`` — POST exports (FR-035)
-- ``GOVERNANCE_VIEW`` — GET retention-policy (FR-036)
-- ``GOVERNANCE_CHANGE`` — PUT retention-policy (FR-036 + EC-4)
+Auth: admin-only via :func:`app.modules.admin_console.auth.require_admin`.
 
 Endpoints:
 
@@ -26,7 +18,7 @@ Endpoints:
 
 Error mapping:
 
-- 403 ``missing_capability`` (FR-031, SC-008)
+- 403 ``admin_required``
 - 422 ``reveal_reason_too_short`` / ``export_blocked_expired`` (FR-033/035)
 - 404 ``policy_not_found``
 - 200 + empty data with explicit ``valid_zero`` markers (FR-028)
@@ -41,21 +33,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_current_user_id_optional as _resolve_user_id_from_jwt
-from app.modules.admin_console.auth import (
-    BADCASE_CHANGE,
-    BADCASE_VIEW,
-    COMMAND_CENTER_VIEW,
-    INCIDENT_CHANGE,
-    INCIDENT_VIEW,
-    AI_OPERATIONS_VIEW,
-    PRODUCT_ANALYTICS_VIEW,
-    REPLAY_TRIGGER,
-    TASK_TAG,
-    USER_LOOKUP,
-    grant_role,
-    require_capability,
-    set_default_role,
-)
+from app.modules.admin_console.auth import require_admin
 from app.modules.admin_console.governance import service
 from app.modules.admin_console.governance.schemas import (
     AccessMatrixResponse,
@@ -73,18 +51,6 @@ from app.modules.admin_console.governance.schemas import (
 )
 
 log = structlog.get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Capability tokens (US6 additions to the role map)
-# ---------------------------------------------------------------------------
-
-RBAC_VIEW = "RBAC_VIEW"               # FR-031 AC-31.1
-SENSITIVE_REVEAL = "SENSITIVE_REVEAL"  # FR-033 AC-33.1
-AUDIT_VIEW = "AUDIT_VIEW"             # FR-034 AC-34.4
-EXPORT = "EXPORT"                     # FR-035 AC-35.1
-GOVERNANCE_VIEW = "GOVERNANCE_VIEW"    # FR-036 AC-36.1
-GOVERNANCE_CHANGE = "GOVERNANCE_CHANGE"  # FR-036 AC-36.2 + EC-4
 
 
 # ---------------------------------------------------------------------------
@@ -114,12 +80,12 @@ def _actor_handle(user_id: UUID) -> str:
     status_code=200,
     responses={
         200: {"description": "5x8x6 RBAC matrix (FR-031)"},
-        403: {"description": "Missing RBAC_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_access_matrix(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(RBAC_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> AccessMatrixResponse:
     """Return the 5x8x6 RBAC matrix (FR-031)."""
     log.info("governance.access_matrix.request")
@@ -137,14 +103,14 @@ async def get_access_matrix(
     status_code=201,
     responses={
         201: {"description": "Reveal request created + audit event written"},
-        403: {"description": "Missing SENSITIVE_REVEAL capability"},
+        403: {"description": "Admin required"},
         422: {"description": "reveal reason too short (<20 chars)"},
     },
 )
 async def create_reveal_request(
     body: RevealRequestCreate,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    cap: Annotated[bool, Depends(require_capability(SENSITIVE_REVEAL))],
+    cap: Annotated[bool, Depends(require_admin)],
 ) -> RevealRequest:
     """Submit a sensitive reveal request (FR-033)."""
     log.info(
@@ -181,12 +147,12 @@ async def create_reveal_request(
     status_code=200,
     responses={
         200: {"description": "Reveal-request audit list (FR-033)"},
-        403: {"description": "Missing AUDIT_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def list_reveal_requests(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(AUDIT_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> RevealRequestListResponse:
     """List reveal requests (FR-033 AC-33.2)."""
     log.info("governance.reveal.list")
@@ -204,12 +170,12 @@ async def list_reveal_requests(
     status_code=200,
     responses={
         200: {"description": "Audit log viewer (FR-034, 11 actions)"},
-        403: {"description": "Missing AUDIT_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def list_audit_events(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(AUDIT_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
     actor: str | None = None,
     action: AuditAction | None = None,
 ) -> AuditEventListResponse:
@@ -229,14 +195,14 @@ async def list_audit_events(
     status_code=201,
     responses={
         201: {"description": "Export created (6 fields + audit metadata)"},
-        403: {"description": "Missing EXPORT capability"},
+        403: {"description": "Admin required"},
         422: {"description": "export blocked: period contains expired records (EC-2)"},
     },
 )
 async def create_export(
     body: ExportRequestCreate,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(EXPORT))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> ExportResponse:
     """Create an export (FR-035)."""
     log.info(
@@ -271,12 +237,12 @@ async def create_export(
     status_code=200,
     responses={
         200: {"description": "Retention policy list (FR-036)"},
-        403: {"description": "Missing GOVERNANCE_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def list_retention_policies(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(GOVERNANCE_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> RetentionPolicyResponse:
     """List retention policies (FR-036 AC-36.1)."""
     log.info("governance.retention.list")
@@ -294,13 +260,13 @@ async def list_retention_policies(
     status_code=200,
     responses={
         200: {"description": "Retention updated + cache invalidated + self-audit"},
-        403: {"description": "Missing GOVERNANCE_CHANGE capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def update_retention_policy(
     body: RetentionPolicyUpdate,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(GOVERNANCE_CHANGE))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> RetentionPolicy:
     """Update retention policy + invalidate cache (EC-3) + self-audit (EC-4)."""
     log.info(
@@ -329,12 +295,4 @@ async def governance_health() -> dict[str, str]:
     return {"status": "ok", "module": "governance"}
 
 
-__all__ = [
-    "AUDIT_VIEW",
-    "EXPORT",
-    "GOVERNANCE_CHANGE",
-    "GOVERNANCE_VIEW",
-    "RBAC_VIEW",
-    "SENSITIVE_REVEAL",
-    "governance_router",
-]
+__all__ = ["governance_router"]

@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db_session
 from app.core.exceptions import (
+    SessionEvictedError,
+    TokenExpiredError,
     TokenInvalidError,
     TokenMissingError,
 )
@@ -50,6 +52,11 @@ async def get_current_user_id_optional(
         return None
     try:
         payload = decode_token(token, expected_type="access")
+    except pyjwt.ExpiredSignatureError:
+        # BUG #1 fix 2026-07-06: surface a dedicated expired-token code
+        # so the frontend can prompt re-login instead of the misleading
+        # "Missing Authorization header" message.
+        raise TokenExpiredError() from None
     except pyjwt.PyJWTError:
         return None
     user_id = UUID(payload.sub)
@@ -82,7 +89,9 @@ async def get_current_user(
         raise TokenInvalidError()
     session_id = getattr(request.state, "session_id", None)
     if not await is_session_alive(db, session_id):
-        raise TokenInvalidError()
+        # FR-004: distinguish session-eviction from generic token-invalid
+        # so the frontend can show an eviction-specific Toast.
+        raise SessionEvictedError()
     return user
 
 

@@ -487,11 +487,11 @@ class AbilityProfileService:
         from sqlalchemy import text
 
         result = await self.repo.session.execute(
-            text("SELECT role FROM users WHERE id = :user_id"),
+            text("SELECT is_admin FROM users WHERE id = :user_id"),
             {"user_id": user_id},
         )
         row = result.fetchone()
-        return row is not None and row[0] == "admin"
+        return row is not None and bool(row[0])
 
 
 __all__ = ["AbilityProfileService"]

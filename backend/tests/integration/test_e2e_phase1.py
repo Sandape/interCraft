@@ -387,3 +387,234 @@ async def test_3_7_health_and_metrics(client: httpx.AsyncClient) -> None:
     assert r.status_code == 200, r.text
     assert b"http_requests_total" in r.content
     assert b"auth_login_attempts_total" in r.content
+
+
+# ---- §050-login-session-stability — In-place rotation (FR-009) ----
+
+@pytest.mark.asyncio
+async def test_050_in_place_rotation_preserves_session_id(
+    client: httpx.AsyncClient, db_session
+) -> None:
+    """FR-009: rotate_refresh updates the existing row instead of create+delete.
+
+    Verify that after a refresh the same session_id is used (decoded from the
+    access token's ``session_id`` claim) and that the DB contains exactly one
+    row for that session (not a deleted + new row pair).
+    """
+    import jwt as pyjwt
+    from sqlalchemy import select
+
+    from app.core.config import get_settings
+    from app.modules.auth.models import AuthSession
+
+    suffix = secrets.token_hex(4)
+    user = await _register(client, f"ip-rot-{suffix}@x.io", fp=f"fp-ip-{suffix}")
+    refresh = user["tokens"]["refresh_token"]
+    access = user["tokens"]["access_token"]
+
+    # Decode session_id from original access token.
+    settings = get_settings()
+    orig_payload = pyjwt.decode(access, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    orig_sid = orig_payload.get("session_id")
+    assert orig_sid is not None, "No session_id in original access token"
+
+    # Refresh — gets a new access token.
+    r = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh},
+        headers=_hdrs(fp=f"fp-ip-{suffix}"),
+    )
+    assert r.status_code == 200, r.text
+    new_access = r.json()["tokens"]["access_token"]
+
+    # Decode session_id from new access token — must match the original.
+    new_payload = pyjwt.decode(new_access, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    new_sid = new_payload.get("session_id")
+    assert new_sid == orig_sid, (
+        f"session_id changed after refresh: {orig_sid} → {new_sid}. "
+        "In-place rotation should preserve the same session_id."
+    )
+
+    # DB must contain exactly 1 row for this session (not a soft-deleted + new).
+    stmt = select(AuthSession).where(AuthSession.id == orig_sid)
+    result = await db_session.execute(stmt)
+    row = result.scalar_one_or_none()
+    assert row is not None, "Session row not found in DB"
+    assert row.deleted_at is None, "Session row was soft-deleted despite in-place rotation"
+    assert row.refresh_token_hash != "0" * 64, "refresh_token_hash was not updated"
+
+
+@pytest.mark.asyncio
+async def test_050_reuse_reject_does_not_revoke_others(
+    client: httpx.AsyncClient,
+) -> None:
+    """FR-008: refresh token reuse rejects the request but does NOT revoke
+    other active sessions for the same user.
+    """
+    suffix = secrets.token_hex(4)
+    email = f"reuse-{suffix}@x.io"
+    user_a = await _register(client, email, fp=f"fp-reuse-a-{suffix}")
+    refresh_a = user_a["tokens"]["refresh_token"]
+    fp_a = f"fp-reuse-a-{suffix}"
+
+    # Refresh device A — rotates, old token invalidated.
+    r = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_a},
+        headers=_hdrs(fp=fp_a),
+    )
+    assert r.status_code == 200, r.text
+    new_access_a = r.json()["tokens"]["access_token"]
+
+    # Login device B (same email) — should succeed (A's refresh didn't revoke B).
+    user_b = await _register(client, email, fp=f"fp-reuse-b-{suffix}")
+    access_b = user_b["tokens"]["access_token"]
+
+    # Device A still works.
+    r = await client.get(
+        "/api/v1/users/me",
+        headers=_hdrs(access=new_access_a, fp=fp_a),
+    )
+    assert r.status_code == 200, f"Device A should still work after refresh: {r.text}"
+
+    # Device B also works.
+    r = await client.get(
+        "/api/v1/users/me",
+        headers=_hdrs(access=access_b, fp=f"fp-reuse-b-{suffix}"),
+    )
+    assert r.status_code == 200, f"Device B should also work: {r.text}"
+
+
+# ---- §050-login-session-stability — Multi-tab (FR-001) ----
+
+@pytest.mark.asyncio
+async def test_050_multi_tab_same_device_id(
+    client: httpx.AsyncClient,
+) -> None:
+    """FR-001: two logins with the same device_id create independent sessions
+    (no longer soft-deletes the prior session).
+    """
+    import jwt as pyjwt
+
+    from app.core.config import get_settings
+
+    suffix = secrets.token_hex(4)
+    email = f"mtab-{suffix}@x.io"
+    settings = get_settings()
+
+    # Tab A login
+    tab_a = await _register(client, email, fp=f"fp-mtab-{suffix}")
+    a_access = tab_a["tokens"]["access_token"]
+
+    # Tab B login — same device_fingerprint (simulates same browser).
+    tab_b = await _login(client, email, fp=f"fp-mtab-{suffix}")
+    b_access = tab_b["tokens"]["access_token"]
+
+    # Both sessions must have different session_ids.
+    a_payload = pyjwt.decode(a_access, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    b_payload = pyjwt.decode(b_access, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    assert a_payload.get("session_id") != b_payload.get("session_id"), (
+        "Two logins with the same device_id must produce different session_ids"
+    )
+
+    # Both tabs work independently.
+    r = await client.get(
+        "/api/v1/users/me",
+        headers=_hdrs(access=a_access, fp=f"fp-mtab-{suffix}"),
+    )
+    assert r.status_code == 200, f"Tab A should work: {r.text}"
+
+    r = await client.get(
+        "/api/v1/users/me",
+        headers=_hdrs(access=b_access, fp=f"fp-mtab-{suffix}"),
+    )
+    assert r.status_code == 200, f"Tab B should work: {r.text}"
+
+
+@pytest.mark.asyncio
+async def test_050_multi_tab_independent_refresh(
+    client: httpx.AsyncClient,
+) -> None:
+    """FR-001: two tabs with different session_ids can independently refresh
+    without affecting each other.
+    """
+    suffix = secrets.token_hex(4)
+    email = f"mtab-rf-{suffix}@x.io"
+    fp = f"fp-mtab-rf-{suffix}"
+
+    tab_a = await _register(client, email, fp=fp)
+    a_refresh = tab_a["tokens"]["refresh_token"]
+
+    tab_b = await _register(client, email, fp=fp)
+    b_refresh = tab_b["tokens"]["refresh_token"]
+
+    # Refresh Tab A.
+    r_a = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": a_refresh},
+        headers=_hdrs(fp=fp),
+    )
+    assert r_a.status_code == 200, f"Tab A refresh failed: {r_a.text}"
+    a_new_access = r_a.json()["tokens"]["access_token"]
+
+    # Refresh Tab B.
+    r_b = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": b_refresh},
+        headers=_hdrs(fp=fp),
+    )
+    assert r_b.status_code == 200, f"Tab B refresh failed: {r_b.text}"
+    b_new_access = r_b.json()["tokens"]["access_token"]
+
+    # Both tabs still work after independent refreshes.
+    r = await client.get(
+        "/api/v1/users/me",
+        headers=_hdrs(access=a_new_access, fp=fp),
+    )
+    assert r.status_code == 200, f"Tab A after refresh: {r.text}"
+
+    r = await client.get(
+        "/api/v1/users/me",
+        headers=_hdrs(access=b_new_access, fp=fp),
+    )
+    assert r.status_code == 200, f"Tab B after refresh: {r.text}"
+
+
+# ---- §050-login-session-stability — Eviction (FR-004) ----
+
+@pytest.mark.asyncio
+async def test_050_evicted_session_returns_evicted_error(
+    client: httpx.AsyncClient,
+) -> None:
+    """FR-004: when a session is evicted (max_active_sessions exceeded),
+    the refresh endpoint returns auth.session_evicted.
+    """
+    import jwt as pyjwt
+
+    from app.core.config import get_settings
+
+    suffix = secrets.token_hex(4)
+    email = f"evict-{suffix}@x.io"
+
+    # Register user and capture session_id.
+    first = await _register(client, email, fp=f"fp-evict-1-{suffix}")
+    refresh_first = first["tokens"]["refresh_token"]
+    settings = get_settings()
+    access_first = first["tokens"]["access_token"]
+    first_sid = pyjwt.decode(access_first, settings.jwt_secret, algorithms=[settings.jwt_algorithm]).get("session_id")
+
+    # Create 10 more sessions (max_active_sessions = 10) → first one gets evicted.
+    for i in range(2, 12):
+        await _register(client, email, fp=f"fp-evict-{i}-{suffix}")
+
+    # Try to refresh the first session — should fail with auth.session_evicted.
+    r = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_first},
+        headers=_hdrs(fp=f"fp-evict-1-{suffix}"),
+    )
+    assert r.status_code == 401, f"Expected 401 for evicted session, got {r.status_code}"
+    body = r.json()
+    assert body["error"]["code"] == "auth.session_evicted", (
+        f"Expected auth.session_evicted, got {body['error'].get('code')}"
+    )

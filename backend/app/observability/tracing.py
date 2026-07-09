@@ -28,8 +28,10 @@ from __future__ import annotations
 import contextlib
 import functools
 import inspect
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Literal, ParamSpec, TypeVar
 
@@ -62,6 +64,18 @@ _last_config: TracingConfig | None = None
 # subsequent calls are a no-op (we don't re-register the global provider
 # because OTel SDK only allows one provider per process).
 _tracing_initialized: bool = False
+
+
+@dataclass(frozen=True)
+class TraceContext:
+    run_id: str | None = None
+    trace_id: str | None = None
+    span_id: str | None = None
+
+
+_trace_context_var: ContextVar[TraceContext] = ContextVar(
+    "trace_context", default=TraceContext()
+)
 
 
 @dataclass
@@ -98,6 +112,72 @@ class TracingConfig:
     otlp_endpoint: str | None = None
     otlp_headers: dict[str, str] | None = None
     sample_ratio: float = 1.0
+    langsmith_api_key: str | None = None
+    langsmith_project: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.sample_ratio < 0:
+            self.sample_ratio = 0.0
+        elif self.sample_ratio > 1:
+            self.sample_ratio = 1.0
+
+
+def _valid_hex(value: str | None, length: int) -> bool:
+    return bool(
+        value
+        and len(value) == length
+        and all(ch in "0123456789abcdef" for ch in value)
+    )
+
+
+def bind_trace_context(
+    *,
+    run_id: str | None = None,
+    trace_id: str | None = None,
+    span_id: str | None = None,
+) -> TraceContext:
+    ctx = TraceContext(
+        run_id=run_id,
+        trace_id=trace_id if _valid_hex(trace_id, 32) else None,
+        span_id=span_id if _valid_hex(span_id, 16) else None,
+    )
+    _trace_context_var.set(ctx)
+    return ctx
+
+
+def get_trace_context() -> TraceContext:
+    return _trace_context_var.get()
+
+
+def clear_trace_context() -> None:
+    _trace_context_var.set(TraceContext())
+
+
+def inject_trace_context(ctx: TraceContext | None = None) -> dict[str, str]:
+    ctx = ctx or get_trace_context()
+    trace_id = ctx.trace_id or uuid.uuid4().hex
+    span_id = ctx.span_id or uuid.uuid4().hex[:16]
+    headers = {"traceparent": f"00-{trace_id}-{span_id}-01", "x-trace-id": trace_id}
+    if ctx.run_id:
+        headers["x-run-id"] = ctx.run_id
+    return headers
+
+
+def extract_trace_context(headers: dict[str, str] | Any) -> TraceContext:
+    normalized = {str(k).lower(): str(v) for k, v in dict(headers).items()}
+    run_id = normalized.get("x-run-id") or normalized.get("run_id")
+    traceparent = normalized.get("traceparent", "")
+    trace_id = normalized.get("x-trace-id") or normalized.get("trace_id")
+    span_id = normalized.get("x-span-id") or normalized.get("span_id")
+    parts = traceparent.split("-")
+    if len(parts) == 4:
+        trace_id = trace_id or parts[1]
+        span_id = span_id or parts[2]
+    return TraceContext(
+        run_id=run_id,
+        trace_id=trace_id if _valid_hex(trace_id, 32) else None,
+        span_id=span_id if _valid_hex(span_id, 16) else None,
+    )
 
 
 def init_tracing(config: TracingConfig) -> None:
@@ -182,6 +262,24 @@ def init_tracing(config: TracingConfig) -> None:
             provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
         # effective == "none" → no processor, spans are dropped
 
+        if config.langsmith_api_key:
+            try:
+                from app.observability.langsmith import LangSmithExporter
+
+                provider.add_span_processor(
+                    _LangSmithSpanProcessor(
+                        LangSmithExporter(
+                            api_key=config.langsmith_api_key,
+                            project=config.langsmith_project or "intercraft-prod",
+                        )
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "tracing.langsmith_processor_init_failed_fail_open",
+                    exc_info=True,
+                )
+
         _provider = provider
         # Register globally — first call wins; subsequent calls log a
         # warning but we don't care because we read from _provider anyway.
@@ -240,6 +338,35 @@ def get_tracer() -> Any:
     return trace.get_tracer("intercraft")
 
 
+class _LangSmithSpanProcessor:
+    """Bridge OTel finished spans into the optional LangSmith exporter."""
+
+    def __init__(self, exporter: Any) -> None:
+        self._exporter = exporter
+
+    def on_start(self, span: Any, parent_context: Any | None = None) -> None:
+        return None
+
+    def _on_ending(self, span: Any) -> None:
+        return None
+
+    def on_end(self, span: Any) -> None:
+        try:
+            self._exporter.export([span])
+        except Exception:
+            logger.warning(
+                "tracing.langsmith_processor_export_failed_fail_open",
+                span_name=getattr(span, "name", "unknown"),
+                exc_info=True,
+            )
+
+    def shutdown(self) -> None:
+        return None
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return True
+
+
 def get_in_memory_exporter() -> Any | None:
     """Return the in-memory span exporter if configured, else None.
 
@@ -247,6 +374,17 @@ def get_in_memory_exporter() -> Any | None:
     call this to inspect collected spans.
     """
     return _in_memory_exporter
+
+
+def ensure_generic_otlp_representation(requested_level: str) -> str:
+    """Return the safe representation level for generic OTLP destinations."""
+
+    normalized = str(requested_level).strip().upper()
+    if normalized == "FULL_CONTENT":
+        return "REDACTED"
+    if normalized in {"REDACTED", "METADATA_ONLY", "BLOCKED"}:
+        return normalized
+    raise ValueError(f"unknown representation level: {requested_level!r}")
 
 
 @contextmanager
@@ -435,6 +573,13 @@ def _inject_otel_context(
     initialized), the event dict is returned unchanged.
     """
     try:
+        ctx_var = get_trace_context()
+        if ctx_var.run_id and "run_id" not in event_dict:
+            event_dict["run_id"] = ctx_var.run_id
+        if ctx_var.trace_id and "trace_id" not in event_dict:
+            event_dict["trace_id"] = ctx_var.trace_id
+        if ctx_var.span_id and "span_id" not in event_dict:
+            event_dict["span_id"] = ctx_var.span_id
         from opentelemetry import trace as otel_trace_api
 
         active = otel_trace_api.get_current_span()
@@ -545,15 +690,51 @@ def extract_trace_id_from_span_or_unavailable() -> str:
         return TRACE_UNAVAILABLE
 
 
+def record_req035_capture_event(**kwargs: Any) -> dict[str, Any]:
+    """Build a best-effort capture record with current trace identifiers.
+
+    REQ-035/045 code paths use this as a lightweight bridge between local
+    artifacts and OTel-visible execution. It deliberately has no side effects
+    beyond returning the record so callers can persist, log, or monkeypatch it
+    in tests.
+    """
+    record = dict(kwargs)
+    try:
+        from opentelemetry import trace as otel_trace_api
+
+        active = otel_trace_api.get_current_span()
+        ctx = active.get_span_context() if active is not None else None
+        if ctx is not None and ctx.is_valid:
+            record.setdefault("trace_id", f"{ctx.trace_id:032x}")
+            record.setdefault("span_id", f"{ctx.span_id:016x}")
+    except Exception:
+        pass
+
+    bound = get_trace_context()
+    record.setdefault("trace_id", bound.trace_id or TRACE_UNAVAILABLE)
+    record.setdefault("span_id", bound.span_id or TRACE_UNAVAILABLE)
+    if bound.run_id:
+        record.setdefault("run_id", bound.run_id)
+    return record
+
+
 __all__ = [
     "TRACE_UNAVAILABLE",
+    "TraceContext",
     "TracingConfig",
+    "bind_trace_context",
+    "clear_trace_context",
+    "ensure_generic_otlp_representation",
     "extract_trace_id_from_span_or_unavailable",
+    "extract_trace_context",
     "finish_span_with_exception",
     "get_in_memory_exporter",
+    "get_trace_context",
     "get_tracer",
+    "inject_trace_context",
     "init_tracing",
     "record_llm_span_attributes",
+    "record_req035_capture_event",
     "shutdown_tracing",
     "span",
     "traced_node",

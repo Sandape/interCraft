@@ -154,5 +154,87 @@ def cmd_replay(
     _emit(out, as_json)
 
 
+sessions_typer = typer.Typer(help="Manage auth sessions (FR-011)")
+app.add_typer(sessions_typer, name="sessions")
+
+# ---- Session diagnostics (FR-011 / FR-004) ----
+
+
+@sessions_typer.command("list")
+def cmd_sessions_list(
+    email: str = typer.Option(..., "--email", "-e", help="User email to list sessions for"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """List all active sessions for a user."""
+
+    async def _run() -> list[dict]:
+        from app.core.db import set_rls_user_id
+        from app.modules.auth.models import User
+        from app.modules.sessions.repository import SessionRepository
+        from sqlalchemy import select
+
+        factory = get_session_factory()
+        async with factory() as db:
+            result = await db.execute(select(User).where(User.email == email, User.deleted_at.is_(None)))
+            user = result.scalar_one_or_none()
+            if user is None:
+                raise ValueError(f"User not found: {email}")
+            await set_rls_user_id(db, user.id)
+            repo = SessionRepository(db)
+            sessions = await repo.list_active(user.id)
+            return [
+                {
+                    "session_id": str(s.id),
+                    "device_name": s.device_name or "unknown",
+                    "last_seen_at": s.last_seen_at.isoformat() if s.last_seen_at else None,
+                    "expires_at": s.expires_at.isoformat() if s.expires_at else None,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                }
+                for s in sessions
+            ]
+
+    try:
+        out = asyncio.run(_run())
+    except Exception as e:
+        _err(f"sessions list failed: {e}")
+    if as_json:
+        typer.echo(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+    else:
+        for s in out:
+            typer.echo(f"  {s['session_id']}  {s['device_name']:20s}  last={s['last_seen_at']}  expires={s['expires_at']}")
+
+
+@sessions_typer.command("revoke")
+def cmd_sessions_revoke(
+    email: str = typer.Option(..., "--email", "-e", help="User email"),
+    session_id: str = typer.Option(..., "--session-id", "-s", help="Session ID to revoke"),
+) -> None:
+    """Revoke a specific session for a user."""
+
+    async def _run() -> None:
+        from uuid import UUID
+
+        from app.core.db import set_rls_user_id
+        from app.modules.auth.models import User
+        from app.modules.sessions.service import SessionService
+        from sqlalchemy import select
+
+        factory = get_session_factory()
+        async with factory() as db:
+            result = await db.execute(select(User).where(User.email == email, User.deleted_at.is_(None)))
+            user = result.scalar_one_or_none()
+            if user is None:
+                raise ValueError(f"User not found: {email}")
+            await set_rls_user_id(db, user.id)
+            svc = SessionService(db)
+            await svc.revoke_session(UUID(session_id), user_id=user.id)
+
+    try:
+        asyncio.run(_run())
+        typer.echo(f"Session {session_id} revoked for {email}")
+    except Exception as e:
+        _err(f"sessions revoke failed: {e}")
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

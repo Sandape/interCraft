@@ -175,15 +175,17 @@ def _extract_user_id(body: dict, fallback: UUID) -> UUID:
 
 
 async def test_post_tag_returns_201_and_visible_on_get(
-    bootstrapped_db, two_test_users
+    bootstrapped_db, two_test_users, monkeypatch
 ) -> None:
     """Happy-path POST returns 201 + tag visible on next GET."""
     from app.main import create_app
-    from app.modules.admin_console import auth
+    from app.modules.admin_console.auth import require_admin
 
     user_a_id, _, headers_a, _ = two_test_users
-    # Grant TASK_TAG capability to user A (capability table is process-local).
-    auth.grant_role(user_a_id, "admin")
+    # REQ-051: override require_admin to grant access (no capability matrix)
+    async def _admin_true(*args, **kwargs) -> bool:
+        return True
+    monkeypatch.setattr("app.modules.admin_console.auth.require_admin", _admin_true)
 
     task_id = uuid.uuid4()
     transport = ASGITransport(app=create_app())
@@ -208,14 +210,16 @@ async def test_post_tag_returns_201_and_visible_on_get(
 
 
 async def test_post_duplicate_tag_returns_409(
-    bootstrapped_db, two_test_users
+    bootstrapped_db, two_test_users, monkeypatch
 ) -> None:
     """Re-POSTing an existing tag returns 409 (FR-018)."""
     from app.main import create_app
-    from app.modules.admin_console import auth
+
+    async def _admin_true(*args, **kwargs) -> bool:
+        return True
+    monkeypatch.setattr("app.modules.admin_console.auth.require_admin", _admin_true)
 
     user_a_id, _, headers_a, _ = two_test_users
-    auth.grant_role(user_a_id, "admin")
     task_id = uuid.uuid4()
     transport = ASGITransport(app=create_app())
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -236,14 +240,16 @@ async def test_post_duplicate_tag_returns_409(
 
 
 async def test_post_invalid_tag_charset_returns_422(
-    bootstrapped_db, two_test_users
+    bootstrapped_db, two_test_users, monkeypatch
 ) -> None:
     """Tag with invalid charset returns 422 (E5)."""
     from app.main import create_app
-    from app.modules.admin_console import auth
+
+    async def _admin_true(*args, **kwargs) -> bool:
+        return True
+    monkeypatch.setattr("app.modules.admin_console.auth.require_admin", _admin_true)
 
     user_a_id, _, headers_a, _ = two_test_users
-    auth.grant_role(user_a_id, "admin")
     task_id = uuid.uuid4()
     transport = ASGITransport(app=create_app())
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -256,14 +262,16 @@ async def test_post_invalid_tag_charset_returns_422(
 
 
 async def test_delete_tag_then_readd_has_new_created_at(
-    bootstrapped_db, two_test_users
+    bootstrapped_db, two_test_users, monkeypatch
 ) -> None:
     """Hard-delete + re-add creates a fresh row with a new ``created_at`` (IC-3)."""
     from app.main import create_app
-    from app.modules.admin_console import auth
+
+    async def _admin_true(*args, **kwargs) -> bool:
+        return True
+    monkeypatch.setattr("app.modules.admin_console.auth.require_admin", _admin_true)
 
     user_a_id, _, headers_a, _ = two_test_users
-    auth.grant_role(user_a_id, "admin")
     task_id = uuid.uuid4()
     transport = ASGITransport(app=create_app())
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -297,15 +305,16 @@ async def test_delete_tag_then_readd_has_new_created_at(
 
 
 async def test_rls_user_b_cannot_see_user_a_tags(
-    bootstrapped_db, two_test_users
+    bootstrapped_db, two_test_users, monkeypatch
 ) -> None:
     """User B cannot see user A's tags (FR-031)."""
     from app.main import create_app
-    from app.modules.admin_console import auth
+
+    async def _admin_true(*args, **kwargs) -> bool:
+        return True
+    monkeypatch.setattr("app.modules.admin_console.auth.require_admin", _admin_true)
 
     user_a_id, user_b_id, headers_a, headers_b = two_test_users
-    auth.grant_role(user_a_id, "admin")
-    auth.grant_role(user_b_id, "admin")
     task_id = uuid.uuid4()
     transport = ASGITransport(app=create_app())
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -351,15 +360,21 @@ async def test_rls_user_b_cannot_see_user_a_tags(
 
 
 async def test_post_without_capability_returns_403(
-    bootstrapped_db, two_test_users
+    bootstrapped_db, two_test_users, monkeypatch
 ) -> None:
-    """POST without TASK_TAG capability returns 403."""
+    """POST without admin access returns 403."""
     from app.main import create_app
-    from app.modules.admin_console import auth
+    from fastapi import HTTPException, status
+
+    # REQ-051: non-admin users get 403 from require_admin()
+    async def _admin_deny(*args, **kwargs) -> bool:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "ADMIN_REQUIRED", "message": "需要管理员权限"},
+        )
+    monkeypatch.setattr("app.modules.admin_console.auth.require_admin", _admin_deny)
 
     user_a_id, _, headers_a, _ = two_test_users
-    # Explicitly grant viewer role (no TASK_TAG capability).
-    auth.grant_role(user_a_id, "viewer")
     task_id = uuid.uuid4()
     transport = ASGITransport(app=create_app())
     async with AsyncClient(transport=transport, base_url="http://test") as client:

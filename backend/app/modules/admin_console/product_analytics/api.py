@@ -8,11 +8,7 @@ Mounted by ``app.main`` at two prefixes:
 - ``/api/v1/admin-console/users`` (exported as ``users_router``) —
   privacy-safe user lookup.
 
-Auth: capability check via :func:`app.modules.admin_console.auth.require_capability`
-with the new ``PRODUCT_ANALYTICS_VIEW`` capability (added in this US to
-``admin_console.auth`` role map). User lookup uses ``USER_LOOKUP``
-capability which is a strict subset (granted to ``pm``, ``owner``,
-``admin``, ``operations``).
+Auth: admin-only via :func:`app.modules.admin_console.auth.require_admin`.
 
 Endpoints:
 
@@ -30,7 +26,7 @@ Endpoints:
 
 Error mapping:
 
-- 403 ``missing_capability`` (FR-031)
+- 403 ``admin_required``
 - 404 ``user_not_found`` for unknown ``user_id``
 - 200 + empty data with explicit zero markers (FR-028 valid zero)
 - 500 unexpected (default FastAPI handler)
@@ -44,7 +40,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_current_user_id_optional as _resolve_user_id_from_jwt
-from app.modules.admin_console.auth import require_capability
+from app.modules.admin_console.auth import require_admin
 from app.modules.admin_console.product_analytics import service
 from app.modules.admin_console.product_analytics.schemas import (
     CohortListResponse,
@@ -55,15 +51,6 @@ from app.modules.admin_console.product_analytics.schemas import (
 )
 
 log = structlog.get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Capability tokens
-# ---------------------------------------------------------------------------
-
-
-PRODUCT_ANALYTICS_VIEW = "PRODUCT_ANALYTICS_VIEW"
-USER_LOOKUP = "USER_LOOKUP"
 
 
 # ---------------------------------------------------------------------------
@@ -86,12 +73,12 @@ users_router = APIRouter()
     status_code=200,
     responses={
         200: {"description": "≥21 question templates (3 per tab × 7 tabs)"},
-        403: {"description": "Missing PRODUCT_ANALYTICS_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_question_templates(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(PRODUCT_ANALYTICS_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> QuestionTemplateListResponse:
     """Return the curated question template list (FR-011)."""
     log.info("product_analytics.question_templates.request")
@@ -109,12 +96,12 @@ async def get_question_templates(
     status_code=200,
     responses={
         200: {"description": "5-step funnel with conversion + drop-off + time-to-convert"},
-        403: {"description": "Missing PRODUCT_ANALYTICS_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_funnel(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(PRODUCT_ANALYTICS_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
     template_id: str = Query(
         "q-fun-1",
         min_length=1,
@@ -164,12 +151,12 @@ async def get_funnel(
     status_code=200,
     responses={
         200: {"description": "Cohort list (id/name/definition/population/owner/last_computed_at)"},
-        403: {"description": "Missing PRODUCT_ANALYTICS_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_cohorts(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(PRODUCT_ANALYTICS_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> CohortListResponse:
     """Return the cohort list (FR-013)."""
     log.info("product_analytics.cohorts.request")
@@ -187,12 +174,12 @@ async def get_cohorts(
     status_code=200,
     responses={
         200: {"description": "5-metric adoption grid per feature"},
-        403: {"description": "Missing PRODUCT_ANALYTICS_VIEW capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def get_feature_adoption(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(PRODUCT_ANALYTICS_VIEW))],
+    _cap: Annotated[bool, Depends(require_admin)],
     cohort_id: str | None = Query(
         default=None,
         max_length=64,
@@ -233,14 +220,14 @@ async def health() -> dict[str, str]:
     status_code=200,
     responses={
         200: {"description": "Privacy-safe user profile (allow-listed fields only)"},
-        403: {"description": "Missing USER_LOOKUP capability"},
+        403: {"description": "Admin required"},
         404: {"description": "User not found"},
     },
 )
 async def get_user_safe_lookup(
     user_id: str,
     _caller_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(USER_LOOKUP))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> UserPrivacySafe:
     """Return the privacy-safe profile for ``user_id`` (FR-015).
 

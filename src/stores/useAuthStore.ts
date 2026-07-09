@@ -14,19 +14,24 @@ export type AuthStatus = 'unknown' | 'authenticated' | 'unauthenticated'
 interface AuthState {
   user: PublicUser | null
   status: AuthStatus
+  /** FR-004: when set, a Toast "当前设备已被其他登录踢出" should be shown. */
+  evicted: boolean
   setUser: (user: PublicUser | null) => void
   clear: () => void
   setStatus: (s: AuthStatus) => void
+  setEvicted: (v: boolean) => void
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   status: 'unknown',
+  evicted: false,
   setUser: (user) =>
     set(() => ({
       user,
       status: user ? 'authenticated' : 'unauthenticated',
     })),
-  clear: () => set({ user: null, status: 'unauthenticated' }),
+  clear: () => set({ user: null, status: 'unauthenticated', evicted: false }),
   setStatus: (status) => set({ status }),
+  setEvicted: (evicted) => set({ evicted }),
 }))

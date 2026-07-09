@@ -532,3 +532,61 @@ privacy constraints.
 - Developer debugging views are allowed, but sensitive payload visibility is
   governed by role, reason, audit, redaction, and retention policy.
 - Reports are internal review artifacts, not public customer-facing documents.
+
+## Migration 2026-07-05 — Admin entry consolidated into main SPA
+
+**Scope**: build/dev infrastructure only. FR / SC / US / IA 全部未变, 仅
+"独立 HTML entry → 主 SPA 子路由"。
+
+**Before** (REQ-044 实施期):
+- `index.html` (主 app) + `index.admin.html` (admin) 两个独立 entry
+- `vite.config` 多入口 build (rollupOptions.input.admin) + dev 模式
+  `adminConsolePathPlugin` 中间件把 `/admin-console/*` 强制 fallback 到
+  `index.admin.html`
+- `src/admin/main.tsx` 在 `#admin-root` 单独挂 admin router
+- vite dev: 访问 `/admin-console/*` 直接 serve `index.admin.html` (其内嵌
+  的 `<script src="/src/admin/main.tsx">` 启动 admin SPA)
+- vite build: rollup 产出 `dist/index.html` + `dist/index.admin.html` 两份
+
+**After** (本次迁移):
+- `index.admin.html` 删除
+- `src/admin/main.tsx` 删除 (其 css imports 移到 `src/admin/routes.tsx` 顶部)
+- `vite.config`:
+  - `appType`: `'custom'` → default `'spa'`
+  - `build.rollupOptions.input`: 仅 `main` (admin entry 删除)
+  - `adminConsolePathPlugin` 整体删除 (含 4 个 helpers:
+    `requestUrl` / `requestPathname` / `acceptsHtml` / `shouldServeAdminConsole`
+    / `shouldServeProductApp` / `serveHtmlEntry`)
+- `src/App.tsx` 在受保护 `<Routes>` 下挂
+  `<Route path="/admin-console/*" element={<AdminAppRoutes />} />`
+  (lazy import + AdminAuthGuard 已内含在 `AdminAppRoutes`)
+- vite dev: 访问 `/admin-console/*` 走默认 SPA fallback → `index.html`,
+  React Router 接管
+- vite build: rollup 仅产 `dist/index.html` (admin bundle inline 进主 chunk)
+
+**Why**:
+1. 用户实测访问 `/admin` 返回空白 — 主因 `App.tsx` 未挂 admin 路由, 而
+   `index.admin.html` + admin SPA 又是独立产物 (用户访问 `/admin` 根本不会
+   触发 `adminConsolePathPlugin`)。两个独立 entry 在 dev 模式下需要用户
+   显式打开 `index.admin.html` 才能看到 admin UI, 这与"在主 app 内点击
+   sidebar 跳转" 的预期不符
+2. 独立 entry 还会让 bundle 重复打包 admin 依赖 (尽管 REQ-044 注释说
+   "never bloats user app", 实际 vite 默认 chunk 划分下仍有显著重复)
+3. 简化部署: 单 HTML 单入口, 减少运维心智
+
+**Rollback guardrails** (回滚前必须读完本段):
+- 回滚需要恢复 4 个文件 + 1 个 plugin:
+  - `index.admin.html` (指向 `/src/admin/main.tsx`)
+  - `src/admin/main.tsx` (含 `'./styles/admin.css'` + `'./styles/ai-operations.css'`
+    imports)
+  - `vite.config.{js,ts}` 的 `adminConsolePathPlugin` (4 helpers) + `appType: 'custom'`
+    + `build.rollupOptions.input.admin`
+- 回滚**不会**自动恢复 `src/App.tsx` 的 `<Route path="/admin-console/*" />`,
+  需要同时从 `src/App.tsx` 删除该 `<Route>` (否则 admin SPA + 主 SPA 都会
+  抢同一个 URL 段, 路由冲突)
+
+**Evidence**:
+- `docs/evidence/admin-probe/02-command-center.png` (复验截图, 显示
+  AdminShell + CommandCenter 真实渲染)
+- `vite.config.js` 第 1-15 行迁移注释
+- `vite.config.ts` 第 1-23 行迁移注释

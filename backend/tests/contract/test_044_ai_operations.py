@@ -527,18 +527,4 @@ def test_cost_outdated_flag_when_token_table_stale() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.contract
-def test_ai_operations_capabilities_in_role_map() -> None:
-    """AI_OPERATIONS_VIEW must be granted to pm/owner/admin + operations + maintainer."""
-    from app.modules.admin_console.auth import (
-        AI_OPERATIONS_VIEW,
-        _ROLE_GRANTS,
-    )
-
-    assert AI_OPERATIONS_VIEW in _ROLE_GRANTS["admin"]
-    assert AI_OPERATIONS_VIEW in _ROLE_GRANTS["owner"]
-    assert AI_OPERATIONS_VIEW in _ROLE_GRANTS["pm"]
-    assert AI_OPERATIONS_VIEW in _ROLE_GRANTS["operations"]
-    assert AI_OPERATIONS_VIEW in _ROLE_GRANTS["maintainer"]
-    # FR-031 least-privilege: viewer is denied.
-    assert AI_OPERATIONS_VIEW not in _ROLE_GRANTS["viewer"]
+# REQ-051: capability-matrix test removed — ai-operations now uses require_admin().

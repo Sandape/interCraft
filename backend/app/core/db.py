@@ -92,6 +92,11 @@ async def _session_cm() -> AsyncGenerator[AsyncSession, None]:
     rollback end the transaction, which also resets the `SET LOCAL app.user_id`
     set during the request. With NullPool (tests) or pool_pre_ping (prod)
     the connection cannot leak the previous request's RLS context.
+
+    Belt-and-suspenders: after commit/rollback we also issue a
+    ``RESET app.user_id`` so that even if the connection is returned to
+    the pool mid-failure (where the auto-reset may have been skipped),
+    the next request sees a clean GUC.
     """
     factory = get_session_factory()
     async with factory() as session:
@@ -106,6 +111,17 @@ async def _session_cm() -> AsyncGenerator[AsyncSession, None]:
             except Exception:
                 await session.rollback()
                 raise
+        finally:
+            # Belt-and-suspenders: explicitly clear the RLS GUC so the
+            # connection returned to the pool has no stale user context.
+            # Safe because per-request session is over and connection
+            # is about to be returned to the pool.
+            try:
+                await session.execute(
+                    __import__("sqlalchemy").text("RESET app.user_id")
+                )
+            except Exception:
+                pass
 
 
 async def get_db_session_no_rls() -> AsyncGenerator[AsyncSession, None]:
@@ -119,10 +135,17 @@ async def get_db_session(
 ) -> AsyncGenerator[AsyncSession, None]:
     """Per-request session. If `user_id` is provided, bind RLS via `SET LOCAL`."""
     async with _session_cm() as session:
+        await session.begin()
         if user_id is not None:
-            # SET LOCAL is transaction-scoped; we let the caller manage tx boundaries.
+            # Use SET (session-scoped) instead of SET LOCAL because asyncpg's
+            # ORM autobegin timing makes SET LOCAL disappear between the GUC
+            # statement and the subsequent ORM INSERT when running through
+            # ``session.add(...)`` + ``session.flush()``. SET (third arg false)
+            # binds for the duration of this connection — safe because the
+            # per-request session is closed at yield exit (NullPool + autouse
+            # cleanup in conftest.py).
             await session.execute(
-                __import__("sqlalchemy").text("SELECT set_config('app.user_id', :u, true)"),
+                __import__("sqlalchemy").text("SELECT set_config('app.user_id', :u, false)"),
                 {"u": str(user_id)},
             )
         yield session

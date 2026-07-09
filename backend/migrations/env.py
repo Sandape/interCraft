@@ -29,6 +29,7 @@ from app.modules.content.models import Resource, HelpFAQ, SubscriptionPlan  # no
 from app.modules.ability_profile.models import ProfileShareLink, ProfileView, ExportLog  # noqa: E402,F401
 from app.modules.avatars.models import UserAvatar  # noqa: E402,F401
 from app.modules.admin_console.models import AdminAuditLog, TaskTag, Trace  # noqa: E402,F401
+from app.modules.telemetry_contracts import models as telemetry_contract_models  # noqa: E402,F401
 
 config = context.config
 if config.config_file_name is not None:

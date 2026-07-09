@@ -1,37 +1,46 @@
-// spec: specs/018-fix-product-defects/spec.md — User Story 2 (defect #6)
-// Interview setup phase must let the user pick a resume branch and must
-// submit branch_id when starting the interview.
-import { test, expect } from '@playwright/test';
-import { ensureFreshAccount } from '../helpers/auth';
+import { test, expect } from '@playwright/test'
+import { ensureFreshAccount } from '../helpers/auth'
 
-test.describe('interview setup — resume pick (branch_id)', () => {
-  test('with no resumes, setup shows disabled picker + create link', async ({ page }) => {
-    await ensureFreshAccount(page);
-    await page.goto('/interview/new');
-    await page.waitForURL(/\/interview/, { timeout: 15_000 });
+async function createJob(page: any, accessToken: string): Promise<string> {
+  const resp = await page.request.post('http://127.0.0.1:8000/api/v1/jobs', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    data: {
+      company: 'E2E Corp',
+      position: 'AI PM',
+      requirements_md: 'Original JD for E2E interview launch.',
+    },
+  })
+  expect(resp.status()).toBe(201)
+  return (await resp.json()).id
+}
 
-    // The new picker is a labelled region / select. With zero branches it
-    // should be disabled and surface a CTA to /resume.
-    const picker = page.getByTestId('setup-resume-picker');
-    await expect(picker).toBeVisible();
-    await expect(picker.locator('select')).toBeDisabled();
-    await expect(picker).toContainText(/暂无可用简历|创建简历|新建简历/);
-  });
+test.describe('interview launch workbench resume pick', () => {
+  test('with no resumes, launch workbench shows resume empty state', async ({ page }) => {
+    const account = await ensureFreshAccount(page)
+    const jobId = await createJob(page, account.accessToken)
 
-  test('creating a resume makes the picker enabled', async ({ page }) => {
-    const account = await ensureFreshAccount(page);
+    await page.goto(`/interview/mode?job_id=${jobId}`)
 
-    // Seed a resume branch directly through the backend API (UI modal
-    // selectors vary across versions). Only the `name` field is required.
-    const resp = await page.request.post('http://127.0.0.1:8000/api/v1/resume-branches', {
+    await expect(page.getByTestId('interview-launch-workbench')).toBeVisible()
+    await expect(page.getByTestId('interview-resume-empty')).toBeVisible()
+    await expect(page.getByTestId('interview-start-button')).toBeDisabled()
+  })
+
+  test('creating a v2 resume makes the picker enabled', async ({ page }) => {
+    const account = await ensureFreshAccount(page)
+    const jobId = await createJob(page, account.accessToken)
+
+    const resp = await page.request.post('http://127.0.0.1:8000/api/v1/v2/resumes', {
       headers: { Authorization: `Bearer ${account.accessToken}` },
-      data: { name: 'E2E Branch', company: null, position: null, is_main: true },
-    });
-    expect(resp.status()).toBe(201);
+      data: { name: 'E2E Resume', slug: `e2e-resume-${Date.now()}` },
+    })
+    expect(resp.status()).toBe(201)
 
-    await page.goto('/interview/new');
-    const picker = page.getByTestId('setup-resume-picker');
-    await expect(picker).toBeVisible();
-    await expect(picker.locator('select')).toBeEnabled();
-  });
-});
+    await page.goto(`/interview/mode?job_id=${jobId}`)
+
+    const picker = page.getByTestId('interview-resume-picker')
+    await expect(picker).toBeVisible()
+    await expect(picker).toBeEnabled()
+  })
+})
+

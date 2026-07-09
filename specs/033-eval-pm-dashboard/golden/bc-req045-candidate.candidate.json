@@ -1,0 +1,22 @@
+{
+  "candidateId": "bc-req045-candidate",
+  "badcaseId": "bc-req045-candidate",
+  "badcase": {
+    "badcaseId": "bc-req045-candidate",
+    "type": "EVAL_REGRESSION",
+    "severity": "HIGH",
+    "status": "TRIAGED",
+    "source": "EVAL_FAILURE",
+    "reviewer": "pm",
+    "privacyClass": "REDACTED_SUMMARY",
+    "redactionStatus": "PASSED",
+    "runId": "00000000-0000-0000-0000-000000000045",
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "closureReason": null,
+    "closedAt": null
+  },
+  "redactionAuditId": "not-required",
+  "reviewer": "pm",
+  "reason": "protect regression",
+  "createdAt": "2026-07-05T05:31:46.539078+00:00"
+}

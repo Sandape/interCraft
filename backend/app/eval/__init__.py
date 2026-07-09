@@ -12,6 +12,17 @@ Public API:
 from app.eval.checker import ChineseFidelityChecker, ChineseFidelityResult
 from app.eval.golden_loader import GoldenCase, load_golden_cases
 from app.eval.runner import CaseResult, EvalReport, EvalRunner
+from app.eval import schemas as schemas
+
+REQ045_PLANNED_MODULES = (
+    "schemas",
+    "artifacts",
+    "cli_contracts",
+    "langsmith_sync",
+    "judge",
+    "experiment_compare",
+    "prompt_proposals",
+)
 
 __all__ = [
     "CaseResult",
@@ -20,5 +31,7 @@ __all__ = [
     "EvalReport",
     "EvalRunner",
     "GoldenCase",
+    "REQ045_PLANNED_MODULES",
+    "schemas",
     "load_golden_cases",
 ]

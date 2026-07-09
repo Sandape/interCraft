@@ -1,0 +1,247 @@
+# OpenAPI Contract (excerpt): Resume Root & Derive
+
+**Base**: `/api/v1`  
+**Auth**: existing session / bearer; RLS via `app.user_id`  
+**Note**: Full OpenAPI merge happens at implement time; this file is the feature contract source.
+
+```yaml
+openapi: 3.1.0
+info:
+  title: InterCraft Resume Root & Derive (REQ-055)
+  version: 0.1.0
+paths:
+  /v2/resumes:
+    get:
+      summary: List resumes with optional kind filter
+      parameters:
+        - in: query
+          name: kind
+          schema:
+            type: string
+            enum: [root, derived, standard, all]
+          description: Default all; UI uses root + derived partitions
+      responses:
+        "200":
+          description: Paginated list including kind, job binding, page counts
+    post:
+      summary: Create resume (root | standard | derived-manual rare)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResumeCreate"
+      responses:
+        "201":
+          description: Created
+        "409":
+          description: Root already exists for user
+
+  /v2/resumes/root:
+    get:
+      summary: Get current user root resume (404 if none)
+      responses:
+        "200":
+          description: Root resume
+        "404":
+          description: No root
+
+  /v2/resumes/{id}/promote-root:
+    post:
+      summary: Promote a standard resume data into the single root (copy or convert)
+      responses:
+        "200":
+          description: Root upserted
+        "409":
+          description: Conflict with existing root policy
+
+  /v2/resumes/derive:
+    post:
+      summary: Start one-click derive run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, target_page_count]
+              properties:
+                job_id:
+                  type: string
+                  format: uuid
+                target_page_count:
+                  type: integer
+                  enum: [1, 2, 3]
+                template_id:
+                  type: string
+                root_resume_id:
+                  type: string
+                  format: uuid
+                  description: Optional; defaults to user root
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeriveRunAccepted"
+        "400":
+          description: NO_ROOT / NO_JD / INVALID_PAGES
+
+  /v2/resumes/derive-runs/{run_id}:
+    get:
+      summary: Poll derive run status
+      responses:
+        "200":
+          description: Run status + phase + artifacts summary
+    post:
+      summary: Cancel run (if pending/running)
+      operationId: cancelDeriveRun
+      responses:
+        "200":
+          description: Canceled
+
+  /v2/resumes/derive-runs/{run_id}/resume-guidance:
+    post:
+      summary: Continue from needs_guidance after user choices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [switch_template, hide_modules, reduce_projects, change_target_pages, retry]
+                template_id:
+                  type: string
+                target_page_count:
+                  type: integer
+                  enum: [1, 2, 3]
+                hide_module_ids:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "202":
+          description: Recalibrate accepted
+
+  /v2/resumes/{id}/suggestions:
+    get:
+      summary: List AI suggestions for a derived resume
+      responses:
+        "200":
+          description: Suggestion list
+    post:
+      summary: Regenerate suggestions
+      responses:
+        "202":
+          description: Regeneration started
+
+  /v2/resumes/{id}/suggestions/{suggestion_id}/preview:
+    post:
+      summary: Preview apply without committing
+      responses:
+        "200":
+          description: Diff preview
+
+  /v2/resumes/{id}/suggestions/{suggestion_id}/apply:
+    post:
+      summary: Apply suggestion after user confirm
+      responses:
+        "200":
+          description: Applied; may bump actual_page_count stale flag
+        "409":
+          description: Conflicts with manual edits / needs_supplement
+
+  /v2/resumes/{id}/supplements:
+    post:
+      summary: Submit user supplement answers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answers, sync_target]
+              properties:
+                answers:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      question_id: { type: string }
+                      text: { type: string }
+                sync_target:
+                  type: string
+                  enum: [derived_only, root, discard]
+      responses:
+        "200":
+          description: Stored; optional root sync
+
+  /v2/resumes/{id}/export-gate:
+    get:
+      summary: Check whether derived resume may enter final export
+      responses:
+        "200":
+          description: "{ exportable, actual_page_count, target_page_count, blockers[] }"
+
+  /v2/export/render:
+    post:
+      summary: Existing v2 export; REQ-055 adds expected_page_count enforcement
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                html: { type: string }
+                format: { type: string, enum: [pdf, png, jpeg] }
+                expected_page_count:
+                  type: integer
+                  enum: [1, 2, 3]
+                  description: When set, server counts PDF pages and rejects mismatch
+                resume_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Binary PDF
+        "422":
+          description: PAGE_COUNT_MISMATCH
+
+  /jobs/{id}/derived-resumes:
+    get:
+      summary: List derived resumes bound to job
+      responses:
+        "200":
+          description: Derived resume summaries for job detail panel
+
+components:
+  schemas:
+    ResumeCreate:
+      type: object
+      required: [name, resume_kind]
+      properties:
+        name: { type: string }
+        resume_kind: { type: string, enum: [root, standard] }
+        data: { type: object }
+    DeriveRunAccepted:
+      type: object
+      required: [run_id, status]
+      properties:
+        run_id: { type: string, format: uuid }
+        status: { type: string }
+```
+
+## Error codes (stable)
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `NO_ROOT` | 400 | User has no root resume |
+| `ROOT_EXISTS` | 409 | Second root not allowed |
+| `NO_JD` | 400 | Job `requirements_md` empty |
+| `INVALID_TARGET_PAGES` | 400 | Not in 1/2/3 |
+| `PAGE_COUNT_MISMATCH` | 422 | PDF pages ≠ expected |
+| `EXPORT_BLOCKED` | 409 | Pending claims / page gate / run incomplete |
+| `DERIVE_INFEASIBLE` | 200 run→needs_guidance | Auto calibrate failed |
+| `FABRICATION_REJECTED` | 422 | Validator stripped illegal claims (internal apply path) |

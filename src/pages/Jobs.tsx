@@ -17,15 +17,21 @@ import { Input } from '@/components/ui/Input'
 import { JobStatusBadge } from '@/components/jobs/StatusBadge'
 import { StatusPopover } from '@/components/jobs/StatusPopover'
 import { JobsDetailPanel } from '@/components/jobs/JobsDetailPanel'
+import { InterviewTimeRow } from '@/components/jobs/JobTimeline'
 import { useJobs, useJobStats } from '@/hooks/queries/useJobs'
 import { useJobTransitions } from '@/hooks/queries/useJobTransitions'
 import { OfflineBanner } from '@/components/lock/OfflineBanner'
 import { useCreateJob, useUpdateJobStatus, useDeleteJob } from '@/hooks/mutations/useJobMutations'
 import type { Job } from '@/repositories/JobRepository'
+import { JOB_STATUS_LABELS } from '@/types/jobs'
 
+/**
+ * REQ-053 (T025) — Status labels come from the canonical map. The legacy
+ * keys (oa/hr/offer/rejected/withdrawn) are kept as fallbacks so that jobs
+ * that have not been migrated yet still render something readable.
+ */
 const STATUS_LABELS: Record<string, string> = {
-  applied: '已投递',
-  test: '笔试',
+  ...JOB_STATUS_LABELS,
   oa: 'OA',
   hr: 'HR 面',
   offer: 'Offer',
@@ -37,6 +43,7 @@ interface RowMutationState {
   pending: boolean
   error: string | null
   lastTo: string | null
+  lastInterviewTime: string | null
 }
 
 export default function Jobs() {
@@ -74,23 +81,44 @@ export default function Jobs() {
   const setRow = (id: string, patch: Partial<RowMutationState>) => {
     setRowState((prev) => ({
       ...prev,
-      [id]: { ...{ pending: false, error: null as string | null, lastTo: null as string | null }, ...prev[id], ...patch },
+      [id]: {
+        ...{
+          pending: false,
+          error: null as string | null,
+          lastTo: null as string | null,
+          lastInterviewTime: null as string | null,
+        },
+        ...prev[id],
+        ...patch,
+      },
     }))
   }
 
-  const handleUpdate = (jobId: string, to: string) => {
-    setRow(jobId, { pending: true, error: null, lastTo: to })
+  const handleUpdate = (jobId: string, to: string, interviewTime?: string | null) => {
+    setRow(jobId, {
+      pending: true,
+      error: null,
+      lastTo: to,
+      lastInterviewTime: interviewTime ?? null,
+    })
     updateStatus.mutate(
-      { id: jobId, to },
+      { id: jobId, to, interview_time: interviewTime ?? null },
       {
-        onSuccess: () => setRow(jobId, { pending: false, error: null, lastTo: null }),
+        onSuccess: () =>
+          setRow(jobId, { pending: false, error: null, lastTo: null, lastInterviewTime: null }),
         onError: (e: unknown) =>
-          setRow(jobId, { pending: false, error: extractError(e), lastTo: to }),
+          setRow(jobId, {
+            pending: false,
+            error: extractError(e),
+            lastTo: to,
+            lastInterviewTime: interviewTime ?? null,
+          }),
       },
     )
   }
 
-  const handleRetry = (jobId: string, to: string) => handleUpdate(jobId, to)
+  const handleRetry = (jobId: string, to: string, interviewTime?: string | null) =>
+    handleUpdate(jobId, to, interviewTime)
 
   const handleDelete = (jobId: string) => {
     setRow(jobId, { pending: true, error: null, lastTo: null })
@@ -142,25 +170,34 @@ export default function Jobs() {
         <KanbanStat label="总申请" value={String(total)} icon={<Briefcase className="h-4 w-4" />} />
         <KanbanStat
           label="进行中"
-          value={String((stats.applied ?? 0) + (stats.test ?? 0) + (stats.oa ?? 0) + (stats.hr ?? 0))}
+          // REQ-053 — new "active" set = applied + test + interview_1/2/3.
+          value={String(
+            (stats.applied ?? 0) +
+              (stats.test ?? 0) +
+              (stats.interview_1 ?? 0) +
+              (stats.interview_2 ?? 0) +
+              (stats.interview_3 ?? 0),
+          )}
           icon={<TrendingUp className="h-4 w-4" />}
           tone="brand"
         />
         <KanbanStat
-          label="Offer"
-          value={String(stats.offer ?? 0)}
+          label="已通过"
+          value={String(stats.passed ?? 0)}
           icon={<CheckCircle2 className="h-4 w-4" />}
           tone="success"
         />
         <KanbanStat
-          label="已拒绝"
-          value={String(stats.rejected ?? 0)}
+          label="已失败"
+          value={String(stats.failed ?? 0)}
           icon={<XCircle className="h-4 w-4" />}
           tone="danger"
         />
         <KanbanStat
-          label="已撤回"
-          value={String(stats.withdrawn ?? 0)}
+          // Legacy bucket — surfaced only while the migration (US7) is still
+          // running and old rejected/withdrawn rows exist.
+          label="旧终态"
+          value={String((stats.rejected ?? 0) + (stats.withdrawn ?? 0))}
           icon={<XCircle className="h-4 w-4" />}
           tone="default"
         />
@@ -215,6 +252,7 @@ export default function Jobs() {
                 <tr className="text-left text-2xs text-ink-3 uppercase tracking-wider border-b border-surface-border dark:border-dark-surface-border">
                   <th className="px-4 py-2.5 font-medium">公司 / 岗位</th>
                   <th className="px-4 py-2.5 font-medium">状态</th>
+                  <th className="px-4 py-2.5 font-medium">面试时间</th>
                   <th className="px-4 py-2.5 font-medium">投递时间</th>
                   <th className="px-4 py-2.5 font-medium">备注</th>
                   <th className="px-4 py-2.5 font-medium w-10"></th>
@@ -222,7 +260,14 @@ export default function Jobs() {
               </thead>
               <tbody>
                 {filtered.map((j) => {
-                  const rs = rowState[j.id] ?? { pending: false, error: null, lastTo: null }
+                  const rs =
+                    rowState[j.id] ??
+                    ({
+                      pending: false,
+                      error: null,
+                      lastTo: null,
+                      lastInterviewTime: null,
+                    } as RowMutationState)
                   return (
                     <tr
                       key={j.id}
@@ -245,6 +290,15 @@ export default function Jobs() {
                         <JobStatusBadge status={j.status} testId={`status-badge-${j.id}`} />
                       </td>
                       <td className="px-4 py-3 text-xs text-ink-2">
+                        {j.interview_time ? (
+                          <span data-testid={`job-interview-time-${j.id}`}>
+                            {new Date(j.interview_time).toLocaleString('zh-CN')}
+                          </span>
+                        ) : (
+                          <span className="text-ink-3">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-ink-2">
                         {j.created_at ? new Date(j.created_at).toLocaleDateString('zh-CN') : '—'}
                       </td>
                       <td className="px-4 py-3">
@@ -259,8 +313,9 @@ export default function Jobs() {
                           isPending={rs.pending}
                           error={rs.error}
                           lastAttemptedTo={rs.lastTo}
-                          onUpdate={(to) => handleUpdate(j.id, to)}
-                          onRetry={(to) => handleRetry(j.id, to)}
+                          lastAttemptedInterviewTime={rs.lastInterviewTime}
+                          onUpdate={(to, t) => handleUpdate(j.id, to, t)}
+                          onRetry={(to, t) => handleRetry(j.id, to, t)}
                           onDelete={() => handleDelete(j.id)}
                           labels={STATUS_LABELS}
                         />

@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { PatchUserInput } from '../../repositories/AccountRepository'
 import type { PublicUser } from '../../api/types'
-import { getAccountRepository } from '../../repositories/types'
+import { getAccountRepository } from '../../repositories/authRepositories'
 import { CURRENT_USER_KEY } from '../queries/useCurrentUser'
 
 export function useUpdateProfile() {

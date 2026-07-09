@@ -1,0 +1,22 @@
+{
+  "candidateId": "badcase-b1a12ecb-b282-4265-80ee-8717746ca568",
+  "badcaseId": "badcase-b1a12ecb-b282-4265-80ee-8717746ca568",
+  "badcase": {
+    "badcaseId": "badcase-b1a12ecb-b282-4265-80ee-8717746ca568",
+    "type": "EVAL_REGRESSION",
+    "severity": "HIGH",
+    "status": "OPEN",
+    "source": "EVAL_FAILURE",
+    "reviewer": "alice",
+    "privacyClass": "PUBLIC_METADATA",
+    "redactionStatus": "NOT_REQUIRED",
+    "runId": null,
+    "traceId": null,
+    "closureReason": null,
+    "closedAt": null
+  },
+  "redactionAuditId": "audit-123",
+  "reviewer": "alice",
+  "reason": "protect_regression",
+  "createdAt": "2026-06-28T16:18:15.254288+00:00"
+}

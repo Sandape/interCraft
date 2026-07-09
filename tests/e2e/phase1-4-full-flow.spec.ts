@@ -118,10 +118,10 @@ test.describe('Phase 4 — Interview Pages', () => {
     expect(page.url()).toContain('/interview')
   })
 
-  test('interview new page renders', async ({ page }) => {
+  test('interview new route redirects to mode selection', async ({ page }) => {
     await page.goto(`${BASE_URL}/interview/new`)
     await page.waitForLoadState('networkidle')
-    expect(page.url()).toContain('/interview/new')
+    expect(page.url()).toContain('/interview/mode')
   })
 
   test('interview report page handles missing id', async ({ page }) => {
@@ -185,7 +185,7 @@ test.describe('Phase 3+4 — API Tests', () => {
     // Create session
     const createRes = await request.post(`${API_URL}/interview-sessions`, {
       headers: { Authorization: `Bearer ${authToken}` },
-      data: { position: '高级Python工程师', company: 'Google', mode: 'text' },
+      data: { position: '高级Python工程师', company: 'Google', mode: 'full', max_questions: 10 },
     })
     expect([200, 201]).toContain(createRes.status())
     const body = await createRes.json()
@@ -193,7 +193,7 @@ test.describe('Phase 3+4 — API Tests', () => {
     expect(sessionId).toBeTruthy()
 
     // Start session
-    const startRes = await request.put(`${API_URL}/interview-sessions/${sessionId}/start`, {
+    const startRes = await request.post(`${API_URL}/interview-sessions/${sessionId}/start`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
     expect(startRes.status()).toBeLessThan(500)
@@ -202,7 +202,7 @@ test.describe('Phase 3+4 — API Tests', () => {
     const answerRes = await request.post(`${API_URL}/interview-sessions/${sessionId}/answers`, {
       headers: { Authorization: `Bearer ${authToken}` },
       data: {
-        answer: '我拥有5年Python后端开发经验，熟悉FastAPI、SQLAlchemy、分布式系统设计等。我对Google的技术栈非常感兴趣。',
+        content: '我拥有5年Python后端开发经验，熟悉FastAPI、SQLAlchemy、分布式系统设计等。我对Google的技术栈非常感兴趣。',
         sequence_no: 0,
       },
     })

@@ -260,9 +260,33 @@ async def list_review_actions(
     return list(result.scalars().all())
 
 
+def build_promotion_audit_row(
+    *,
+    badcase_id: str,
+    lifecycle: str,
+    dataset_version: str,
+    export_policy_decision_id: str | None = None,
+    reviewer: str,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "badcase_id": badcase_id,
+        "action_type": "PROMOTE_CANDIDATE",
+        "actor_role": "BADCASE_REVIEWER",
+        "reason": reason,
+        "evidence_ref": export_policy_decision_id,
+        "metadata": {
+            "lifecycle": lifecycle,
+            "dataset_version": dataset_version,
+            "reviewer": reviewer,
+        },
+    }
+
+
 __all__ = [
     "add_evidence",
     "add_review_action",
+    "build_promotion_audit_row",
     "create",
     "get",
     "list_all",

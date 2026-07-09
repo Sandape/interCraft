@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { type ReactNode } from 'react'
+import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
   FileText,
@@ -7,18 +7,18 @@ import {
   Radar,
   Settings,
   Briefcase,
-  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   Sparkles,
   BookOpen,
   HelpCircle,
-  Plus,
   Search,
   BarChart3,
+  Shield,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useResumeBranches } from '@/hooks/queries/useResumeBranches'
+import { useResumeV2List } from '@/hooks/queries/useResumeV2List'
+import { useAuthStore } from '@/stores/useAuthStore'
 
 interface SidebarItem {
   to: string
@@ -37,17 +37,14 @@ const secondaryNav: SidebarItem[] = [
 ]
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  const location = useLocation()
-  const [resumesOpen, setResumesOpen] = useState(true)
-  const activeResumeOnRoute = location.pathname.startsWith('/resume')
-  const onResume = activeResumeOnRoute
-
-  const { data: branches = [] } = useResumeBranches()
+  // 036 Phase A.2 — single 简历中心 entry; v1 branch tree retired.
+  // Count badge reflects the v2 resume list length.
+  const { data: v2Resumes = [] } = useResumeV2List()
+  const isAdmin = useAuthStore((s) => s.user?.is_admin === true)
 
   const primaryNav: SidebarItem[] = [
     { to: '/dashboard', label: '工作台', icon: <LayoutDashboard className="h-4 w-4" /> },
-    { to: '/resume', label: '简历中心', icon: <FileText className="h-4 w-4" />, badge: branches.length },
-    { to: '/resume-v2', label: 'v2 简历', icon: <Sparkles className="h-4 w-4" />, exact: true },
+    { to: '/resume', label: '简历中心', icon: <FileText className="h-4 w-4" />, badge: v2Resumes.length },
     { to: '/interview', label: '模拟面试', icon: <MessageSquareText className="h-4 w-4" /> },
     { to: '/ability-profile', label: '个人画像', icon: <Radar className="h-4 w-4" /> },
   ]
@@ -125,74 +122,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
           </div>
         </div>
 
-        {/* 简历分支树（仅在简历页展开） */}
-        {!collapsed && onResume && (
-          <div className="animate-fade-in">
-            <button
-              onClick={() => setResumesOpen((v) => !v)}
-              className="w-full flex items-center justify-between px-2 mb-1 group"
-            >
-              <span className="text-2xs font-semibold text-ink-3 uppercase tracking-wider">
-                简历分支
-              </span>
-              <div className="flex items-center gap-1">
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation()
-                  }}
-                  className="p-0.5 rounded hover:bg-surface-muted text-ink-3 hover:text-ink-1 cursor-pointer"
-                  role="button"
-                  aria-label="新建分支"
-                >
-                  <Plus className="h-3 w-3" />
-                </span>
-                <ChevronDown
-                  className={cn(
-                    'h-3 w-3 text-ink-3 transition-transform',
-                    !resumesOpen && '-rotate-90',
-                  )}
-                />
-              </div>
-            </button>
-            {resumesOpen && (
-              <div className="space-y-0.5">
-                {branches.map((b) => {
-                  const isActive = location.pathname === `/resume/${b.id}`
-                  return (
-                    <NavLink
-                      key={b.id}
-                      to={`/resume/${b.id}`}
-                      className={cn(
-                        'flex items-center gap-1.5 pl-5 pr-2 h-7 rounded text-xs transition-colors',
-                        isActive
-                          ? 'bg-surface-muted dark:bg-dark-surface-muted text-ink-1 font-medium'
-                          : 'text-ink-3 dark:text-dark-ink-tertiary hover:bg-surface-muted dark:hover:bg-dark-surface-muted hover:text-ink-1 dark:hover:text-dark-ink-primary',
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'h-1.5 w-1.5 rounded-full flex-shrink-0',
-                          b.is_main
-                            ? 'bg-brand-500'
-                            : b.status === 'ready'
-                              ? 'bg-emerald-500'
-                              : b.status === 'optimizing'
-                                ? 'bg-amber-500'
-                                : b.status === 'submitted'
-                                  ? 'bg-violet-500'
-                                  : b.status === 'archived'
-                                    ? 'bg-stone-400'
-                                    : 'bg-ink-muted',
-                        )}
-                      />
-                      <span className="truncate flex-1">{b.name}</span>
-                    </NavLink>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
+        {/* 简历分支树已下线（v1 resume_branches 表退役，036 Phase A.2） */}
 
         {/* 次要导航 */}
         <div>
@@ -219,6 +149,23 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                 {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
               </NavLink>
             ))}
+            {/* FR-014: 管理后台入口 — 仅在 isAdmin 时可见 */}
+            {isAdmin && (
+              <NavLink
+                to="/admin-console/command-center"
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-2 px-2 h-7 rounded text-sm transition-colors',
+                    isActive
+                      ? 'bg-brand-50 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 font-medium'
+                      : 'text-ink-2 dark:text-dark-ink-secondary hover:bg-surface-muted dark:hover:bg-dark-surface-muted hover:text-ink-1 dark:hover:text-dark-ink-primary',
+                  )
+                }
+              >
+                <span className="flex-shrink-0"><Shield className="h-4 w-4" /></span>
+                {!collapsed && <span className="flex-1 truncate">管理后台</span>}
+              </NavLink>
+            )}
           </div>
         </div>
       </nav>

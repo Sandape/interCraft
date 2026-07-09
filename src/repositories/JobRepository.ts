@@ -16,6 +16,8 @@ export interface Job {
   employment_type: string
   salary_range_text: string | null
   headcount: number | null
+  // REQ-053 (T028) — interview time for round-based status (test/interview_1/2/3)
+  interview_time: string | null
   created_at: string
   updated_at: string
 }
@@ -39,7 +41,12 @@ export abstract class JobRepository {
   abstract create(input: { company: string; position: string; jd_url?: string; branch_id?: string; notes_md?: string | null }): Promise<Job>
   abstract get(id: string): Promise<Job>
   abstract patch(id: string, patch: Record<string, unknown>): Promise<Job>
-  abstract updateStatus(id: string, to: string, note?: string): Promise<Job>
+  abstract updateStatus(
+    id: string,
+    to: string,
+    note?: string,
+    interview_time?: string | null,
+  ): Promise<Job>
   abstract delete(id: string): Promise<void>
   abstract stats(): Promise<JobStats>
   abstract timeline(id: string): Promise<{ data: JobTimelineEntry[] }>
@@ -66,8 +73,16 @@ export class HttpJobRepository extends JobRepository {
     return request('PATCH', `${BASE}/${id}`, patch)
   }
 
-  async updateStatus(id: string, to: string, note?: string): Promise<Job> {
-    return request('PATCH', `${BASE}/${id}/status`, { to, note })
+  async updateStatus(
+    id: string,
+    to: string,
+    note?: string,
+    interview_time?: string | null,
+  ): Promise<Job> {
+    // REQ-053: PATCH /jobs/{id}/status with optional interview_time
+    const body: Record<string, unknown> = { to, note }
+    if (interview_time !== undefined) body.interview_time = interview_time
+    return request('PATCH', `${BASE}/${id}/status`, body)
   }
 
   async delete(id: string): Promise<void> {
@@ -111,6 +126,7 @@ export class MockJobRepository extends JobRepository {
       status: 'applied',
       status_history: [{ from_status: '', to_status: 'applied', changed_at: new Date().toISOString() }],
       notes_md: input.notes_md ?? null,
+      interview_time: null,
       base_location: input.base_location ?? '',
       requirements_md: input.requirements_md ?? null,
       employment_type: input.employment_type ?? 'unspecified',
@@ -135,10 +151,23 @@ export class MockJobRepository extends JobRepository {
     return j
   }
 
-  async updateStatus(id: string, to: string, note?: string): Promise<Job> {
+  async updateStatus(
+    id: string,
+    to: string,
+    note?: string,
+    interview_time?: string | null,
+  ): Promise<Job> {
     const j = await this.get(id)
     j.status_history.push({ from_status: j.status, to_status: to, note, changed_at: new Date().toISOString() })
     j.status = to
+    // REQ-053: mock mirrors backend behaviour — set on interview rounds, clear on terminals.
+    const isInterview = ['test', 'interview_1', 'interview_2', 'interview_3'].includes(to)
+    const isTerminal = to === 'failed' || to === 'passed'
+    if (isInterview && interview_time) {
+      j.interview_time = interview_time
+    } else if (isTerminal) {
+      j.interview_time = null
+    }
     j.updated_at = new Date().toISOString()
     return j
   }

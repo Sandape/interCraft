@@ -1,7 +1,11 @@
-"""AuthSession repository — 5-device limit aware."""
+"""AuthSession repository — 10-device limit aware, expires_at filtered.
+
+FR-003: list_active and count_active filter by expires_at > NOW() so
+expired sessions do not consume the max_active_sessions quota.
+"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -18,9 +22,14 @@ class SessionRepository(BaseRepository[AuthSession]):
         super().__init__(session)
 
     async def list_active(self, user_id: UUID) -> list[AuthSession]:
+        now = datetime.now(timezone.utc)
         stmt = (
             select(AuthSession)
-            .where(AuthSession.user_id == user_id, AuthSession.deleted_at.is_(None))
+            .where(
+                AuthSession.user_id == user_id,
+                AuthSession.deleted_at.is_(None),
+                AuthSession.expires_at > now,
+            )
             .order_by(AuthSession.last_seen_at.desc())
         )
         result = await self.session.execute(stmt)
@@ -29,9 +38,11 @@ class SessionRepository(BaseRepository[AuthSession]):
     async def count_active(self, user_id: UUID) -> int:
         from sqlalchemy import func as sa_func
 
+        now = datetime.now(timezone.utc)
         stmt = select(sa_func.count()).select_from(AuthSession).where(
             AuthSession.user_id == user_id,
             AuthSession.deleted_at.is_(None),
+            AuthSession.expires_at > now,
         )
         result = await self.session.execute(stmt)
         return int(result.scalar() or 0)
@@ -48,9 +59,14 @@ class SessionRepository(BaseRepository[AuthSession]):
         return await self.get(session_id)
 
     async def oldest_active(self, user_id: UUID) -> AuthSession | None:
+        now = datetime.now(timezone.utc)
         stmt = (
             select(AuthSession)
-            .where(AuthSession.user_id == user_id, AuthSession.deleted_at.is_(None))
+            .where(
+                AuthSession.user_id == user_id,
+                AuthSession.deleted_at.is_(None),
+                AuthSession.expires_at > now,
+            )
             .order_by(AuthSession.last_seen_at.asc())
             .limit(1)
         )

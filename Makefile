@@ -1,13 +1,19 @@
 # InterCraft dev Makefile
 # Phase 1: no Docker, no Postgres in repo. Use T008b to plug DATABASE_URL.
 
-.PHONY: up down test e2e seed reset gen-api lint typecheck backend-test backend-migrate
+.PHONY: up down restart restart-dry test e2e seed reset gen-api lint typecheck backend-test backend-migrate
 
 up:
 	bash scripts/dev-up.sh
 
 down:
 	@echo "Nothing to bring down (no docker compose). Stop uvicorn/vite with Ctrl-C."
+
+restart:
+	bash scripts/dev-restart.sh
+
+restart-dry:
+	bash scripts/dev-restart.sh --dry-run
 
 backend-test:
 	cd backend && uv run pytest -q

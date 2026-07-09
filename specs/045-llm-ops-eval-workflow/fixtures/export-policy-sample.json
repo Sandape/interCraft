@@ -1,0 +1,22 @@
+{
+  "runId": "eval-run-req045-policy-sample",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Interview evaluator rubric prompt"
+    },
+    {
+      "role": "user",
+      "content": "Candidate interview answer and resume excerpt"
+    }
+  ],
+  "outputs": {
+    "score": 0.86,
+    "feedback": "Meets the rubric with minor omissions."
+  },
+  "metadata": {
+    "datasetVersion": "golden-v1",
+    "promptFingerprint": "sha256:req045-sample",
+    "sensitivePayload": false
+  }
+}

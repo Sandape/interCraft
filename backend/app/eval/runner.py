@@ -114,6 +114,10 @@ class EvalReport:
     branch: str = "unknown"
     prompt_fingerprint: str = "unknown"
     rubric_version: str = "unknown"
+    dataset_version: str = "golden-v1"
+    langsmith_export_status: str = "DISABLED"
+    langsmith_url: str = "unavailable"
+    export_policy_decision_id: str | None = None
     # REQ-033 US5 (T049): nightly real-model budget tracking.
     total_budget: str = "unknown"
     budget_tokens_used: int = 0
@@ -190,6 +194,7 @@ class EvalRunner:
         app_version: str | None = None,
         schema_version: str = "v1",
         rubric_version: str = "unknown",
+        dataset_version: str = "golden-v1",
         system_prompt: str = "",
         tool_defs: list[dict[str, Any]] | None = None,
         messages: list[dict[str, Any]] | None = None,
@@ -208,6 +213,7 @@ class EvalRunner:
         self.app_version = app_version or self._detect_app_version()
         self.schema_version = schema_version
         self.rubric_version = rubric_version or "unknown"
+        self.dataset_version = dataset_version or "golden-v1"
         self.branch = branch or self._detect_branch()
         # US5: nightly real-model budget tracking (T049).
         self.nightly_real_model = nightly_real_model
@@ -316,6 +322,7 @@ class EvalRunner:
             branch=self.branch,
             prompt_fingerprint=self.prompt_fingerprint,
             rubric_version=self.rubric_version,
+            dataset_version=self.dataset_version,
             environment=self.environment,
             total_budget=(
                 f"{self.budget_tokens} tokens / ${self.budget_cost_usd:.2f}"
@@ -555,6 +562,7 @@ class EvalRunner:
             branch=self.branch,
             prompt_fingerprint=self.prompt_fingerprint,
             rubric_version=self.rubric_version,
+            dataset_version=self.dataset_version,
             environment=self.environment,
             total_budget=(
                 f"{self.budget_tokens} tokens / ${self.budget_cost_usd:.2f}"
@@ -731,6 +739,7 @@ async def run_eval_suite(
     app_version: str | None = None,
     schema_version: str = "v1",
     rubric_version: str = "unknown",
+    dataset_version: str = "golden-v1",
     system_prompt: str = "",
     tool_defs: list[dict[str, Any]] | None = None,
     messages: list[dict[str, Any]] | None = None,
@@ -766,6 +775,7 @@ async def run_eval_suite(
         app_version=app_version,
         schema_version=schema_version,
         rubric_version=rubric_version,
+        dataset_version=dataset_version,
         system_prompt=system_prompt,
         tool_defs=tool_defs,
         messages=messages,

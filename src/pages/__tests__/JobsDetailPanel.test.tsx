@@ -10,6 +10,7 @@ const baseJob: Job = {
   position: '前端',
   jd_url: null,
   branch_id: null,
+  interview_time: null,
   status: 'applied',
   status_history: [],
   notes_md: null,

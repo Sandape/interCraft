@@ -33,14 +33,20 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
+from app.eval.experiment_compare import compare_experiments
+from app.eval.prompt_proposals import create_prompt_proposal, proposal_to_payload
+from app.modules.badcases.promotion import promote_badcase_to_eval_case
 from app.modules.admin_console.ai_operations.schemas import (
     AIQualityIssue,
     AIQualityIssueListResponse,
     BadcaseRow,
+    BadcasePromotionResponse,
     CostFeatureBreakdown,
     CostQualityFlag,
     CostSummaryResponse,
     EvalBadcaseSummary,
+    ExperimentCompareResponse,
+    PromptProposalResponse,
     EvalRunSummary,
     FailureCategory,
     FailureCategoryBreakdown,
@@ -356,6 +362,87 @@ def get_cost_summary() -> CostSummaryResponse:
     )
 
 
+def compare_eval_reports(
+    *,
+    baseline: dict,
+    candidate: dict,
+    min_quality_delta: float = 0.0,
+) -> ExperimentCompareResponse:
+    result = compare_experiments(
+        baseline=baseline,
+        candidate=candidate,
+        min_quality_delta=min_quality_delta,
+    )
+    return ExperimentCompareResponse(
+        comparison_id=result["comparisonId"],
+        baseline_run_id=result["baselineRunId"],
+        candidate_run_id=result["candidateRunId"],
+        baseline_pass_rate=result["baselinePassRate"],
+        candidate_pass_rate=result["candidatePassRate"],
+        quality_delta=result["qualityDelta"],
+        cost_delta_usd=result["costDeltaUsd"],
+        latency_delta_ms=result["latencyDeltaMs"],
+        recommendation=result["recommendation"],
+        risk_flags=result["riskFlags"],
+    )
+
+
+def promote_badcase_for_eval(
+    *,
+    badcase: dict,
+    lifecycle: str,
+    dataset_version: str,
+    reviewer: str,
+    reason: str,
+    export_policy_decision_id: str | None = None,
+) -> BadcasePromotionResponse:
+    eval_case = promote_badcase_to_eval_case(
+        badcase,
+        lifecycle=lifecycle,
+        dataset_version=dataset_version,
+        export_policy_decision_id=export_policy_decision_id,
+        reviewer=reviewer,
+        reason=reason,
+    )
+    return BadcasePromotionResponse(
+        eval_case=eval_case,
+        lifecycle=eval_case["lifecycle"],
+        dataset_version=eval_case["dataset_version"],
+    )
+
+
+def create_prompt_proposal_for_review(
+    *,
+    source_run_ids: list[str],
+    source_case_ids: list[str],
+    target_graph: str,
+    target_node: str,
+    candidate_fingerprint: str,
+    expected_impact: str,
+) -> PromptProposalResponse:
+    proposal = create_prompt_proposal(
+        source_run_ids=source_run_ids,
+        source_case_ids=source_case_ids,
+        target_graph=target_graph,
+        target_node=target_node,
+        candidate_fingerprint=candidate_fingerprint,
+        expected_impact=expected_impact,
+    )
+    payload = proposal_to_payload(proposal)
+    return PromptProposalResponse(
+        proposal_id=payload["proposalId"],
+        status=payload["status"],
+        source_run_ids=payload["sourceRunIds"],
+        source_case_ids=payload["sourceCaseIds"],
+        target_graph=payload["targetGraph"],
+        target_node=payload["targetNode"],
+        candidate_fingerprint=payload["candidateFingerprint"],
+        expected_impact=payload["expectedImpact"],
+        comparison_run_id=payload["comparisonRunId"],
+        approval_owner=payload["approvalOwner"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # FR-017: Version selector (4 dimensions)
 # ---------------------------------------------------------------------------
@@ -617,7 +704,10 @@ __all__ = [
     "COST_QUALITY_FLAG_COST_PCT",
     "COST_QUALITY_FLAG_QUALITY_PCT",
     "COST_RECONCILIATION_STALE_DAYS",
+    "compare_eval_reports",
     "compute_cost_quality_flag",
+    "promote_badcase_for_eval",
+    "create_prompt_proposal_for_review",
     "get_cost_quality_flag",
     "get_cost_summary",
     "get_eval_badcase_summary",

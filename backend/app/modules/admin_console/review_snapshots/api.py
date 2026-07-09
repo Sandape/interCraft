@@ -2,8 +2,7 @@
 
 Mounted at ``/api/v1/admin-console/review-snapshots`` by :mod:`app.main`.
 
-Auth: capability check via :func:`app.modules.admin_console.auth.require_capability`
-with the new US7 capability ``REVIEW_SNAPSHOT``.
+Auth: admin-only via :func:`app.modules.admin_console.auth.require_admin`.
 
 Endpoints:
 
@@ -23,7 +22,7 @@ Endpoints:
 
 Error mapping:
 
-- 403 ``missing_capability`` (FR-031, SC-008).
+- 403 ``admin_required``.
 - 422 ``snapshot_blocked_expired`` (EC-3).
 - 404 ``snapshot_not_found``.
 - 405 ``snapshot_immutable`` (AC-30.4).
@@ -37,10 +36,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.api.deps import get_current_user_id_optional as _resolve_user_id_from_jwt
-from app.modules.admin_console.auth import (
-    REVIEW_SNAPSHOT,
-    require_capability,
-)
+from app.modules.admin_console.auth import require_admin
 from app.modules.admin_console.review_snapshots import service
 from app.modules.admin_console.review_snapshots.schemas import (
     ReviewSnapshotListResponse,
@@ -49,9 +45,6 @@ from app.modules.admin_console.review_snapshots.schemas import (
 )
 
 log = structlog.get_logger(__name__)
-
-# Re-export for callers that import from this module.
-REVIEW_SNAPSHOT = REVIEW_SNAPSHOT  # noqa: F811
 
 review_snapshots_router = APIRouter()
 
@@ -71,14 +64,14 @@ def _actor_handle(user_id: UUID) -> str:
     status_code=201,
     responses={
         201: {"description": "Snapshot generated + audit event written"},
-        403: {"description": "Missing REVIEW_SNAPSHOT capability"},
+        403: {"description": "Admin required"},
         422: {"description": "snapshot blocked: period contains expired records (EC-3)"},
     },
 )
 async def create_review_snapshot(
     body: ReviewSnapshotRequest,
     user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(REVIEW_SNAPSHOT))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> ReviewSnapshotResponse:
     """Generate a review snapshot (FR-029)."""
     log.info(
@@ -118,12 +111,12 @@ async def create_review_snapshot(
     status_code=200,
     responses={
         200: {"description": "List of generated snapshots"},
-        403: {"description": "Missing REVIEW_SNAPSHOT capability"},
+        403: {"description": "Admin required"},
     },
 )
 async def list_review_snapshots(
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(REVIEW_SNAPSHOT))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> ReviewSnapshotListResponse:
     """List review snapshots (FR-029)."""
     log.info("review_snapshots.list")
@@ -141,14 +134,14 @@ async def list_review_snapshots(
     status_code=200,
     responses={
         200: {"description": "Snapshot with fresh current_values + delta"},
-        403: {"description": "Missing REVIEW_SNAPSHOT capability"},
+        403: {"description": "Admin required"},
         404: {"description": "snapshot not found"},
     },
 )
 async def get_review_snapshot(
     snapshot_id: str,
     _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
-    _cap: Annotated[bool, Depends(require_capability(REVIEW_SNAPSHOT))],
+    _cap: Annotated[bool, Depends(require_admin)],
 ) -> ReviewSnapshotResponse:
     """Get a snapshot with re-fetched current values + delta (FR-030)."""
     log.info("review_snapshots.get", snapshot_id=snapshot_id)
@@ -237,7 +230,4 @@ async def review_snapshots_health() -> dict[str, str]:
     return {"status": "ok", "module": "review_snapshots"}
 
 
-__all__ = [
-    "REVIEW_SNAPSHOT",
-    "review_snapshots_router",
-]
+__all__ = ["review_snapshots_router"]

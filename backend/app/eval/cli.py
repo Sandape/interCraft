@@ -44,9 +44,25 @@ from uuid import uuid4
 import structlog
 
 from app.eval.export_policy import PolicyViolation
+from app.eval.experiment_compare import compare_experiments
 from app.eval.golden_loader import load_golden_cases
-from app.eval.report import EvalReportModel, render_markdown_report
+from app.eval.judge import calibrate_judge_rubric, default_judge_rubric, run_judge_cases
+from app.eval.langsmith_sync import LangSmithSyncError, sync_report_to_langsmith
+from app.eval.prompt_proposals import (
+    approve_prompt_proposal,
+    compare_prompt_proposal,
+    create_prompt_proposal,
+    proposal_from_payload,
+    proposal_to_payload,
+    reject_prompt_proposal,
+)
+from app.eval.report import EvalReportModel, render_markdown_report, write_req045_report_artifacts
 from app.eval.runner import EvalReport, EvalRunner
+from app.eval.schemas import Environment, ExportDestination, RepresentationLevel
+from app.modules.telemetry_contracts.export_policy import (
+    DestinationPolicyInput,
+    decide_export_policy,
+)
 
 logger = structlog.get_logger("eval.cli")
 
@@ -61,6 +77,7 @@ _VALID_ENVS: frozenset[str] = frozenset({"local", "ci", "staging", "production"}
 _VALID_GATES: frozenset[str] = frozenset(
     {"pr_eval", "baseline_refresh", "emergency_override"}
 )
+_VALID_SYNC_LANGSMITH: frozenset[str] = frozenset({"never", "auto", "require"})
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +132,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     if suite not in _VALID_SUITES:
         print(
             f"[eval] invalid --suite {suite!r}; expected one of {sorted(_VALID_SUITES)}",
+            file=sys.stderr,
+        )
+        return 2
+    sync_mode = getattr(args, "sync_langsmith", "never") or "never"
+    if sync_mode not in _VALID_SYNC_LANGSMITH:
+        print(
+            f"[eval] invalid --sync-langsmith {sync_mode!r}; expected one of {sorted(_VALID_SYNC_LANGSMITH)}",
             file=sys.stderr,
         )
         return 2
@@ -178,10 +202,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     if nightly_real_model and not within:
         # Build a minimal INCOMPLETE report (no cases run).
         report = runner.build_incomplete_report(reason)
-        if args.markdown_out:
+        args.langsmith_export_status = "DISABLED"
+        args.langsmith_url = "unavailable"
+        if args.markdown_out and args.report_out:
+            write_req045_report_artifacts(
+                report,
+                json_path=Path(args.report_out),
+                markdown_path=Path(args.markdown_out),
+                suite=suite,
+                dataset_version=f"{suite}-v1",
+                langsmith_export_status="DISABLED",
+            )
+        elif args.markdown_out:
             _write_markdown(report, Path(args.markdown_out))
-        if args.report_out:
-            _write_json_report(report, Path(args.report_out))
+        elif args.report_out:
+            _write_json_report(report, Path(args.report_out), args=args)
         payload = _build_cli_payload(report, args)
         if args.json:
             print(json.dumps(payload, ensure_ascii=False))
@@ -201,16 +236,63 @@ def cmd_run(args: argparse.Namespace) -> int:
         except Exception:  # dataclass frozen? ignore
             pass
 
+    sync_status = "DISABLED"
+    sync_url = "unavailable"
+    sync_required_failed = False
+    if sync_mode != "never":
+        from app.eval.report import normalize_req045_report
+
+        sync_payload = normalize_req045_report(
+            report,
+            suite=suite,
+            dataset_version=f"{suite}-v1",
+            artifacts={
+                "json": str(args.report_out) if args.report_out else "",
+                "markdown": str(args.markdown_out) if args.markdown_out else "",
+            },
+        )
+        try:
+            sync_result = sync_report_to_langsmith(
+                sync_payload,
+                mode=sync_mode,  # type: ignore[arg-type]
+                project=None,
+            )
+        except LangSmithSyncError as exc:
+            sync_status = "FAILED"
+            sync_url = "unavailable"
+            sync_required_failed = True
+            print(f"[eval] required LangSmith sync failed: {exc}", file=sys.stderr)
+        else:
+            sync_status = sync_result.sync_status
+            sync_url = sync_result.url
+            if sync_result.error_message:
+                print(
+                    f"[eval] LangSmith sync status={sync_status}: {sync_result.error_message}",
+                    file=sys.stderr,
+                )
+    args.langsmith_export_status = sync_status
+    args.langsmith_url = sync_url
+
     # Print human-readable summary to stderr (so stdout can carry --json).
     if not args.json:
         print(f"[eval] status={report.status if hasattr(report, 'status') else 'COMPLETED'}", file=sys.stderr)
         print(f"[eval] total={report.total_cases} passed={report.passed_cases} failed={report.failed_cases} skipped={report.skipped_cases}", file=sys.stderr)
 
     # Write artifacts.
-    if args.markdown_out:
+    if args.markdown_out and args.report_out:
+        write_req045_report_artifacts(
+            report,
+            json_path=Path(args.report_out),
+            markdown_path=Path(args.markdown_out),
+            suite=suite,
+            dataset_version=f"{suite}-v1",
+            langsmith_export_status=sync_status,
+            langsmith_url=sync_url,
+        )
+    elif args.markdown_out:
         _write_markdown(report, Path(args.markdown_out))
-    if args.report_out:
-        _write_json_report(report, Path(args.report_out))
+    elif args.report_out:
+        _write_json_report(report, Path(args.report_out), args=args)
 
     # Emit JSON body to stdout.
     if args.json:
@@ -223,6 +305,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             f"pass_rate={report.aggregate_pass_rate:.2%}",
         )
 
+    if sync_required_failed:
+        return 1
     # Exit code: 0 if all active cases pass; 4 (gate failed) otherwise.
     if report.failed_cases == 0:
         return 0
@@ -246,6 +330,9 @@ def _build_cli_payload(report: "EvalReport", args: argparse.Namespace) -> dict[s
             "environment": model.environment,
             "aggregatePassRate": model.aggregate_pass_rate,
             "knownRegressionRecall": model.known_regression_recall,
+            "datasetVersion": f"{args.suite or 'golden'}-v1",
+            "langsmithExportStatus": getattr(args, "langsmith_export_status", "DISABLED"),
+            "langsmithUrl": getattr(args, "langsmith_url", "unavailable"),
             "staleCaseCount": model.stale_case_count,
             "artifacts": {
                 "json": artifacts["json"],
@@ -271,6 +358,9 @@ def _build_cli_payload(report: "EvalReport", args: argparse.Namespace) -> dict[s
             "environment": getattr(report, "environment", "unknown"),
             "aggregatePassRate": getattr(report, "aggregate_pass_rate", 0.0),
             "knownRegressionRecall": getattr(report, "known_regression_recall", 1.0),
+            "datasetVersion": f"{args.suite or 'golden'}-v1",
+            "langsmithExportStatus": getattr(args, "langsmith_export_status", "DISABLED"),
+            "langsmithUrl": getattr(args, "langsmith_url", "unavailable"),
             "staleCaseCount": getattr(report, "stale_case_count", 0),
             "artifacts": {
                 "json": str(args.report_out) if args.report_out else "",
@@ -279,8 +369,20 @@ def _build_cli_payload(report: "EvalReport", args: argparse.Namespace) -> dict[s
         }
 
 
-def _write_json_report(report: "EvalReport", path: Path) -> None:
+def _write_json_report(report: "EvalReport", path: Path, *, args: argparse.Namespace | None = None) -> None:
     """Write the JSON report artifact (EvalReportModel) to ``path``."""
+    if args is not None:
+        markdown_path = Path(getattr(args, "markdown_out", "") or path.with_suffix(".md"))
+        write_req045_report_artifacts(
+            report,
+            json_path=path,
+            markdown_path=markdown_path,
+            suite=getattr(args, "suite", "golden") or "golden",
+            dataset_version=f"{getattr(args, 'suite', 'golden') or 'golden'}-v1",
+            langsmith_export_status=getattr(args, "langsmith_export_status", "DISABLED"),
+            langsmith_url=getattr(args, "langsmith_url", "unavailable"),
+        )
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     model = EvalReportModel.from_eval_report(report)
     path.write_text(model.to_json(), encoding="utf-8")
@@ -474,6 +576,190 @@ def _build_override_record(args: argparse.Namespace) -> dict[str, object]:
     return record
 
 
+def cmd_langsmith_sync(args: argparse.Namespace) -> str | int:
+    """Sync an existing REQ-045 local report to LangSmith."""
+    report_path = Path(args.report)
+    if not report_path.exists():
+        raise ValueError(f"report not found: {report_path}")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    try:
+        result = sync_report_to_langsmith(
+            report,
+            mode="require",
+            project=args.project,
+            export_policy_decision_id=args.destination_policy,
+        )
+    except LangSmithSyncError as exc:
+        payload = {
+            "runId": str(report.get("runId") or report.get("run_id") or "unknown"),
+            "syncStatus": "FAILED",
+            "project": args.project,
+            "dataset": "unavailable",
+            "experimentName": "unavailable",
+            "url": "unavailable",
+            "errorMessage": str(exc),
+            "exportPolicyDecisionId": args.destination_policy,
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(payload, ensure_ascii=False))
+        return 1
+    payload = result.to_payload()
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(f"LangSmith sync {result.sync_status}: {result.url}")
+    return 0
+
+
+def cmd_export_audit(args: argparse.Namespace) -> int:
+    """Audit whether a payload may be exported to an external destination."""
+
+    sample_path = Path(args.sample)
+    if not sample_path.exists():
+        raise ValueError(f"sample not found: {sample_path}")
+    payload = json.loads(sample_path.read_text(encoding="utf-8"))
+    result = decide_export_policy(
+        DestinationPolicyInput(
+            destination=ExportDestination(args.destination),
+            environment=Environment(args.env),
+            requested_level=RepresentationLevel(args.representation),
+            policy_version=args.policy_version,
+            owner=args.owner,
+            access_scope=args.access_scope,
+            retention_days=args.retention_days,
+            allowed_content_classes=tuple(args.allowed_content_class or ()),
+            sample_rate=args.sample_rate,
+            payload=payload,
+        )
+    )
+    out = result.to_payload()
+    if getattr(args, "json", False):
+        print(json.dumps(out, ensure_ascii=False))
+    elif result.allowed:
+        print(
+            "Export allowed: "
+            f"{out['decision']['destination']} {out['decision']['representationLevel']}"
+        )
+    else:
+        print(
+            "Export blocked: "
+            f"{out['decision']['blockedReason'] or out['decision']['representationLevel']}",
+            file=sys.stderr,
+        )
+    return 0 if result.allowed else 3
+
+
+def cmd_judge_calibrate(args: argparse.Namespace) -> int:
+    labels_path = Path(args.labels)
+    if not labels_path.exists():
+        raise ValueError(f"labels not found: {labels_path}")
+    labels = json.loads(labels_path.read_text(encoding="utf-8"))
+    if not isinstance(labels, list):
+        raise ValueError("labels must be a JSON array")
+    rubric = calibrate_judge_rubric(
+        labels,
+        owner=args.owner,
+        waiver_reason=args.waiver_reason,
+    )
+    payload = {
+        "rubricId": rubric.rubric_id,
+        "rubricVersion": rubric.version,
+        "calibrationStatus": rubric.calibration_status.value,
+        "humanLabelCount": rubric.human_label_count,
+        "agreementRate": rubric.agreement_rate,
+        "waiverReason": rubric.waiver_reason,
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(f"Judge calibration {payload['calibrationStatus']} agreement={rubric.agreement_rate:.2%}")
+    return 0
+
+
+def cmd_judge_run(args: argparse.Namespace) -> int:
+    report_path = Path(args.report)
+    if not report_path.exists():
+        raise ValueError(f"report not found: {report_path}")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    rubric = default_judge_rubric(owner=args.owner, version=args.rubric_version)
+    result = run_judge_cases(list(report.get("caseResults") or []), rubric=rubric)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(f"Judge verdicts: {len(result['verdicts'])} blocking={result['blockingEnabled']}")
+    return 0
+
+
+def cmd_experiment_compare(args: argparse.Namespace) -> int:
+    baseline_path = Path(args.baseline)
+    candidate_path = Path(args.candidate)
+    if not baseline_path.exists():
+        raise ValueError(f"baseline report not found: {baseline_path}")
+    if not candidate_path.exists():
+        raise ValueError(f"candidate report not found: {candidate_path}")
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    result = compare_experiments(
+        baseline=baseline,
+        candidate=candidate,
+        min_quality_delta=args.min_quality_delta,
+    )
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(
+            f"Comparison {result['comparisonId']}: {result['recommendation']} "
+            f"quality_delta={result['qualityDelta']:.2%}"
+        )
+    return 0
+
+
+def cmd_prompt_proposal_create(args: argparse.Namespace) -> int:
+    proposal = create_prompt_proposal(
+        source_run_ids=args.source_run_id,
+        source_case_ids=args.source_case_id,
+        target_graph=args.target_graph,
+        target_node=args.target_node,
+        candidate_fingerprint=args.candidate_fingerprint,
+        expected_impact=args.expected_impact,
+    )
+    payload = proposal_to_payload(proposal)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(f"Prompt proposal {payload['proposalId']} {payload['status']}")
+    return 0
+
+
+def _load_prompt_proposal(path: str):
+    return proposal_from_payload(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+def cmd_prompt_proposal_compare(args: argparse.Namespace) -> int:
+    proposal = compare_prompt_proposal(
+        _load_prompt_proposal(args.proposal),
+        comparison_run_id=args.comparison_run_id,
+    )
+    print(json.dumps(proposal_to_payload(proposal), ensure_ascii=False))
+    return 0
+
+
+def cmd_prompt_proposal_approve(args: argparse.Namespace) -> int:
+    proposal = approve_prompt_proposal(_load_prompt_proposal(args.proposal), owner=args.owner)
+    print(json.dumps(proposal_to_payload(proposal), ensure_ascii=False))
+    return 0
+
+
+def cmd_prompt_proposal_reject(args: argparse.Namespace) -> int:
+    proposal = reject_prompt_proposal(
+        _load_prompt_proposal(args.proposal),
+        owner=args.owner,
+        reason=args.reason,
+    )
+    print(json.dumps(proposal_to_payload(proposal), ensure_ascii=False))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # argparse plumbing
 # ---------------------------------------------------------------------------
@@ -572,7 +858,121 @@ def main(argv: list[str] | None = None) -> int:
         dest="json",
         help="emit machine-readable JSON to stdout",
     )
+    run_p.add_argument(
+        "--sync-langsmith",
+        choices=sorted(_VALID_SYNC_LANGSMITH),
+        default="never",
+        help="LangSmith sync mode: never | auto | require",
+    )
     run_p.set_defaults(func=cmd_run)
+
+    # ---- langsmith-sync subcommand ----
+    ls_p = sub.add_parser(
+        "langsmith-sync",
+        help="Sync an existing REQ-045 local eval report to LangSmith",
+    )
+    ls_p.add_argument("--report", required=True, help="path to REQ-045 eval-report.json")
+    ls_p.add_argument("--project", required=True, help="LangSmith project name")
+    ls_p.add_argument(
+        "--destination-policy",
+        required=False,
+        default=None,
+        help="export policy decision id or version authorizing the sync",
+    )
+    ls_p.add_argument("--json", action="store_true", dest="json")
+    ls_p.set_defaults(func=cmd_langsmith_sync)
+
+    # ---- export-audit subcommand ----
+    audit_p = sub.add_parser(
+        "export-audit",
+        help="Audit destination export policy for a sample payload",
+    )
+    audit_p.add_argument("--sample", required=True, help="path to JSON sample payload")
+    audit_p.add_argument(
+        "--destination",
+        choices=[item.value for item in ExportDestination],
+        required=True,
+    )
+    audit_p.add_argument(
+        "--env",
+        choices=[item.value for item in Environment],
+        required=True,
+    )
+    audit_p.add_argument(
+        "--representation",
+        choices=[item.value for item in RepresentationLevel],
+        required=True,
+    )
+    audit_p.add_argument("--policy-version", default="req045.v1")
+    audit_p.add_argument("--owner", default=None)
+    audit_p.add_argument("--access-scope", default=None)
+    audit_p.add_argument("--retention-days", type=int, default=None)
+    audit_p.add_argument("--allowed-content-class", action="append", default=[])
+    audit_p.add_argument("--sample-rate", type=float, default=1.0)
+    audit_p.add_argument("--json", action="store_true", dest="json")
+    audit_p.set_defaults(func=cmd_export_audit)
+
+    # ---- judge-calibrate subcommand ----
+    judge_cal_p = sub.add_parser(
+        "judge-calibrate",
+        help="Calibrate the REQ-045 judge rubric against human labels",
+    )
+    judge_cal_p.add_argument("--labels", required=True, help="path to labels JSON array")
+    judge_cal_p.add_argument("--owner", required=True, help="rubric owner")
+    judge_cal_p.add_argument("--waiver-reason", default=None)
+    judge_cal_p.add_argument("--json", action="store_true", dest="json")
+    judge_cal_p.set_defaults(func=cmd_judge_calibrate)
+
+    # ---- judge-run subcommand ----
+    judge_run_p = sub.add_parser(
+        "judge-run",
+        help="Run the deterministic REQ-045 judge over an eval report",
+    )
+    judge_run_p.add_argument("--report", required=True, help="path to REQ-045 eval report")
+    judge_run_p.add_argument("--owner", default="ai-ops")
+    judge_run_p.add_argument("--rubric-version", default="rubric.req045.v1")
+    judge_run_p.add_argument("--json", action="store_true", dest="json")
+    judge_run_p.set_defaults(func=cmd_judge_run)
+
+    # ---- experiment-compare subcommand ----
+    compare_p = sub.add_parser(
+        "experiment-compare",
+        help="Compare baseline and candidate REQ-045 eval reports",
+    )
+    compare_p.add_argument("--baseline", required=True, help="baseline eval report JSON")
+    compare_p.add_argument("--candidate", required=True, help="candidate eval report JSON")
+    compare_p.add_argument("--min-quality-delta", type=float, default=0.0)
+    compare_p.add_argument("--json", action="store_true", dest="json")
+    compare_p.set_defaults(func=cmd_experiment_compare)
+
+    # ---- prompt-proposal subcommands ----
+    proposal_p = sub.add_parser(
+        "prompt-proposal",
+        help="Create or review REQ-045 prompt improvement proposals",
+    )
+    proposal_sub = proposal_p.add_subparsers(dest="proposal_cmd", required=True)
+    proposal_create = proposal_sub.add_parser("create", help="Create a prompt proposal")
+    proposal_create.add_argument("--source-run-id", action="append", required=True)
+    proposal_create.add_argument("--source-case-id", action="append", required=True)
+    proposal_create.add_argument("--target-graph", required=True)
+    proposal_create.add_argument("--target-node", required=True)
+    proposal_create.add_argument("--candidate-fingerprint", required=True)
+    proposal_create.add_argument("--expected-impact", required=True)
+    proposal_create.add_argument("--json", action="store_true", dest="json")
+    proposal_create.set_defaults(func=cmd_prompt_proposal_create)
+    proposal_compare = proposal_sub.add_parser("compare", help="Attach comparison evidence")
+    proposal_compare.add_argument("--proposal", required=True)
+    proposal_compare.add_argument("--comparison-run-id", required=True)
+    proposal_compare.set_defaults(func=cmd_prompt_proposal_compare)
+    proposal_approve = proposal_sub.add_parser("approve", help="Approve a compared proposal")
+    proposal_approve.add_argument("--proposal", required=True)
+    proposal_approve.add_argument("--owner", required=True)
+    proposal_approve.set_defaults(func=cmd_prompt_proposal_approve)
+    proposal_reject = proposal_sub.add_parser("reject", help="Reject a proposal")
+    proposal_reject.add_argument("--proposal", required=True)
+    proposal_reject.add_argument("--owner", required=True)
+    proposal_reject.add_argument("--reason", required=True)
+    proposal_reject.set_defaults(func=cmd_prompt_proposal_reject)
 
     # ---- override-record subcommand ----
     or_p = sub.add_parser(
