@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import {
   Plus,
   Search,
-  Mic,
   MessageSquare,
   Sparkles,
   Calendar,
@@ -27,6 +26,23 @@ import {
 } from '@/hooks/queries/useInterviewSessions'
 import { useErrorQuestions } from '@/hooks/queries/useErrorQuestions'
 import { formatDuration, timeAgo, cn } from '@/lib/utils'
+
+function formatInterviewMode(mode: string | null | undefined): string {
+  switch (mode) {
+    case 'quick_drill':
+      return '错题补漏'
+    case 'full':
+      return '完整面试'
+    case 'doubao':
+      return '豆包面试'
+    case 'voice':
+      return '语音'
+    case 'text':
+      return '文字'
+    default:
+      return mode || '面试'
+  }
+}
 
 export default function InterviewList() {
   const [tab, setTab] = useState('history')
@@ -129,9 +145,7 @@ export default function InterviewList() {
                 <Badge variant="brand">AI 定制</Badge>
               </div>
               <p className="text-sm text-ink-2 leading-relaxed mb-4">
-                AI 将基于你的目标岗位自动生成
-                <span className="text-ink-1 font-medium mx-1">5</span>
-                道结构化问题，覆盖技术深度、系统架构、工程实践、沟通表达和算法能力 5 个维度。
+                选择完整面试（10/15 题）、错题补漏（5 题）或豆包面试大纲。AI 会结合目标岗位与简历定制题目，覆盖技术深度、系统架构、工程实践、沟通表达和算法能力等维度。
               </p>
               <div className="mb-4">
                 <ModeOption
@@ -317,8 +331,8 @@ export default function InterviewList() {
                           </span>
                         ) : null}
                         <span className="flex items-center gap-1">
-                          {s.mode === 'voice' ? <Mic className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-                          {s.mode === 'voice' ? '语音' : '文字'}
+                          <MessageSquare className="h-2.5 w-2.5" />
+                          {formatInterviewMode(s.mode)}
                         </span>
                         {s.question_count && <span>· {s.question_count} 道题</span>}
                       </div>

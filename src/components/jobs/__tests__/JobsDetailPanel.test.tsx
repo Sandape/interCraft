@@ -21,19 +21,11 @@ function wrap(ui: ReactNode) {
 }
 
 const mockNavigate = vi.fn()
-const mockMutateAsync = vi.fn()
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
   return { ...actual, useNavigate: () => mockNavigate }
 })
-
-vi.mock('@/hooks/queries/useInterviewSessions', () => ({
-  useCreateInterviewFromJob: () => ({
-    mutateAsync: mockMutateAsync,
-    isPending: false,
-  }),
-}))
 
 // REQ-053 (T068) — the panel now queries research reports to decide whether
 // to surface the "查看备战报告" entry. Default to no reports so the existing
@@ -41,6 +33,10 @@ vi.mock('@/hooks/queries/useInterviewSessions', () => ({
 // this via `vi.mocked(...).mockReturnValueOnce(...)`.
 vi.mock('@/hooks/queries/useResearchReports', () => ({
   useResearchReports: () => ({ data: { data: [] }, isLoading: false }),
+}))
+
+vi.mock('@/modules/resume/derive/api', () => ({
+  listJobDerivedResumes: vi.fn(() => new Promise(() => undefined)),
 }))
 
 const baseJob: Job = {
@@ -64,8 +60,6 @@ const baseJob: Job = {
 
 beforeEach(() => {
   mockNavigate.mockReset()
-  mockMutateAsync.mockReset()
-  mockMutateAsync.mockResolvedValue({ id: 'session-42' })
 })
 
 describe('JobsDetailPanel — CTAs (019)', () => {
@@ -90,7 +84,7 @@ describe('JobsDetailPanel — CTAs (019)', () => {
     expect(screen.getByTestId('job-detail-interview-cta-hint')).toHaveTextContent('请先绑定简历分支')
   })
 
-  it('interview CTA calls createFromJob mutation and navigates to /interview/{id}', async () => {
+  it('interview CTA navigates to mode workbench with job_id and branch_id', async () => {
     const jobWithBranch: Job = { ...baseJob, branch_id: 'branch-9' }
     wrap(<JobsDetailPanel job={jobWithBranch} />)
     const cta = screen.getByTestId('job-detail-interview-cta')
@@ -98,25 +92,10 @@ describe('JobsDetailPanel — CTAs (019)', () => {
     fireEvent.click(cta)
 
     await waitFor(() => {
-      expect(mockMutateAsync).toHaveBeenCalledWith({
-        jobId: 'job-1',
-        branchId: 'branch-9',
-      })
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/interview/mode?job_id=job-1&branch_id=branch-9',
+      )
     })
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/interview/session-42')
-    })
-  })
-
-  it('interview CTA shows error message when mutation fails', async () => {
-    mockMutateAsync.mockRejectedValueOnce(new Error('权限不足'))
-    const jobWithBranch: Job = { ...baseJob, branch_id: 'branch-9' }
-    wrap(<JobsDetailPanel job={jobWithBranch} />)
-    fireEvent.click(screen.getByTestId('job-detail-interview-cta'))
-
-    const errEl = await screen.findByTestId('job-detail-interview-cta-error')
-    expect(errEl).toHaveTextContent('权限不足')
-    expect(mockNavigate).not.toHaveBeenCalled()
   })
 
   it('shows the bound-branch link that navigates to /resume/{branch_id}', () => {

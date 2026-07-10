@@ -2,7 +2,7 @@
  *  REQ-053 (T068) — adds a "查看备战报告" entry when an interview time
  *  is set AND a research report exists for the job.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Calendar,
@@ -16,10 +16,11 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { JobsDetailBasicInfo } from '@/pages/Jobs'
 import { InterviewTimeRow } from '@/components/jobs/JobTimeline'
-import { useCreateInterviewFromJob } from '@/hooks/queries/useInterviewSessions'
 import { useResearchReports } from '@/hooks/queries/useResearchReports'
+import { useBindBranchToJob } from '@/hooks/mutations/useJobMutations'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Job } from '@/repositories/JobRepository'
+import { listJobDerivedResumes } from '@/modules/resume/derive/api'
 
 /**
  * REQ-053 (T070) — when the user has multiple reports (multi-round interviews),
@@ -78,8 +79,7 @@ export function JobsDetailPanel({
 }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [startError, setStartError] = useState<string | null>(null)
-  const createInterview = useCreateInterviewFromJob()
+  const bindBranch = useBindBranchToJob()
   const branchBound = !!job.branch_id
   const hasRequirements = !!(job.requirements_md && job.requirements_md.length > 0)
 
@@ -93,22 +93,13 @@ export function JobsDetailPanel({
     !!job.interview_time && !!latestReport
   const showReportHistory = reports.length > 1
 
-  async function startInterview() {
+  function startInterview() {
     if (!branchBound || !job.branch_id) return
-    setStartError(null)
-    try {
-      const session = await createInterview.mutateAsync({
-        jobId: job.id,
-        branchId: job.branch_id,
-      })
-      navigate(`/interview/${session.id}`)
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === 'object' && 'message' in err
-          ? String((err as { message: unknown }).message)
-          : '创建面试失败'
-      setStartError(msg)
-    }
+    // Route into the mode-selection workbench with job/resume prefilled.
+    // Creating the session here skipped REQ-048 mode choice (full / quick_drill / doubao).
+    navigate(
+      `/interview/mode?job_id=${encodeURIComponent(job.id)}&branch_id=${encodeURIComponent(job.branch_id)}`,
+    )
   }
 
   function openLatestReport() {
@@ -179,6 +170,15 @@ export function JobsDetailPanel({
         </Button>
       )}
 
+      {/* REQ-055 — derived resumes bound to this job */}
+      <JobDerivedResumesSection
+        jobId={job.id}
+        boundBranchId={job.branch_id ?? null}
+        hasRequirements={hasRequirements}
+        isBinding={bindBranch.isPending}
+        onBind={(branchId) => bindBranch.mutate({ jobId: job.id, branchId })}
+      />
+
       {/* REQ-053 (T068) — report entry is gated on interview_time + report existence. */}
       {hasResearchReport && (
         <Button
@@ -194,31 +194,17 @@ export function JobsDetailPanel({
       {/* 019 — US3 CTA: start mock interview (disabled until branch is bound) */}
       <Button
         variant={branchBound ? 'primary' : 'secondary'}
-        leftIcon={
-          createInterview.isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <MessageSquare className="h-3.5 w-3.5" />
-          )
-        }
+        leftIcon={<MessageSquare className="h-3.5 w-3.5" />}
         data-testid="job-detail-interview-cta"
-        disabled={!branchBound || createInterview.isPending}
+        disabled={!branchBound}
         title={!branchBound ? '请先绑定简历分支' : '为该岗位开始模拟面试'}
         onClick={startInterview}
       >
-        {createInterview.isPending ? '创建中…' : '为该岗位开始模拟面试'}
+        为该岗位开始模拟面试
       </Button>
       {!branchBound && (
         <p className="text-2xs text-ink-3 -mt-3" data-testid="job-detail-interview-cta-hint">
           请先绑定简历分支
-        </p>
-      )}
-      {startError && (
-        <p
-          className="text-2xs text-red-500 -mt-3"
-          data-testid="job-detail-interview-cta-error"
-        >
-          {startError}
         </p>
       )}
 
@@ -231,6 +217,92 @@ export function JobsDetailPanel({
           />
           <ResearchReportHistoryList jobId={job.id} />
         </Card>
+      )}
+    </div>
+  )
+}
+
+function JobDerivedResumesSection({
+  jobId,
+  boundBranchId,
+  hasRequirements,
+  isBinding,
+  onBind,
+}: {
+  jobId: string
+  boundBranchId: string | null
+  hasRequirements: boolean
+  isBinding: boolean
+  onBind: (branchId: string) => void
+}) {
+  const navigate = useNavigate()
+  const [items, setItems] = useState<Array<Record<string, unknown>>>([])
+
+  useEffect(() => {
+    let cancelled = false
+    listJobDerivedResumes(jobId)
+      .then((r) => {
+        if (!cancelled) setItems(r.data || [])
+      })
+      .catch(() => {
+        if (!cancelled) setItems([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [jobId])
+
+  return (
+    <div className="space-y-2 border-t border-surface-border pt-2" data-testid="job-derived-resumes">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-ink-3">派生简历（REQ-055）</span>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!hasRequirements}
+          title={hasRequirements ? undefined : '请先补充 JD'}
+          onClick={() => navigate('/resume')}
+        >
+          一键派生
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-xs text-ink-3">暂无派生简历</p>
+      ) : (
+        <ul className="space-y-1 text-xs">
+          {items.map((it) => (
+            <li key={String(it.id)}>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left text-brand-600 hover:underline"
+                  onClick={() => navigate(`/resume/${String(it.id)}`)}
+                >
+                {String(it.name)} · 目标 {String(it.target_page_count ?? '—')} 页 / 实际{' '}
+                {String(it.actual_page_count ?? '—')} 页
+                </button>
+                {boundBranchId === String(it.id) ? (
+                  <span
+                    className="rounded border border-brand-200 bg-brand-50 px-2 py-0.5 text-2xs text-brand-700"
+                    data-testid={`job-derived-resume-bound-${String(it.id)}`}
+                  >
+                    已绑定
+                  </span>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={isBinding}
+                    data-testid={`job-derived-resume-bind-${String(it.id)}`}
+                    onClick={() => onBind(String(it.id))}
+                  >
+                    绑定
+                  </Button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )
