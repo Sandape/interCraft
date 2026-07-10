@@ -565,6 +565,14 @@ class ResumeV2Out(_Base):
     password_set: bool
     data: dict[str, Any]
     version: int
+    # REQ-055 derive fields (optional for backward-compatible clients)
+    resume_kind: str = "standard"
+    root_resume_id: UUID | None = None
+    job_id: UUID | None = None
+    root_version_at_derive: int | None = None
+    target_page_count: int | None = None
+    actual_page_count: int | None = None
+    derive_meta: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -577,6 +585,11 @@ class ResumeV2ListItemOut(_Base):
     is_public: bool
     is_locked: bool
     version: int
+    # REQ-055 — required for resume-center root/derived filtering
+    resume_kind: str = "standard"
+    job_id: UUID | None = None
+    target_page_count: int | None = None
+    actual_page_count: int | None = None
     created_at: datetime
     updated_at: datetime
     statistics: dict[str, int | None] | None = None
@@ -666,6 +679,8 @@ class ExportRenderIn(_Base):
     smart_one_page_enabled: bool | None = None
     pagination_state: str | None = None
     preview_page_count: int | None = Field(default=None, ge=1)
+    # REQ-055 — when set, server counts PDF pages and rejects mismatch
+    expected_page_count: int | None = Field(default=None, ge=1, le=3)
 
 
 __all__ = [

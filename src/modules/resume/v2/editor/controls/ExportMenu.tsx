@@ -18,6 +18,11 @@ export interface ExportMenuProps {
   smartOnePageEnabled: boolean;
   paginationState?: MarkdownPaginationState;
   pageCount?: number;
+  /** REQ-055 — when set, PDF export sends expected_page_count hard gate */
+  expectedPageCount?: number;
+  /** When false, PDF export button is disabled */
+  exportAllowed?: boolean;
+  exportBlockedReason?: string;
 }
 
 function safeBase(value: string): string {
@@ -34,6 +39,9 @@ export function ExportMenu({
   smartOnePageEnabled,
   paginationState = "paginated",
   pageCount = 1,
+  expectedPageCount,
+  exportAllowed = true,
+  exportBlockedReason,
 }: ExportMenuProps) {
   const [status, setStatus] = useState<"idle" | "pending" | "success" | "failed">("idle");
   const [message, setMessage] = useState("");
@@ -49,6 +57,11 @@ export function ExportMenu({
   };
 
   const handlePdf = async () => {
+    if (!exportAllowed) {
+      setStatus("failed");
+      setMessage(exportBlockedReason || "页数未达标，禁止导出");
+      return;
+    }
     if (paginationState === "measuring") {
       setStatus("failed");
       setMessage("Preview is still paginating. Try again after it finishes.");
@@ -69,6 +82,7 @@ export function ExportMenu({
         smartOnePageEnabled,
         paginationState,
         pageCount,
+        expectedPageCount,
       });
       downloadBlob(blob, `${base}.pdf`);
       setStatus("success");
@@ -93,9 +107,14 @@ export function ExportMenu({
         type="button"
         data-testid="export-pdf-option"
         data-state={status}
-        disabled={status === "pending" || paginationState === "measuring"}
+        disabled={
+          status === "pending" ||
+          paginationState === "measuring" ||
+          !exportAllowed
+        }
+        title={!exportAllowed ? exportBlockedReason || "页数未达标" : undefined}
         onClick={() => void handlePdf()}
-        className="h-8 rounded border border-surface-border bg-white px-3 text-ink-1 hover:bg-surface-muted disabled:cursor-wait disabled:opacity-70"
+        className="h-8 rounded border border-surface-border bg-white px-3 text-ink-1 hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-70"
       >
         {status === "pending" ? "导出中" : "导出 PDF"}
       </button>

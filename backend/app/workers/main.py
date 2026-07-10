@@ -31,6 +31,7 @@ from app.workers.tasks.physical_cleanup import physical_cleanup
 from app.workers.tasks.purge_expired_accounts import purge_expired_accounts
 from app.workers.tasks.reset_monthly_quota_cron import reset_monthly_quota_cron
 from app.workers.tasks.agents_outbound_drain import agents_outbound_drain
+from app.workers.tasks.resume_derive import execute_resume_derive
 
 REDIS_URL = _get_app_settings().redis_url
 
@@ -98,6 +99,8 @@ class WorkerSettings:
         # REQ-053: scan + execute interview research tasks.
         scan_interview_research,
         execute_research_task,
+        # REQ-055: one-click resume derive.
+        execute_resume_derive,
     ]
     redis_settings: ClassVar = RedisSettings.from_dsn(REDIS_URL)
     cron_jobs: ClassVar = [

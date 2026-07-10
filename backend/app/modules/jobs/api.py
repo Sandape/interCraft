@@ -117,6 +117,43 @@ async def job_timeline(
     return await svc.timeline(id, user_id)
 
 
+# --- REQ-055: derived resumes bound to job ---
+
+
+@router.get("/{id}/derived-resumes")
+async def list_job_derived_resumes(
+    id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(db_session_user_dep),
+):
+    """List derived resumes bound to this job (REQ-055 FR-036)."""
+    from app.modules.resume_derive.service import ResumeDeriveService
+
+    svc = ResumeDeriveService(session)
+    rows = await svc.list_derived_for_job(id, user_id=user_id)
+    return {
+        "data": [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "job_id": str(r.job_id) if r.job_id else None,
+                "target_page_count": r.target_page_count,
+                "actual_page_count": r.actual_page_count,
+                "root_version_at_derive": r.root_version_at_derive,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                "has_pending_suggestions": bool(
+                    ((r.derive_meta or {}).get("suggestions") or [])
+                ),
+                "is_from_latest_root": bool(
+                    (r.derive_meta or {}).get("_is_from_latest_root", True)
+                ),
+            }
+            for r in rows
+        ]
+    }
+
+
 # --- REQ-053 FR-022: research report endpoints ---
 
 

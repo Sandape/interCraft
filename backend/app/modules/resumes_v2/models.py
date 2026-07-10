@@ -36,7 +36,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,6 +48,9 @@ class ResumeV2(Base):
 
     RLS is bound via ``app.user_id`` GUC by the API dependency
     ``db_session_user_dep``; the repository does not need to set it.
+
+    REQ-055 adds ``resume_kind`` (root|derived|standard) and derive
+    binding columns. See ``specs/055-resume-root-derive/data-model.md``.
     """
 
     __tablename__ = "resumes_v2"
@@ -69,6 +72,18 @@ class ResumeV2(Base):
     # DB default is 0; new rows from repo.create() pin version=0 so
     # the audit log + E2E assertions both see the same baseline.
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # REQ-055 — root / derived / standard
+    resume_kind: Mapped[str] = mapped_column(Text, nullable=False, default="standard")
+    root_resume_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    root_version_at_derive: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_page_count: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    actual_page_count: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    derive_meta: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )

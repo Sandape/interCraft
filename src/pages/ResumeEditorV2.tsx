@@ -24,6 +24,7 @@ import type { ResumeDataV2 } from "@/modules/resume/v2/schema/data";
 import { defaultResumeDataV2 } from "@/modules/resume/v2/schema/defaults";
 import { fireToast } from "@/modules/resume/v2/editor/center/toast";
 import { convertLegacyResumeToMarkdown } from "@/modules/resume/converter";
+import { DeriveWorkbench, getRootResume } from "@/modules/resume/derive";
 
 export default function ResumeEditorV2() {
   const { id } = useParams<{ id: string }>();
@@ -42,6 +43,7 @@ export default function ResumeEditorV2() {
   const [notFound, setNotFound] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [legacy, setLegacy] = useState<string | null>(null);
+  const [rootVersion, setRootVersion] = useState<number | null>(null);
 
   const query = useQuery({
     queryKey: ["resume-v2", id],
@@ -171,6 +173,26 @@ export default function ResumeEditorV2() {
     queryClient.invalidateQueries({ queryKey: ["resumes-v2-list"] });
   }, [lastSavedAt, id, queryClient]);
 
+  const isDerived = query.data?.resume_kind === "derived";
+
+  useEffect(() => {
+    if (!isDerived) {
+      setRootVersion(null);
+      return;
+    }
+    let cancelled = false;
+    getRootResume()
+      .then((r) => {
+        if (!cancelled) setRootVersion(Number(r.version));
+      })
+      .catch(() => {
+        if (!cancelled) setRootVersion(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDerived]);
+
   if (!id) {
     return (
       <div className="p-8 text-sm text-ink-3">
@@ -266,14 +288,27 @@ export default function ResumeEditorV2() {
 
   const resume = query.data;
   return (
-    <BuilderShell
-      data={storeData}
-      onChange={(next) => setData(next)}
-      resumeId={id ?? ""}
-      resumeSlug={resume?.slug}
-      ownerUsername={undefined}
-      isPublic={Boolean(resume?.is_public)}
-      passwordSet={Boolean(resume?.password_set)}
-    />
+    <div className="flex h-screen w-full overflow-hidden">
+      <div className="min-w-0 flex-1">
+        <BuilderShell
+          data={storeData}
+          onChange={(next) => setData(next)}
+          resumeId={id ?? ""}
+          resumeSlug={resume?.slug}
+          ownerUsername={undefined}
+          isPublic={Boolean(resume?.is_public)}
+          passwordSet={Boolean(resume?.password_set)}
+        />
+      </div>
+      <DeriveWorkbench
+        resumeId={id ?? ""}
+        resumeKind={resume?.resume_kind || "standard"}
+        targetPageCount={resume?.target_page_count}
+        actualPageCount={resume?.actual_page_count}
+        rootVersionAtDerive={resume?.root_version_at_derive}
+        rootVersion={rootVersion}
+        jobId={resume?.job_id}
+      />
+    </div>
   );
 }

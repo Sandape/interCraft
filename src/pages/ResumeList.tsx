@@ -29,10 +29,12 @@ import { Badge } from '@/components/ui/Badge'
 import { timeAgo } from '@/lib/utils'
 import {
   duplicateResume,
+  deleteResume,
   type ResumeV2ListItem,
 } from '@/modules/resume/v2/api'
 import { useResumeV2List } from '@/hooks/queries/useResumeV2List'
 import { TemplateGalleryModal } from '@/modules/resume/v2/components/TemplateGalleryModal'
+import { DeriveWizard, RootResumeCard, DerivedResumeList } from '@/modules/resume/derive'
 
 interface RecommendedTemplate {
   id: 'pikachu' | 'onyx' | 'bronzor'
@@ -57,10 +59,19 @@ export default function ResumeList() {
 
   // Gallery modal state.
   const [galleryOpen, setGalleryOpen] = useState(autoOpen)
+  const [deriveOpen, setDeriveOpen] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
   // Duplicate state.
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const standardResumes = v2Resumes.filter(
+    (r) => (r.resume_kind || 'standard') === 'standard',
+  )
+  const derivedResumes = v2Resumes.filter(
+    (r) => (r.resume_kind || 'standard') === 'derived',
+  )
 
   // Auto-open when Topbar routes here with ?new=true (036 US4 T056).
   useEffect(() => {
@@ -84,6 +95,20 @@ export default function ResumeList() {
     navigate(`/resume/${input.id}`)
   }
 
+  async function handleDelete(id: string) {
+    if (deletingId) return
+    setDeletingId(id)
+    try {
+      await deleteResume(id)
+      await qc.invalidateQueries({ queryKey: ['resumes', 'v2', 'list'] })
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Delete failed:', err)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   async function handleDuplicate(id: string) {
     if (duplicatingId) return
     setDuplicatingId(id)
@@ -105,10 +130,17 @@ export default function ResumeList() {
         <div>
           <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">简历中心</h1>
           <p className="text-sm text-ink-3 mt-1">
-            使用 Markdown 编写简历，实时预览主题、行距与导出效果
+            根简历沉淀素材 · 一键派生岗位定向简历 · 严格页数导出
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => setDeriveOpen(true)}
+            data-testid="one-click-derive-button"
+          >
+            一键派生
+          </Button>
           <Button
             variant="primary"
             leftIcon={<Sparkles className="h-3.5 w-3.5" />}
@@ -119,6 +151,33 @@ export default function ResumeList() {
           </Button>
         </div>
       </div>
+
+      <div className="mb-6">
+        <RootResumeCard
+          standardResumes={standardResumes.map((r) => ({ id: r.id, name: r.name }))}
+        />
+      </div>
+
+      {derivedResumes.length > 0 && (
+        <section className="mb-6" data-testid="derived-resume-section">
+          <h2 className="text-lg font-semibold text-ink-1 mb-3">派生简历</h2>
+          <DerivedResumeList
+            items={derivedResumes.map((r) => ({
+              id: r.id,
+              name: r.name,
+              job_id: r.job_id,
+              target_page_count: r.target_page_count,
+              actual_page_count: r.actual_page_count,
+              updated_at: r.updated_at,
+            }))}
+            onOpen={(rid) => navigate(`/resume/${rid}`)}
+            onDuplicate={(rid) => void handleDuplicate(rid)}
+            onDelete={(rid) => void handleDelete(rid)}
+            duplicatingId={duplicatingId}
+            deletingId={deletingId}
+          />
+        </section>
+      )}
 
       {isLoading ? (
         <div
@@ -173,12 +232,12 @@ export default function ResumeList() {
             </div>
           </div>
         </Card>
-      ) : (
+      ) : standardResumes.length > 0 ? (
         <div
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"
           data-testid="resume-list-grid"
         >
-          {v2Resumes.map((r) => (
+          {standardResumes.map((r) => (
             <Link
               key={r.id}
               to={`/resume/${r.id}`}
@@ -247,7 +306,7 @@ export default function ResumeList() {
             </Link>
           ))}
         </div>
-      )}
+      ) : null}
 
       <TemplateGalleryModal
         open={galleryOpen}
@@ -256,6 +315,7 @@ export default function ResumeList() {
           void handleCreated(input)
         }}
       />
+      <DeriveWizard open={deriveOpen} onClose={() => setDeriveOpen(false)} />
       {createError && (
         <p className="mt-2 text-xs text-red-500" data-testid="v2-create-error">
           {createError}

@@ -40,6 +40,11 @@ export interface ResumeV2ListItem {
   created_at: string | null;
   updated_at: string | null;
   statistics?: Record<string, number | null> | null;
+  /** REQ-055 */
+  resume_kind?: "root" | "derived" | "standard";
+  job_id?: string | null;
+  target_page_count?: number | null;
+  actual_page_count?: number | null;
 }
 
 /** Full single-resume response including the `data` blob. */
@@ -56,6 +61,14 @@ export interface ResumeV2 {
   created_at: string | null;
   updated_at: string | null;
   data: ResumeDataV2;
+  /** REQ-055 */
+  resume_kind?: "root" | "derived" | "standard";
+  root_resume_id?: string | null;
+  job_id?: string | null;
+  root_version_at_derive?: number | null;
+  target_page_count?: number | null;
+  actual_page_count?: number | null;
+  derive_meta?: Record<string, unknown>;
 }
 
 export interface ResumeV2Conflict {
@@ -140,6 +153,8 @@ export interface ResumeExportRenderSettings {
   smartOnePageEnabled?: boolean;
   paginationState?: string;
   pageCount?: number;
+  /** REQ-055 hard page gate */
+  expectedPageCount?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -168,12 +183,14 @@ export async function listResumes(params?: {
   tags?: string[];
   is_public?: boolean;
   sort?: "updated" | "created" | "name";
+  kind?: "root" | "derived" | "standard" | "all";
 }): Promise<ResumeV2ListItem[]> {
   const query: Record<string, string | number | boolean | undefined> = {};
   if (params?.search) query.search = params.search;
   if (params?.tags && params.tags.length) query.tags = params.tags.join(",");
   if (params?.is_public !== undefined) query.is_public = params.is_public;
   if (params?.sort) query.sort = params.sort;
+  if (params?.kind) query.kind = params.kind;
   const res = await request<{ data: ResumeV2ListItem[] }>({
     method: "GET",
     path: "/api/v1/v2/resumes",
@@ -293,6 +310,9 @@ export async function renderExport(
   if (settings?.smartOnePageEnabled !== undefined) body.smart_one_page_enabled = settings.smartOnePageEnabled;
   if (settings?.paginationState !== undefined) body.pagination_state = settings.paginationState;
   if (settings?.pageCount !== undefined) body.preview_page_count = settings.pageCount;
+  if (settings?.expectedPageCount !== undefined) {
+    body.expected_page_count = settings.expectedPageCount;
+  }
   const res = await request<Response>({
     method: "POST",
     path: "/api/v1/v2/export/render",

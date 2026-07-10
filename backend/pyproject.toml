@@ -48,6 +48,8 @@ dependencies = [
     "jieba>=0.42,<1.0",
     "pycryptodome>=3.23.0",
     "qrcode[pil]>=8.2",
+    # REQ-055 — PDF page-count hard gate
+    "pypdf>=5.0,<6.0",
 ]
 
 [project.optional-dependencies]

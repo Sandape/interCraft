@@ -108,6 +108,8 @@ class ResumeV2Repository:
             password_hash=None,
             data=data,
             version=0,
+            resume_kind="standard",
+            derive_meta={},
         )
         self._session.add(row)
         await self._session.flush()
@@ -145,14 +147,19 @@ class ResumeV2Repository:
         tags: list[str] | None = None,
         is_public: bool | None = None,
         sort: str = "updated",
+        kind: str | None = None,
     ) -> list[ResumeV2]:
         """List the user's resumes with optional filters.
 
         RLS does the user scoping so we don't re-add the WHERE on
         ``user_id`` — that would be a no-op against the FORCE-RLS
         table anyway.
+
+        ``kind`` (REQ-055): ``root`` | ``derived`` | ``standard`` | ``None`` (all).
         """
         stmt = select(ResumeV2)
+        if kind and kind != "all":
+            stmt = stmt.where(ResumeV2.resume_kind == kind)
         if is_public is not None:
             stmt = stmt.where(ResumeV2.is_public == is_public)
         if search:

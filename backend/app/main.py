@@ -136,6 +136,27 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.get("/readyz")
+    async def readyz() -> JSONResponse:
+        """REQ-056: API + Redis readiness (derive worker heartbeat optional).
+
+        Distinguishes process liveness (/healthz) from dependency readiness.
+        ARQ worker liveness is not fully probed here — see evidence worker-down.md.
+        """
+        db_ok = await db_ping()
+        redis_ok = await redis_ping()
+        ready = db_ok and redis_ok
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={
+                "status": "ready" if ready else "not_ready",
+                "db": "ok" if db_ok else "down",
+                "redis": "ok" if redis_ok else "down",
+                "derive_backend": "redis_ok" if redis_ok else "unavailable",
+                "version": __version__,
+            },
+        )
+
     @app.get("/metrics")
     async def metrics() -> JSONResponse:
         return JSONResponse(content=generate_latest().decode("utf-8"), media_type=CONTENT_TYPE_LATEST)

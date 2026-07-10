@@ -77,6 +77,14 @@ def _resume_to_out(row, *, include_data: bool = True) -> dict[str, Any]:
         "is_locked": bool(row.is_locked),
         "password_set": bool(row.password_hash),
         "version": int(row.version),
+        "resume_kind": getattr(row, "resume_kind", None) or "standard",
+        "root_resume_id": str(row.root_resume_id)
+        if getattr(row, "root_resume_id", None)
+        else None,
+        "job_id": str(row.job_id) if getattr(row, "job_id", None) else None,
+        "root_version_at_derive": getattr(row, "root_version_at_derive", None),
+        "target_page_count": getattr(row, "target_page_count", None),
+        "actual_page_count": getattr(row, "actual_page_count", None),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -263,6 +271,10 @@ def _list_item_to_out(row) -> dict[str, Any]:
         "is_public": bool(row.is_public),
         "is_locked": bool(row.is_locked),
         "version": int(row.version),
+        "resume_kind": getattr(row, "resume_kind", None) or "standard",
+        "job_id": str(row.job_id) if getattr(row, "job_id", None) else None,
+        "target_page_count": getattr(row, "target_page_count", None),
+        "actual_page_count": getattr(row, "actual_page_count", None),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -279,6 +291,11 @@ async def list_resumes(
     tags: str | None = Query(default=None, max_length=512),
     is_public: bool | None = Query(default=None),
     sort: str = Query(default="updated", pattern="^(updated|created|name)$"),
+    kind: str | None = Query(
+        default=None,
+        pattern="^(root|derived|standard|all)$",
+        description="REQ-055 resume_kind filter",
+    ),
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(db_session_user_dep),
 ):
@@ -289,6 +306,7 @@ async def list_resumes(
         search=search,
         is_public=is_public,
         sort=sort,
+        kind=None if kind in (None, "all") else kind,
     )
     if tags:
         wanted = {t.strip() for t in tags.split(",") if t.strip()}
@@ -967,6 +985,30 @@ async def export_render(
                 "RENDERING_FAILED",
                 f"Rendering failed: {exc}",
             )
+
+        # REQ-055 — PDF page-count hard gate
+        if fmt == "pdf" and payload.expected_page_count is not None:
+            from app.modules.resume_derive.metrics import export_page_mismatch_total
+            from app.modules.resume_derive.page_count import count_pdf_pages
+
+            try:
+                actual_pages = count_pdf_pages(result)
+            except Exception as exc:
+                return _err_response(
+                    500,
+                    "PAGE_COUNT_FAILED",
+                    f"Unable to count PDF pages: {exc}",
+                )
+            if actual_pages != int(payload.expected_page_count):
+                export_page_mismatch_total.inc()
+                return _err_response(
+                    422,
+                    "PAGE_COUNT_MISMATCH",
+                    f"PDF has {actual_pages} pages; expected {payload.expected_page_count}.",
+                )
+            if resume_row is not None and getattr(resume_row, "resume_kind", None) == "derived":
+                resume_row.actual_page_count = actual_pages
+                await db.commit()
 
         content_types = {
             "pdf": "application/pdf",
