@@ -10,6 +10,7 @@ This is the documentation entry point for humans and AI agents.
 | Current active feature | `.specify/feature.json`, then the feature README in `specs/` |
 | Test strategy and commands | [testing/README.md](./testing/README.md) |
 | Evidence guidance | [evidence/README.md](./evidence/README.md) |
+| Product homepage and onboarding handoff | [notes/product-homepage-onboarding-handoff.md](./notes/product-homepage-onboarding-handoff.md) |
 | v1 production freeze | [acceptance/v1-production-freeze.md](./acceptance/v1-production-freeze.md) |
 | v1 unfinished visible features | [acceptance/v1-unfinished-visible-features.md](./acceptance/v1-unfinished-visible-features.md) |
 | Source tree map | [architecture/source-map.md](./architecture/source-map.md) |
