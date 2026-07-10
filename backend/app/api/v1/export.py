@@ -40,6 +40,8 @@ class ExportRequest(BaseModel):
     html: str = ""
     format: str = "pdf"
     locale: str = "zh"
+    # REQ-055 — optional hard page gate for PDF
+    expected_page_count: int | None = None
 
 
 def _error(status_code: int, code: str, message: str, request_id: str) -> JSONResponse:
@@ -96,6 +98,21 @@ async def render_export(
             error=str(exc),
         )
         return _error(500, "RENDERING_FAILED", f"Rendering failed: {exc}", request_id)
+
+    if payload.format == "pdf" and payload.expected_page_count is not None:
+        from app.modules.resume_derive.page_count import count_pdf_pages
+
+        try:
+            actual_pages = count_pdf_pages(result)
+        except Exception as exc:
+            return _error(500, "PAGE_COUNT_FAILED", f"Unable to count PDF pages: {exc}", request_id)
+        if actual_pages != int(payload.expected_page_count):
+            return _error(
+                422,
+                "PAGE_COUNT_MISMATCH",
+                f"PDF has {actual_pages} pages; expected {payload.expected_page_count}.",
+                request_id,
+            )
 
     headers = {
         "Content-Disposition": f'attachment; filename="resume-{request_id}.{payload.format}"',
