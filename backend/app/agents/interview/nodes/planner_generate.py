@@ -280,18 +280,41 @@ async def planner_generate_node(state: InterviewGraphState) -> dict[str, Any]:
     formats them into a prompt, invokes the LLM, and validates the response
     into a ``InterviewPlan`` model.
 
-    Returns
-    -------
-    dict
-        ``{"interview_plan": <InterviewPlan.model_dump()>}`` — always
-        returns a valid dict (never raises).
+    REQ-058: skip regenerate when a usable ``interview_plan`` is already
+    present; on failure return ``plan_error`` instead of silent empty success.
     """
+    from app.agents.interview.plan_questions import is_plan_content_ready
+
+    existing = state.get("interview_plan")
+    if is_plan_content_ready(existing if isinstance(existing, dict) else None):
+        focuses = (existing or {}).get("focus_areas") or []
+        logger.info(
+            "plan.reuse",
+            reason="planner_generate_skip",
+            focus_areas_count=len(focuses),
+        )
+        difficulty = (existing or {}).get("interview_difficulty") or state.get("difficulty")
+        return {
+            "interview_plan": existing,
+            "difficulty": difficulty or "medium",
+            "planner_focus_area_count": len(
+                [a for a in focuses if isinstance(a, dict) and a.get("area")]
+            ),
+        }
+
     planner_context = state.get("planner_context") or {}
     web_research = state.get("web_research")
 
     if not planner_context:
         logger.warning("planner_generate.skip", reason="no_planner_context")
-        return {"interview_plan": _empty_plan(state)}
+        return {
+            "interview_plan": None,
+            "plan_error": {
+                "code": "PLAN_GENERATE_FAILED",
+                "message": "缺少规划上下文，无法生成面试计划",
+            },
+            "plan_status": "failed",
+        }
 
     user_content = _format_user_content(planner_context, web_research)
     system_prompt = _load_prompt("planner.md")
@@ -319,11 +342,40 @@ async def planner_generate_node(state: InterviewGraphState) -> dict[str, Any]:
                 "planner_generate.no_json",
                 content_preview=content[:300],
             )
-            plan = _empty_plan(state)
+            return {
+                "interview_plan": None,
+                "plan_error": {
+                    "code": "PLAN_GENERATE_FAILED",
+                    "message": "面试计划生成失败：模型未返回有效 JSON",
+                },
+                "plan_status": "failed",
+            }
 
     except Exception as exc:
+        from app.agents.llm_client import QuotaExceededError
+
+        if isinstance(exc, QuotaExceededError):
+            raise
         logger.warning("planner_generate.failed", error=str(exc), exc_info=True)
-        plan = _empty_plan(state)
+        return {
+            "interview_plan": None,
+            "plan_error": {
+                "code": "PLAN_GENERATE_FAILED",
+                "message": "面试计划生成失败，请稍后重试",
+            },
+            "plan_status": "failed",
+        }
+
+    if not is_plan_content_ready(plan):
+        logger.warning("planner_generate.empty_plan")
+        return {
+            "interview_plan": None,
+            "plan_error": {
+                "code": "PLAN_GENERATE_FAILED",
+                "message": "面试计划内容不完整",
+            },
+            "plan_status": "failed",
+        }
 
     focus_areas_count = len(plan.get("focus_areas", []))
     suggested_questions_count = len(plan.get("suggested_questions", []))
@@ -335,7 +387,12 @@ async def planner_generate_node(state: InterviewGraphState) -> dict[str, Any]:
         suggested_questions_count=suggested_questions_count,
     )
 
-    return {"interview_plan": plan}
+    return {
+        "interview_plan": plan,
+        "difficulty": plan.get("interview_difficulty") or "medium",
+        "planner_focus_area_count": focus_areas_count,
+        "plan_status": "ready",
+    }
 
 
 __all__ = ["planner_generate_node"]

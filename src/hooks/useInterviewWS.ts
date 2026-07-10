@@ -24,6 +24,8 @@ export interface WSEvent {
   payload: Record<string, any>
 }
 
+export type InterviewTurnPhase = 'idle' | 'scoring' | 'awaiting_question' | 'generating_question'
+
 export interface InterviewWSState {
   connected: boolean
   reconnecting: boolean
@@ -35,6 +37,8 @@ export interface InterviewWSState {
   lastCheckpointId: string | null
   error: WSEvent | null
   events: WSEvent[]
+  /** REQ-058 — score may arrive before the next question finishes generating. */
+  turnPhase: InterviewTurnPhase
 }
 
 const MAX_RECONNECT_ATTEMPTS = 5
@@ -58,7 +62,7 @@ export function useInterviewWS(token: string) {
   const lastCheckpointRef = useRef<string | null>(null)
 
   const [state, setState] = useState<InterviewWSState>(() =>
-    isMockMode() ? mockInitialState() : {
+    isMockMode() ? { ...mockInitialState(), turnPhase: 'idle' as InterviewTurnPhase } : {
       connected: false,
       reconnecting: false,
       reconnectAttempt: 0,
@@ -69,8 +73,36 @@ export function useInterviewWS(token: string) {
       lastCheckpointId: null,
       error: null,
       events: [],
+      turnPhase: 'idle',
     },
   )
+
+  const applyTurnPhaseFromEvent = useCallback((parsed: WSEvent, prev: InterviewWSState): InterviewTurnPhase | undefined => {
+    if (parsed.type === 'node.started') {
+      if (parsed.node_name === 'score') return 'scoring'
+      if (parsed.node_name === 'question_gen') return 'generating_question'
+      return undefined
+    }
+    if (parsed.type === 'node.completed') {
+      if (parsed.node_name === 'score' && parsed.payload.summary?.score > 0) {
+        return 'awaiting_question'
+      }
+      if (parsed.node_name === 'question_gen' && parsed.payload.summary?.question) {
+        return 'idle'
+      }
+      if (parsed.payload.summary?.overall_score !== undefined) {
+        return 'idle'
+      }
+      return undefined
+    }
+    if (parsed.type === 'error') {
+      return 'idle'
+    }
+    if (parsed.type === 'plan.status') {
+      return prev.turnPhase
+    }
+    return undefined
+  }, [])
 
   // Reuse the same event-dispatch reducer for both real and mock streams.
   const applyEvent = useCallback((parsed: WSEvent) => {
@@ -78,13 +110,19 @@ export function useInterviewWS(token: string) {
       const updates: Partial<InterviewWSState> = {
         events: [...prev.events, parsed],
       }
+      const nextTurnPhase = applyTurnPhaseFromEvent(parsed, prev)
+      if (nextTurnPhase !== undefined) {
+        updates.turnPhase = nextTurnPhase
+      }
       switch (parsed.type) {
         case 'node.started':
           updates.currentNode = parsed.node_name
           if (parsed.payload.current_question !== undefined) {
             updates.currentQuestion = parsed.payload.current_question
           }
-          updates.streamingText = ''
+          if (parsed.node_name === 'question_gen') {
+            updates.streamingText = ''
+          }
           break
         case 'token.delta':
           updates.streamingText = prev.streamingText + (parsed.payload.content || '')
@@ -100,11 +138,12 @@ export function useInterviewWS(token: string) {
           break
         case 'error':
           updates.error = parsed
+          updates.turnPhase = 'idle'
           break
       }
       return { ...prev, ...updates }
     })
-  }, [])
+  }, [applyTurnPhaseFromEvent])
 
   const connect = useCallback(() => {
     if (isMockMode()) {
@@ -120,13 +159,19 @@ export function useInterviewWS(token: string) {
         // the final round (mimics the real reducer in applyEvent).
         for (const parsed of events) {
           const updates: Partial<InterviewWSState> = {}
+          const nextTurnPhase = applyTurnPhaseFromEvent(parsed, next)
+          if (nextTurnPhase !== undefined) {
+            updates.turnPhase = nextTurnPhase
+          }
           switch (parsed.type) {
             case 'node.started':
               updates.currentNode = parsed.node_name
               if (parsed.payload.current_question !== undefined) {
                 updates.currentQuestion = parsed.payload.current_question
               }
-              updates.streamingText = ''
+              if (parsed.node_name === 'question_gen') {
+                updates.streamingText = ''
+              }
               break
             case 'node.completed':
               updates.lastCheckpointId = parsed.payload.checkpoint_id || null
@@ -139,6 +184,7 @@ export function useInterviewWS(token: string) {
               break
             case 'error':
               updates.error = parsed
+              updates.turnPhase = 'idle'
               break
           }
           next = { ...next, ...updates }
@@ -205,7 +251,7 @@ export function useInterviewWS(token: string) {
     ws.onerror = () => {
       ws.close()
     }
-  }, [token, applyEvent])
+  }, [token, applyEvent, applyTurnPhaseFromEvent])
 
   const disconnect = useCallback(() => {
     if (isMockMode()) {
@@ -232,6 +278,7 @@ export function useInterviewWS(token: string) {
   }, [])
 
   const submitAnswer = useCallback((sessionId: string, content: string, sequenceNo: number) => {
+    setState(prev => ({ ...prev, turnPhase: 'scoring', streamingText: '' }))
     send({
       type: 'submit_answer',
       session_id: sessionId,

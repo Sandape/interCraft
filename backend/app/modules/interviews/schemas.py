@@ -28,6 +28,9 @@ class InterviewSessionCreate(BaseModel):
     job_id: UUID | None = None
 
 
+PlanStatus = Literal["pending", "ready", "failed", "degraded"]
+
+
 class InterviewSessionStartOut(BaseModel):
     id: UUID
     status: str
@@ -35,6 +38,11 @@ class InterviewSessionStartOut(BaseModel):
     # 019 — expose for client-side routing
     job_id: UUID | None = None
     branch_id: UUID | None = None
+    # REQ-058 — plan prewarm visibility
+    plan_status: PlanStatus | str | None = None
+    plan_error_code: str | None = None
+    plan_error_message: str | None = None
+    degraded: bool = False
 
 
 class InterviewSessionOut(BaseModel):
@@ -54,6 +62,11 @@ class InterviewSessionOut(BaseModel):
     thread_id: str | None
     interview_plan: dict | None = None
     web_research: dict | None = None
+    # REQ-058
+    plan_status: PlanStatus | str | None = None
+    plan_error_code: str | None = None
+    plan_error_message: str | None = None
+    degraded: bool = False
     started_at: datetime | None
     ended_at: datetime | None
     duration_sec: int | None
@@ -62,6 +75,10 @@ class InterviewSessionOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class InterviewPlanDegradeIn(BaseModel):
+    confirm: bool = True
 
 
 class InterviewSessionListOut(BaseModel):
@@ -93,10 +110,12 @@ class InterviewSessionResumeOut(BaseModel):
 
 __all__ = [
     "InterviewMode",
+    "InterviewPlanDegradeIn",
     "InterviewSessionCreate",
     "InterviewSessionCreateOut",
     "InterviewSessionListOut",
     "InterviewSessionOut",
     "InterviewSessionResumeOut",
     "InterviewSessionStartOut",
+    "PlanStatus",
 ]

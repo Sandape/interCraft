@@ -8,6 +8,7 @@ without changing the existing mock-interview paths.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import bindparam, text
@@ -124,19 +125,21 @@ class InterviewReportRepo:
         self, report_id: UUID, *, user_id: UUID | None = None
     ) -> ResearchReportOut | None:
         """Fetch a single research report by id. If user_id provided, enforce RLS."""
+        user_filter = "AND j.user_id = :uid" if user_id is not None else ""
         stmt = text(
-            """SELECT r.id, r.report_type, r.job_id, r.interview_time, r.research_task_id,
+            f"""SELECT r.id, r.report_type, r.job_id, r.interview_time, r.research_task_id,
                       r.summary_md, r.rating, r.delivery_status, r.delivered_at,
                       r.quality_check_passed, r.generated_at, r.created_at, r.updated_at
             FROM interview_reports r
             JOIN jobs j ON j.id = r.job_id
             WHERE r.id = :rid
               AND r.report_type = 'pre_interview_research'
-              AND (:uid IS NULL OR j.user_id = :uid)"""
+              {user_filter}"""
         )
-        result = await self.session.execute(
-            stmt, {"rid": report_id, "uid": user_id}
-        )
+        params: dict[str, Any] = {"rid": report_id}
+        if user_id is not None:
+            params["uid"] = user_id
+        result = await self.session.execute(stmt, params)
         row = result.fetchone()
         return _row_to_research_out(row) if row else None
 
@@ -144,19 +147,21 @@ class InterviewReportRepo:
         self, job_id: UUID, *, user_id: UUID | None = None
     ) -> list[ResearchReportSummary]:
         """List all research reports for a job, ordered by interview_time DESC."""
+        user_filter = "AND j.user_id = :uid" if user_id is not None else ""
         stmt = text(
-            """SELECT r.id, r.report_type, r.job_id, r.interview_time,
+            f"""SELECT r.id, r.report_type, r.job_id, r.interview_time,
                       r.rating, r.delivery_status, r.generated_at
             FROM interview_reports r
             JOIN jobs j ON j.id = r.job_id
             WHERE r.job_id = :jid
               AND r.report_type = 'pre_interview_research'
-              AND (:uid IS NULL OR j.user_id = :uid)
+              {user_filter}
             ORDER BY r.interview_time DESC"""
         )
-        result = await self.session.execute(
-            stmt, {"jid": job_id, "uid": user_id}
-        )
+        params: dict[str, Any] = {"jid": job_id}
+        if user_id is not None:
+            params["uid"] = user_id
+        result = await self.session.execute(stmt, params)
         rows = result.fetchall()
         return [
             ResearchReportSummary(
@@ -175,18 +180,24 @@ class InterviewReportRepo:
         self, report_id: UUID, rating: int, *, user_id: UUID | None = None
     ) -> bool:
         """Update user rating (1-5). Returns True if row updated."""
+        user_filter = (
+            """AND EXISTS (
+                  SELECT 1 FROM jobs j WHERE j.id = interview_reports.job_id AND j.user_id = :uid
+              )"""
+            if user_id is not None
+            else ""
+        )
         stmt = text(
-            """UPDATE interview_reports
+            f"""UPDATE interview_reports
             SET rating = :rating, updated_at = now()
             WHERE id = :rid
               AND report_type = 'pre_interview_research'
-              AND (:uid IS NULL OR EXISTS (
-                  SELECT 1 FROM jobs j WHERE j.id = interview_reports.job_id AND j.user_id = :uid
-              ))"""
+              {user_filter}"""
         )
-        result = await self.session.execute(
-            stmt, {"rating": rating, "rid": report_id, "uid": user_id}
-        )
+        params: dict[str, Any] = {"rating": rating, "rid": report_id}
+        if user_id is not None:
+            params["uid"] = user_id
+        result = await self.session.execute(stmt, params)
         await self.session.commit()
         return result.rowcount > 0
 

@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   start: vi.fn(),
   generatePlan: vi.fn(),
+  getById: vi.fn(),
+  pollPlanStatus: vi.fn(),
 }))
 
 vi.mock('react-router-dom', async () => {
@@ -43,13 +45,21 @@ vi.mock('@/hooks/queries/useResumeV2List', () => ({
   }),
 }))
 
-vi.mock('@/repositories/interviewSessionRepo', () => ({
-  interviewSessionRepo: {
-    create: mocks.create,
-    start: mocks.start,
-    generatePlan: mocks.generatePlan,
-  },
-}))
+vi.mock('@/repositories/interviewSessionRepo', async () => {
+  const actual = await vi.importActual<typeof import('@/repositories/interviewSessionRepo')>(
+    '@/repositories/interviewSessionRepo',
+  )
+  return {
+    ...actual,
+    interviewSessionRepo: {
+      create: mocks.create,
+      start: mocks.start,
+      generatePlan: mocks.generatePlan,
+      getById: mocks.getById,
+    },
+    pollPlanStatus: (...args: unknown[]) => mocks.pollPlanStatus(...args),
+  }
+})
 
 const job = {
   id: 'job-1',
@@ -96,7 +106,20 @@ describe('InterviewModeSelect', () => {
     __resetInterviewModeStoreForTests()
     mocks.navigate.mockReset()
     mocks.create.mockResolvedValue({ data: { id: 'session-1' } })
-    mocks.start.mockResolvedValue({ data: { id: 'session-1', status: 'in_progress', started_at: 'now' } })
+    mocks.start.mockResolvedValue({
+      data: {
+        id: 'session-1',
+        status: 'in_progress',
+        started_at: 'now',
+        plan_status: 'ready',
+      },
+    })
+    mocks.getById.mockResolvedValue({
+      id: 'session-1',
+      plan_status: 'ready',
+      interview_plan: { suggested_questions: ['Q1'] },
+    })
+    mocks.pollPlanStatus.mockImplementation(async (id: string) => mocks.getById(id))
     mocks.generatePlan.mockResolvedValue({ data: { id: 'session-1', interview_plan: {}, web_research: {} } })
     mocks.jobs = [job]
     mocks.resumes = [resume]

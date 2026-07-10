@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     refresh_ttl: int = 604800  # 7 days
     bcrypt_cost_rounds: int = 12
     master_key: str = "ZGV2LW9ubHktZHVtbXktMzJiLWJhc2U2NC0xMjM0NTY3ODkwYWI="
+    # Shared secret for machine-to-machine calls (e.g. POST /agent/internal/*).
+    # Production MUST set a strong value; empty disables the endpoint (503).
+    internal_api_token: str = ""
 
     # ---- Sessions ----
     max_active_sessions: int = 10
@@ -72,18 +75,24 @@ class Settings(BaseSettings):
     rate_limit_auth_per_min: int = 10
     rate_limit_business_per_min: int = 600
 
-    # ---- AI / LLM (Phase 4) — DeepSeek V4 Pro via OpenAI-compatible API ----
+    # ---- AI / LLM (Phase 4) — DeepSeek via OpenAI-compatible API ----
+    # Interview policy: planner (plan gen) = pro; all other nodes = flash.
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-v4-pro"
+    deepseek_model: str = "deepseek-v4-flash"
     monthly_token_quota: int = 500_000
     deepseek_thinking_enabled: bool = True
     deepseek_reasoning_effort: str = "high"
     # Per-node model overrides (empty = use deepseek_model)
+    deepseek_model_planner: str = "deepseek-v4-pro"
+    deepseek_model_planner_generate: str = "deepseek-v4-pro"
     deepseek_model_intake: str = "deepseek-v4-flash"
     deepseek_model_question_gen: str = "deepseek-v4-flash"
-    deepseek_model_score: str = "deepseek-v4-pro"
-    deepseek_model_report: str = "deepseek-v4-pro"
+    deepseek_model_score: str = "deepseek-v4-flash"
+    deepseek_model_score_llm: str = "deepseek-v4-flash"
+    deepseek_model_report: str = "deepseek-v4-flash"
+    deepseek_model_compress_history: str = "deepseek-v4-flash"
+    deepseek_model_variant_generator: str = "deepseek-v4-flash"
 
     # ---- Web search (Phase 5) — Tavily for ``tavily_search`` @tool (FR-004) ----
     # Empty default by design: ``tavily_search.ainvoke`` raises

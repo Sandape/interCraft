@@ -39,7 +39,7 @@ class InterviewSessionRepository:
         position: str | None,
         company: str | None,
         branch_id: UUID | None = None,
-        mode: str = "text",
+        mode: str = "full",
         job_id: UUID | None = None,
     ) -> InterviewSession:
         await self.session.execute(
@@ -108,6 +108,37 @@ class InterviewSessionRepository:
         )
         await self.session.flush()
 
+    async def update_plan_lifecycle(
+        self,
+        id: UUID,
+        *,
+        plan_status: str | None = None,
+        plan_error_code: str | None = None,
+        plan_error_message: str | None = None,
+        degraded: bool | None = None,
+        clear_errors: bool = False,
+    ) -> None:
+        """REQ-058 — persist plan_status / error / degraded flags."""
+        values: dict = {"updated_at": datetime.now(UTC)}
+        if plan_status is not None:
+            values["plan_status"] = plan_status
+        if clear_errors:
+            values["plan_error_code"] = None
+            values["plan_error_message"] = None
+        else:
+            if plan_error_code is not None:
+                values["plan_error_code"] = plan_error_code
+            if plan_error_message is not None:
+                values["plan_error_message"] = plan_error_message
+        if degraded is not None:
+            values["degraded"] = bool(degraded)
+        if len(values) == 1:
+            return
+        await self.session.execute(
+            update(InterviewSession).where(InterviewSession.id == id).values(**values)
+        )
+        await self.session.flush()
+
     async def update_max_questions(self, id: UUID, max_questions: int) -> None:
         """REQ-048 — set the user-chosen question count for full mode."""
         await self.session.execute(
@@ -123,6 +154,15 @@ class InterviewSessionRepository:
             update(InterviewSession)
             .where(InterviewSession.id == id)
             .values(error_question_ids=error_question_ids, updated_at=datetime.now(UTC))
+        )
+        await self.session.flush()
+
+    async def update_use_variants(self, id: UUID, use_variants: bool) -> None:
+        """REQ-048 US5 — persist variant toggle for quick_drill."""
+        await self.session.execute(
+            update(InterviewSession)
+            .where(InterviewSession.id == id)
+            .values(use_variants=bool(use_variants), updated_at=datetime.now(UTC))
         )
         await self.session.flush()
 

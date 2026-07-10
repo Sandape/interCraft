@@ -90,6 +90,13 @@ class InterviewGraphState(TypedDict, total=False):
     planner_context: dict[str, Any] | None
     web_research: dict[str, Any] | None
     interview_plan: dict[str, Any] | None
+    # REQ-058 — plan lifecycle seeded from session row
+    plan_status: str | None
+    plan_error_code: str | None
+    plan_error_message: str | None
+    degraded: bool
+    planner_focus_area_count: int | None
+    effective_max: int | None
     # REQ-048 — mode / max_questions / error_question_ids.
     mode: str | None
     max_questions: int | None
@@ -182,6 +189,11 @@ class InterviewOverallState(TypedDict, total=False):
     # declared state field; the legacy 20-field set has no slot for the
     # unified name). This 21st field is the minimal addition needed.
     interview_plan: dict[str, Any] | None
+    # REQ-058 — session plan lifecycle (optional; not part of AC-2.2 legacy 21)
+    plan_status: str | None
+    degraded: bool
+    planner_focus_area_count: int | None
+    effective_max: int | None
     # REQ-048 — mode / max_questions / error_question_ids. Phase 1+2
     # minimal additions; preserves the 20+1 schema baseline from US1.
     mode: str | None

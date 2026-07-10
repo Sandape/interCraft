@@ -147,16 +147,23 @@ async def select_drill_candidates(
     # 2. Cache lookup.
     cached = await get_cached(redis_client, user_id, jd_text, error_pool_hash)
     if cached is not None:
+        candidates = await _materialise_cached_candidates(
+            session=None,  # type: ignore[arg-type]
+            source_question_ids=cached.source_question_ids,
+            user_id=user_id,
+        )
         logger.info(
             "drill.cache.hit",
             user_id=user_id,
             cache_key=cached.cache_key,
-            candidate_count=len(cached.source_question_ids),
+            candidate_count=len(candidates),
         )
-        return await _materialise_cached_candidates(
-            session=None,  # type: ignore[arg-type]
-            source_question_ids=cached.source_question_ids,
+        if candidates:
+            return candidates[:top_k]
+        logger.info(
+            "drill.cache.empty_ignored",
             user_id=user_id,
+            cache_key=cached.cache_key,
         )
 
     # 3. AC-10 — null JD fallback path.
@@ -182,18 +189,21 @@ async def select_drill_candidates(
         jd_embedding=jd_embedding,
         settings=settings,
     )
+    if not candidates:
+        candidates = await select_no_jd_fallback(user_id)
 
     # 5. Cache the result.
-    pool_ids_for_new = [c["source_question_id"] for c in candidates if c.get("source_question_id")]
-    cache_key = build_cache_key(user_id, jd_text, error_pool_hash)
-    entry = DrillCacheEntry(
-        user_id=user_id,
-        cache_key=cache_key,
-        source_question_ids=pool_ids_for_new,
-        cached_at_iso=datetime.now(UTC).isoformat(),
-        ttl_seconds=DEFAULT_TTL_SECONDS,
-    )
-    await set_cached(redis_client, entry)
+    pool_ids_for_new = [str(c["source_question_id"]) for c in candidates if c.get("source_question_id")]
+    if pool_ids_for_new:
+        cache_key = build_cache_key(user_id, jd_text, error_pool_hash)
+        entry = DrillCacheEntry(
+            user_id=user_id,
+            cache_key=cache_key,
+            source_question_ids=pool_ids_for_new,
+            cached_at_iso=datetime.now(UTC).isoformat(),
+            ttl_seconds=DEFAULT_TTL_SECONDS,
+        )
+        await set_cached(redis_client, entry)
 
     duration_ms = int((time.monotonic() - started) * 1000)
     await _record_analytics(
@@ -226,7 +236,9 @@ async def drill_selector_node(state: InterviewGraphState) -> dict[str, Any]:
     user_id = str(state.get("user_id", "") or "")
     if not user_id:
         logger.warning("drill.node.no_user_id", state_keys=list(state.keys()))
-        return {}
+        from app.agents.interview.noop import noop_state_delta
+
+        return noop_state_delta(state)
 
     existing_ids = state.get("error_question_ids") or []
     if isinstance(existing_ids, list) and len(existing_ids) >= DRILL_TOP_K:
@@ -416,7 +428,7 @@ async def _fetch_error_pool_ids(user_id: str) -> list[str]:
     user_uuid = _safe_uuid(user_id)
     stmt = text(
         """
-        SELECT source_question_id
+        SELECT COALESCE(source_question_id, id) AS question_id
         FROM error_questions
         WHERE
             deleted_at IS NULL
@@ -452,7 +464,10 @@ async def _materialise_cached_candidates(
             question_text
         FROM error_questions
         WHERE
-            source_question_id = ANY(:ids)
+            (
+                source_question_id::text = ANY(:ids)
+                OR id::text = ANY(:ids)
+            )
             AND user_id = :uid
             AND deleted_at IS NULL
         """
@@ -462,7 +477,12 @@ async def _materialise_cached_candidates(
             stmt, {"ids": list(source_question_ids), "uid": str(user_uuid)}
         )
         rows = result.mappings().all()
-    by_sid = {str(r["source_question_id"]): dict(r) for r in rows}
+    by_sid: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        item = dict(row)
+        by_sid[str(item["id"])] = item
+        if item.get("source_question_id"):
+            by_sid[str(item["source_question_id"])] = item
     return [by_sid[sid] for sid in source_question_ids if sid in by_sid]
 
 

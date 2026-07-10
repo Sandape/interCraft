@@ -10,6 +10,7 @@
  * the user commits to a quick_drill session (T062 wire).
  */
 import { useEffect, useState } from 'react'
+import { request } from '@/api/client'
 import { VariantToggle } from './VariantToggle'
 
 interface DrillCandidate {
@@ -30,12 +31,10 @@ interface DrillPreviewResponse {
 
 interface DrillCandidatesPreviewProps {
   jdText?: string
-  onConfirm: (useVariants: boolean) => void
+  onConfirm: (useVariants: boolean, errorQuestionIds: string[]) => void
   onCancel: () => void
   testId?: string
 }
-
-const apiBase = (import.meta.env.VITE_API_BASE ?? '') as string
 
 export function DrillCandidatesPreview({
   jdText = '',
@@ -52,13 +51,11 @@ export function DrillCandidatesPreview({
   const [useVariants, setUseVariants] = useState(false)
 
   useEffect(() => {
-    const url = new URL(`${apiBase}/api/v1/interview-sessions/quick-drill/preview`, window.location.origin)
-    if (jdText) url.searchParams.set('jd_text', jdText)
-    fetch(url.toString(), { credentials: 'include' })
-      .then((r) => {
-        if (!r.ok) throw new Error(`preview failed: ${r.status}`)
-        return r.json() as Promise<DrillPreviewResponse>
-      })
+    request<DrillPreviewResponse>({
+      method: 'GET',
+      path: '/api/v1/interview-sessions/quick-drill/preview',
+      query: { jd_text: jdText || undefined },
+    })
       .then((body) => {
         setCandidates(body.data?.candidates ?? [])
         setDegraded(body.data?.degraded ?? false)
@@ -71,6 +68,9 @@ export function DrillCandidatesPreview({
   }, [jdText])
 
   const dimensions = new Set(candidates.map((c) => c.dimension).filter(Boolean))
+  const candidateIds = candidates
+    .map((c) => c.source_question_id ?? c.id)
+    .filter((id): id is string => Boolean(id))
 
   return (
     <div
@@ -148,7 +148,7 @@ export function DrillCandidatesPreview({
         </button>
         <button
           type="button"
-          onClick={() => onConfirm(useVariants)}
+          onClick={() => onConfirm(useVariants, candidateIds)}
           disabled={loading || candidates.length === 0}
           className="rounded bg-primary px-3 py-1.5 text-sm text-on-primary hover:bg-primary-hover disabled:opacity-50"
           data-testid="drill-confirm"

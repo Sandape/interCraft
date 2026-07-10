@@ -27,6 +27,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from app.agents.interview.noop import noop_state_delta
 from app.agents.utils.compress_history import (
     ACTIVE_TRIGGER_MESSAGE_COUNT,
     DEFAULT_CONTEXT_WINDOW_TOKENS,
@@ -60,7 +61,7 @@ async def compress_history_node(state: Any) -> dict[str, Any]:
         messages = list(getattr(state, "messages", []) or [])
 
     if not messages:
-        return {}
+        return noop_state_delta(state)
 
     # Decide which trigger fired (active wins ties).
     active = len(messages) >= ACTIVE_TRIGGER_MESSAGE_COUNT
@@ -68,16 +69,25 @@ async def compress_history_node(state: Any) -> dict[str, Any]:
     passive = tokens >= int(PASSIVE_TRIGGER_RATIO * DEFAULT_CONTEXT_WINDOW_TOKENS)
 
     if not (active or passive):
-        return {}
+        return noop_state_delta(state)
 
     triggered_by = "active" if active else "passive"
     retain = DEFAULT_RETAIN_MESSAGES
     to_summarize = messages[:-retain] if len(messages) > retain else messages[:-1]
     retained = messages[-retain:] if len(messages) > retain else messages[-1:]
 
+    if isinstance(state, dict):
+        user_id = str(state.get("user_id") or "unknown")
+        thread_id = str(state.get("thread_id") or "unknown")
+    else:
+        user_id = str(getattr(state, "user_id", None) or "unknown")
+        thread_id = str(getattr(state, "thread_id", None) or "unknown")
+
     # Try the LLM summary; on failure keep the originals and warn.
     try:
-        summary_text = await _summarize_messages(to_summarize)
+        summary_text = await _summarize_messages(
+            to_summarize, user_id=user_id, thread_id=thread_id
+        )
     except Exception as exc:  # noqa: BLE001 — boundary catch
         return {
             "warning": f"compress_history failed: {exc}",
@@ -103,8 +113,13 @@ async def compress_history_node(state: Any) -> dict[str, Any]:
     }
 
 
-async def _summarize_messages(messages: list[Any]) -> str:
-    """Call the LLM to summarize a list of messages.
+async def _summarize_messages(
+    messages: list[Any],
+    *,
+    user_id: str = "unknown",
+    thread_id: str = "unknown",
+) -> str:
+    """Call the LLM to summarize a list of messages (flash model).
 
     Implementation note: we lazily import the LLM client to keep this
     module importable in unit tests that don't have a DEEPSEEK key
@@ -129,16 +144,15 @@ async def _summarize_messages(messages: list[Any]) -> str:
         "the user mentioned.\n\n"
         + "\n".join(parts)
     )
-    llm = await get_llm_client()
-    response = await llm.ainvoke(prompt)
-    content = getattr(response, "content", "")
-    if isinstance(content, list):
-        # Some LangChain message shapes return list[dict] for content.
-        content = " ".join(
-            block.get("text", "") if isinstance(block, dict) else str(block)
-            for block in content
-        )
-    return str(content).strip()
+    llm = get_llm_client()
+    result = await llm.invoke(
+        messages=[{"role": "user", "content": prompt}],
+        estimated_tokens=1500,
+        user_id=user_id,
+        thread_id=thread_id,
+        node_name="compress_history",
+    )
+    return str(result.get("content") or "").strip()
 
 
 __all__ = ["compress_history_node"]

@@ -13,13 +13,10 @@ import {
   Clock,
   Calendar,
   MessageSquare,
-  Mic,
   ChevronRight,
   ChevronsUpDown,
   Loader2,
 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -76,7 +73,16 @@ export default function InterviewReport() {
   }
 
   const displayScore = report?.overall_score || session.overall_score || session.score || 0
-  const displayMode = session.mode === 'voice' ? '语音面试' : '文字面试'
+  const displayMode =
+    session.mode === 'quick_drill'
+      ? '错题补漏'
+      : session.mode === 'doubao'
+        ? '豆包面试'
+        : session.mode === 'full'
+          ? '完整面试'
+          : session.mode === 'voice'
+            ? '语音面试'
+            : '文字面试'
   const scoreLabel = displayScore >= 8 ? '优秀' : displayScore >= 6 ? '良好' : '待提升'
   const interviewPlan = report?.interview_plan ?? session.interview_plan ?? null
   const webResearch = report?.web_research ?? session.web_research ?? null
@@ -149,7 +155,7 @@ export default function InterviewReport() {
             ) : null}
             <span>·</span>
             <span className="flex items-center gap-1">
-              {session.mode === 'voice' ? <Mic className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+              <MessageSquare className="h-3.5 w-3.5" />
               {displayMode}
             </span>
             {session.question_count && (
@@ -212,7 +218,7 @@ export default function InterviewReport() {
               </div>
               <div className="text-sm text-ink-2 leading-relaxed [&_p]:mb-2 [&_strong]:font-semibold">
                 {report?.summary_md ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.summary_md}</ReactMarkdown>
+                  <MarkdownText text={report.summary_md} />
                 ) : (
                   '暂无 AI 总结'
                 )}
@@ -369,7 +375,7 @@ export default function InterviewReport() {
           />
           {report?.summary_md ? (
             <div className="text-sm text-ink-2 leading-relaxed [&_p]:mb-2 [&_strong]:font-semibold">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.summary_md}</ReactMarkdown>
+              <MarkdownText text={report.summary_md} />
             </div>
           ) : (
             <div className="text-sm text-ink-3 py-4 text-center">暂无数据</div>
@@ -477,9 +483,7 @@ export default function InterviewReport() {
                           </div>
                           <div className="text-sm text-ink-2 leading-relaxed [&_p]:mb-1.5 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5">
                             {q.feedback ? (
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {q.feedback}
-                              </ReactMarkdown>
+                              <MarkdownText text={q.feedback} />
                             ) : (
                               '—'
                             )}
@@ -495,5 +499,29 @@ export default function InterviewReport() {
         )}
       </Card>
     </div>
+  )
+}
+
+function MarkdownText({ text }: { text: string }) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^#{1,6}\s+/, '')
+        .replace(/^[-*]\s+/, '• ')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/`([^`]+)`/g, '$1'),
+    )
+    .filter(Boolean)
+
+  if (lines.length === 0) return null
+
+  return (
+    <>
+      {lines.map((line, index) => (
+        <p key={`${index}-${line.slice(0, 12)}`}>{line}</p>
+      ))}
+    </>
   )
 }

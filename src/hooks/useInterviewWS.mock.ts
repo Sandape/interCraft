@@ -93,6 +93,7 @@ export function mockInitialState(): InterviewWSState {
     lastCheckpointId: null,
     error: null,
     events: [],
+    turnPhase: 'idle',
   }
 }
 

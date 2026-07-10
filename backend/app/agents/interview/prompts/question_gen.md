@@ -7,19 +7,23 @@
 - 目标岗位: {position}
 - 目标公司: {company}
 - 难度: {difficulty}
-- 当前轮次: {current_question} / 5
+- 当前轮次: {current_question} / {max_questions}
 - 考察维度: {dimension}
 - 重点主题: {topics_to_probe}
 - 已出过的题目: {previous_questions}
 
 {requirements_md_block}
 
+{plan_context_block}
+
 题目要求：
-1. 紧扣 {company} 公司 {difficulty} 难度的真实面试风格
-2. 考察候选人在 "{dimension}" 维度上的能力
-3. **如果上方有"岗位招聘需求"，请尽量让题目覆盖其中提到的关键技能 / 经验 / 工具**，让候选人展示与岗位的匹配度
-4. 可在 2-5 分钟内口头回答
-5. 包含当候选人卡壳时你可以给出的引导提示
+1. 紧扣目标公司与岗位的真实面试风格（若公司/岗位为「目标公司/目标岗位」则使用通用互联网大厂风格，不要编造具体公司名）
+2. 考察候选人在 "{dimension}" 维度、以及重点主题「{topics_to_probe}」上的能力
+3. **如果上方有面试计划上下文，必须覆盖其中的 focus_areas / tips / tech_stack**
+4. **如果上方有"岗位招聘需求"，请尽量让题目覆盖其中提到的关键技能 / 经验 / 工具**
+5. 可在 2-5 分钟内口头回答
+6. 必须给出 expected_points（3-5 条评分要点）与卡壳引导 hints
+7. 题干中禁止出现纯数字占位公司名（如 123123）
 
 可用维度（dimension 字段必须使用以下英文 key 之一）：
 - tech_depth: 核心技术的深度掌握

@@ -23,13 +23,14 @@ const ResumeListV2 = lazy(() => import('@/pages/ResumeListV2'))
 const ResumeEditorV2 = lazy(() => import('@/pages/ResumeEditorV2'))
 const PublicResumeV2 = lazy(() => import('@/pages/PublicResumeV2'))
 const Square = lazy(() => import('@/modules/resume/marketplace/Square'))
-const Profile = lazy(() => import('@/pages/Profile'))
 const Jobs = lazy(() => import('@/pages/Jobs'))
 const ErrorBook = lazy(() => import('@/pages/ErrorBook'))
 const InterviewList = lazy(() => import('@/pages/InterviewList'))
+const InterviewModeSelect = lazy(() => import('@/pages/InterviewModeSelect'))
 const InterviewLive = lazy(() => import('@/pages/InterviewLive'))
 const InterviewReport = lazy(() => import('@/pages/InterviewReport'))
 const Settings = lazy(() => import('@/pages/Settings'))
+const AgentSettings = lazy(() => import('@/pages/AgentSettings'))
 const GeneralCoach = lazy(() => import('@/pages/GeneralCoach'))
 const Help = lazy(() => import('@/pages/Help'))
 const AbilityProfile = lazy(() => import('@/pages/AbilityProfile'))
@@ -37,6 +38,10 @@ const AbilityProfileDetail = lazy(() => import('@/pages/AbilityProfileDetail'))
 const PMDashboard = lazy(() => import('@/pages/PMDashboard'))
 // REQ-053 (T069) — full report viewer.
 const ResearchReportPage = lazy(() => import('@/pages/ResearchReportPage'))
+// REQ-055 — derive run progress.
+const DeriveProgress = lazy(() =>
+  import('@/modules/resume/derive/DeriveProgress').then((m) => ({ default: m.DeriveProgress })),
+)
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -111,6 +116,7 @@ export function AppRoutes() {
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/resume" element={<ResumeList />} />
+                <Route path="/resume/derive/:runId" element={<DeriveProgress />} />
                 <Route path="/resume/marketplace" element={<Square />} />
                 {/* Canonical editor is V2; keep /resume/v2/:id as a stable alias. */}
                 <Route path="/resume/v2/:id" element={<ResumeEditorV2 />} />
@@ -118,10 +124,13 @@ export function AppRoutes() {
                 <Route path="/resume-v2/new" element={<ResumeListV2 />} />
                 <Route path="/resume/:id" element={<ResumeEditorV2 />} />
                 <Route path="/interview" element={<InterviewList />} />
+                <Route path="/interview/mode" element={<InterviewModeSelect />} />
                 <Route path="/interview/new" element={<InterviewLive />} />
                 <Route path="/interview/:id/live" element={<InterviewLive />} />
                 <Route path="/interview/:id/report" element={<InterviewReport />} />
-                <Route path="/profile" element={<Profile />} />
+                {/* Legacy Jobs CTA / deep links without /live suffix */}
+                <Route path="/interview/:id" element={<InterviewLive />} />
+                <Route path="/profile" element={<Navigate to="/ability-profile" replace />} />
                 <Route path="/ability-profile" element={<AbilityProfile />} />
                 <Route path="/ability-profile/:abilityKey" element={<AbilityProfileDetail />} />
                 <Route path="/jobs" element={<Jobs />} />
@@ -131,6 +140,7 @@ export function AppRoutes() {
                 />
                 <Route path="/error-book" element={<ErrorBook />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/agent" element={<AgentSettings />} />
                 <Route path="/coach" element={<GeneralCoach />} />
                 <Route path="/help" element={<Help />} />
                 <Route path="/pm-dashboard" element={<PMDashboard />} />

@@ -1,7 +1,8 @@
 """TokenEstimator — per-node token consumption estimates (T011).
 
 Uses fixed estimates per contracts/llm-client.md §Token 估算表.
-Per-node model tiering: flash for live-interview nodes, pro for evaluation/report.
+Interview model policy: planner (plan gen) = deepseek-v4-pro;
+all other LLM nodes = deepseek-v4-flash.
 """
 from __future__ import annotations
 
@@ -14,38 +15,72 @@ NODE_TOKEN_ESTIMATES: dict[str, int] = {
     "intake": 700,
     "question_gen": 2500,
     "score": 1800,
+    "score_llm": 1800,
     "report": 5500,
+    "planner": 4000,
+    "planner_generate": 4000,
+    "compress_history": 1500,
+    "variant_generator": 1200,
+}
+
+# Alias node_name → settings / fallback key (score_llm → score, etc.)
+_NODE_ALIASES: dict[str, str] = {
+    "score_llm": "score",
+    "planner_generate": "planner",
 }
 
 # Fallback models when Settings is not available (tests)
 _DEFAULT_MODEL_FALLBACK: dict[str, str] = {
+    "planner": "deepseek-v4-pro",
+    "planner_generate": "deepseek-v4-pro",
     "intake": "deepseek-v4-flash",
     "question_gen": "deepseek-v4-flash",
-    "score": "deepseek-v4-pro",
-    "report": "deepseek-v4-pro",
+    "score": "deepseek-v4-flash",
+    "score_llm": "deepseek-v4-flash",
+    "report": "deepseek-v4-flash",
+    "compress_history": "deepseek-v4-flash",
+    "variant_generator": "deepseek-v4-flash",
 }
+
+_PRO_MODEL = "deepseek-v4-pro"
+_FLASH_MODEL = "deepseek-v4-flash"
+
+
+def _canonical_node(node_name: str) -> str:
+    return _NODE_ALIASES.get(node_name, node_name)
 
 
 def _get_per_node_model(node_name: str) -> str:
     """Resolve the model for a node. Priority:
-    1. AGENT_MODEL_{NODE} env var (highest)
-    2. Settings deepseek_model_{node}
+    1. AGENT_MODEL_{NODE} env var (highest; tries exact then canonical)
+    2. Settings deepseek_model_{node} (exact then canonical)
     3. Settings deepseek_model (global fallback)
     4. Hardcoded default (lowest)
     """
-    env_key = f"AGENT_MODEL_{node_name.upper()}"
-    env_override = os.environ.get(env_key)
-    if env_override:
-        return env_override
+    exact = node_name
+    canonical = _canonical_node(node_name)
+
+    for key in (exact, canonical):
+        env_override = os.environ.get(f"AGENT_MODEL_{key.upper()}")
+        if env_override:
+            return env_override
 
     try:
         settings = get_settings()
-        node_model = getattr(settings, f"deepseek_model_{node_name}", None)
-        if node_model:
-            return node_model
+        for key in (exact, canonical):
+            node_model = getattr(settings, f"deepseek_model_{key}", None)
+            if node_model:
+                return node_model
         return settings.deepseek_model
     except Exception:
-        return _DEFAULT_MODEL_FALLBACK.get(node_name, "deepseek-v4-pro")
+        return _DEFAULT_MODEL_FALLBACK.get(exact) or _DEFAULT_MODEL_FALLBACK.get(
+            canonical, _FLASH_MODEL
+        )
+
+
+def thinking_enabled_for_model(model: str) -> bool:
+    """Thinking/reasoning only for pro; flash stays non-thinking for latency."""
+    return model == _PRO_MODEL or model.endswith("-pro")
 
 
 class TokenEstimator:
@@ -62,4 +97,9 @@ class TokenEstimator:
         return _get_per_node_model(node_name)
 
 
-__all__ = ["NODE_TOKEN_ESTIMATES", "TokenEstimator", "_get_per_node_model"]
+__all__ = [
+    "NODE_TOKEN_ESTIMATES",
+    "TokenEstimator",
+    "_get_per_node_model",
+    "thinking_enabled_for_model",
+]

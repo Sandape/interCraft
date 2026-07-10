@@ -505,17 +505,23 @@ class LLMClient:
         stream: bool,
         timeout_ms: int,
     ):
+        from app.agents.token_estimator import thinking_enabled_for_model
+
         settings = get_settings()
-        return await self._client.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=stream,
-            timeout=timeout_ms / 1000.0,
-            reasoning_effort=settings.deepseek_reasoning_effort,
-            extra_body={"thinking": {"type": "enabled"}}
-            if settings.deepseek_thinking_enabled
-            else None,
+        # Thinking only on pro (plan gen). Flash skips thinking for latency.
+        use_thinking = (
+            settings.deepseek_thinking_enabled and thinking_enabled_for_model(model)
         )
+        kwargs: dict = {
+            "model": model,
+            "messages": messages,
+            "stream": stream,
+            "timeout": timeout_ms / 1000.0,
+        }
+        if use_thinking:
+            kwargs["reasoning_effort"] = settings.deepseek_reasoning_effort
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+        return await self._client.chat.completions.create(**kwargs)
 
     async def _pre_deduct(self, user_id: str, estimated_tokens: int) -> None:
         """Atomically check and pre-deduct quota via SELECT...FOR UPDATE."""

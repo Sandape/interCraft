@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import db_session_user_dep, get_current_user_id
 from app.modules.interviews.schemas import (
+    InterviewPlanDegradeIn,
     InterviewSessionCreate,
     InterviewSessionCreateOut,
     InterviewSessionListOut,
@@ -166,6 +167,18 @@ async def generate_plan(
 ) -> dict:
     """Generate or read the session interview_plan without entering Q/A."""
     result = await svc.generate_plan(id, user_id)
+    return {"data": result}
+
+
+@router.post("/{id}/plan/degrade", status_code=200)
+async def confirm_plan_degrade(
+    id: UUID,
+    body: InterviewPlanDegradeIn,
+    user_id: UUID = Depends(get_current_user_id),
+    svc: InterviewSessionService = Depends(_get_service),
+) -> dict:
+    """REQ-058 — confirm continuing interview without a ready plan."""
+    result = await svc.confirm_plan_degrade(id, user_id, confirm=body.confirm)
     return {"data": result}
 
 

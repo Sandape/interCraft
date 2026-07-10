@@ -32,10 +32,110 @@ from app.observability import traced_node
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
+_DETAIL_SIGNALS = (
+    "目标",
+    "负责",
+    "设计",
+    "难点",
+    "解决",
+    "验证",
+    "指标",
+    "上线",
+    "日志",
+    "评估",
+    "回放",
+    "状态",
+    "重试",
+    "拆",
+)
+
+_TECH_SIGNALS = (
+    "Agent",
+    "RAG",
+    "LangGraph",
+    "MCP",
+    "Tool",
+    "工具",
+    "向量",
+    "检索",
+    "FastAPI",
+    "React",
+    "TypeScript",
+    "LLM",
+    "Prompt",
+    "embedding",
+)
+
+_WEAK_SIGNALS = (
+    "不算深入",
+    "不充分",
+    "比较弱",
+    "信心一般",
+    "没有完整",
+    "没有系统",
+    "没有长期",
+    "没有主导",
+    "还没有",
+    "缺少",
+    "只能说",
+    "需要提示",
+    "看题解",
+    "不保证",
+)
+
 
 def _load_prompt(name: str) -> str:
     path = _PROMPT_DIR / name
     return path.read_text(encoding="utf-8")
+
+
+def _count_signals(text: str, signals: tuple[str, ...]) -> int:
+    return sum(1 for signal in signals if signal in text)
+
+
+def _score_degraded_template_answer(answer: str) -> tuple[int, str, dict[str, int]]:
+    """Deterministic fallback for template-degraded interviews.
+
+    This is intentionally labelled as local degraded scoring so reports do
+    not present it as an external AI evaluation.
+    """
+    stripped = (answer or "").strip()
+    length = len(stripped)
+    detail_count = _count_signals(stripped, _DETAIL_SIGNALS)
+    tech_count = _count_signals(stripped, _TECH_SIGNALS)
+    weak_count = _count_signals(stripped, _WEAK_SIGNALS)
+
+    score = 5
+    if length >= 90:
+        score += 2
+    elif length >= 45:
+        score += 1
+
+    if detail_count >= 4:
+        score += 2
+    elif detail_count >= 2:
+        score += 1
+
+    if tech_count >= 2:
+        score += 1
+
+    if weak_count >= 2:
+        score = min(score, 4)
+    elif weak_count == 1:
+        score = min(score - 1, 5)
+
+    raw_score = max(1, min(9, score))
+    if raw_score >= ERROR_THRESHOLD:
+        feedback = "降级评分：回答包含具体项目、技术动作与验证方式，具备继续追问价值。"
+    else:
+        feedback = "降级评分：回答暴露了明显短板，需要补充具体方案、关键取舍和验证证据。"
+
+    sub_scores = {
+        "clarity": max(1, min(10, 4 + (1 if length >= 45 else 0) + min(detail_count, 3))),
+        "depth": raw_score,
+        "relevance": max(1, min(10, 5 + min(tech_count, 3) - min(weak_count, 3))),
+    }
+    return raw_score, feedback, sub_scores
 
 
 @node_error_handler(fallback_strategy="retry")
@@ -90,12 +190,58 @@ async def score_llm_node(state: InterviewGraphState) -> dict:
         latest_question = questions[-1]
     question_text = latest_question.get("question", "")
     dimension = latest_question.get("dimension", "tech_depth")
+    expected_points = latest_question.get("expected_points") or []
 
+    # REQ-058 — short / empty answer fast path (no LLM)
+    stripped = (answer or "").strip()
+    if len(stripped) < 8:
+        raw_score = 1 if not stripped else 2
+        feedback = (
+            "未作答或回答过短，无法评估。请针对题目给出具体技术细节与思路。"
+            if not stripped
+            else "回答过短，缺少与题目相关的实质内容。请补充关键步骤、权衡与例子。"
+        )
+        new_score = {
+            "question_no": current_q,
+            "dimension": dimension,
+            "score": raw_score,
+            "feedback": feedback,
+            "sub_scores": {"clarity": raw_score, "depth": raw_score, "relevance": 1},
+            "question_text": question_text,
+            "user_answer": answer if answer else "",
+            "off_topic": True,
+            "scoring_method": "local_short_answer",
+        }
+        return {"raw_score": raw_score, "scores": [*scores, new_score]}
+
+    if bool(state.get("degraded", False)) or latest_question.get("source") == "template_degraded":
+        raw_score, feedback, sub_scores = _score_degraded_template_answer(answer)
+        new_score = {
+            "question_no": current_q,
+            "dimension": dimension,
+            "score": raw_score,
+            "feedback": feedback,
+            "sub_scores": sub_scores,
+            "question_text": question_text,
+            "user_answer": answer if answer else "",
+            "off_topic": raw_score < ERROR_THRESHOLD,
+            "expected_points": expected_points,
+            "source": latest_question.get("source", "template_degraded"),
+            "scoring_method": "local_degraded_template",
+        }
+        return {"raw_score": raw_score, "scores": [*scores, new_score]}
+
+    points_text = (
+        json.dumps(expected_points, ensure_ascii=False)
+        if expected_points
+        else "（本题未提供明确得分点，请按题目本身评估完整性）"
+    )
     template = _load_prompt("score.md")
     prompt = template.format(
         question=question_text,
         dimension=dimension,
         difficulty=state.get("difficulty", "medium"),
+        expected_points=points_text,
         answer=answer if answer else "(no answer provided)",
     )
 
@@ -137,6 +283,8 @@ async def score_llm_node(state: InterviewGraphState) -> dict:
         "sub_scores": s_data.get("sub_scores", {}),
         "question_text": question_text,
         "user_answer": answer if answer else "",
+        "off_topic": bool(s_data.get("off_topic", False)),
+        "expected_points": expected_points,
     }
 
     return {

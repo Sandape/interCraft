@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agents.interview.noop import noop_state_delta
 from app.agents.interview.state import InterviewGraphState
 from app.observability import traced_node
 
@@ -21,8 +22,11 @@ from app.observability import traced_node
 @traced_node("interview.mode_guard")
 async def mode_guard_node(state: InterviewGraphState) -> dict:
     """No-op pass-through; the early-stop decision is taken by graph.py
-    via the conditional edge that reads ``state.mode``."""
-    return {}
+    via the conditional edge that reads ``state.mode``.
+
+    Must return a non-empty delta — LangGraph rejects ``{}``.
+    """
+    return noop_state_delta(state)
 
 
 __all__ = ["mode_guard_node"]

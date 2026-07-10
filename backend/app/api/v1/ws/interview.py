@@ -33,6 +33,7 @@ from app.core.ws_events import (
 )
 from app.domain.interview_report import InterviewReportCreate
 from app.domain.rls import set_user_context
+from app.modules.interviews.completion import is_interview_graph_complete
 from app.modules.interviews.repository import InterviewSessionRepository
 from app.modules.interviews.service import sync_ability_dimensions
 from app.repositories.interview_report_repo import InterviewReportRepo
@@ -155,6 +156,13 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
         "mode": None,
         "max_questions": None,
         "error_question_ids": None,
+        "use_variants": False,
+        "interview_plan": None,
+        "web_research": None,
+        "difficulty": None,
+        "planner_focus_area_count": None,
+        "plan_status": None,
+        "degraded": False,
     }
     try:
         session_uuid = UUID(session_id)
@@ -164,6 +172,8 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
             await set_user_context(db, user_id)
             session = await InterviewSessionRepository(db).get(session_uuid, user_uuid)
             if session:
+                plan = session.interview_plan if isinstance(session.interview_plan, dict) else None
+                focuses = (plan or {}).get("focus_areas") or []
                 session_context = {
                     "position": session.position,
                     "company": session.company,
@@ -172,7 +182,38 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
                     "mode": session.mode,
                     "max_questions": session.max_questions,
                     "error_question_ids": [str(x) for x in session.error_question_ids or []],
+                    "use_variants": bool(getattr(session, "use_variants", False)),
+                    "interview_plan": plan,
+                    "web_research": session.web_research,
+                    "difficulty": (plan or {}).get("interview_difficulty") if plan else None,
+                    "planner_focus_area_count": len(
+                        [a for a in focuses if isinstance(a, dict) and a.get("area")]
+                    )
+                    if plan
+                    else None,
+                    "plan_status": getattr(session, "plan_status", None),
+                    "degraded": bool(getattr(session, "degraded", False)),
                 }
+                # Surface plan failure to client before scoring
+                if (
+                    getattr(session, "plan_status", None) == "failed"
+                    and not getattr(session, "degraded", False)
+                    and (session.mode or "full") == "full"
+                ):
+                    await websocket.send_text(
+                        serialize_event(
+                            make_error_event(
+                                session_id=session_id,
+                                node_name="planner",
+                                code=getattr(session, "plan_error_code", None)
+                                or "PLAN_GENERATE_FAILED",
+                                message=getattr(session, "plan_error_message", None)
+                                or "面试计划未就绪",
+                                retryable=False,
+                            )
+                        )
+                    )
+                    return
     except Exception:
         logger.warning("ws.session_context_lookup_failed", session_id=session_id, exc_info=True)
 
@@ -196,6 +237,14 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
             mode=session_context.get("mode"),
             max_questions=session_context.get("max_questions"),
             error_question_ids=session_context.get("error_question_ids"),
+            use_variants=session_context.get("use_variants"),
+            interview_plan=session_context.get("interview_plan"),
+            web_research=session_context.get("web_research"),
+            difficulty=session_context.get("difficulty"),
+            planner_focus_area_count=session_context.get("planner_focus_area_count"),
+            plan_status=session_context.get("plan_status"),
+            degraded=session_context.get("degraded"),
+            score_first=True,
         )
         planner_values = _extract_planner_outputs(result)
         if not planner_values.get("interview_plan"):
@@ -227,31 +276,39 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
                     exc_info=True,
                 )
 
-        current_q = result.get("current_question", 0)
-        scores = result.get("scores", [])
-
-        # Opening/intake turns can generate the first interview question without
-        # producing a score. Do not emit a fake 0-point score event.
+        scores = result.get("scores", []) if isinstance(result, dict) else []
         latest_score = scores[-1] if scores else {}
+
+        # REQ-058 — emit score BEFORE continuing to question_gen / report
         if latest_score:
+            logger.info(
+                "score.emit_before_question",
+                session_id=session_id,
+                question_no=latest_score.get("question_no"),
+            )
             await websocket.send_text(
                 serialize_event(
                     make_node_completed(
                         session_id,
                         "score",
-                        checkpoint_id=result.get("checkpoint_id", ""),
+                        checkpoint_id=result.get("checkpoint_id", "") if isinstance(result, dict) else "",
                         summary={
                             "question_no": sequence_no,
                             "score": latest_score.get("score", 0),
                             "dimension": latest_score.get("dimension", ""),
                             "feedback": latest_score.get("feedback", ""),
                             "sub_scores": latest_score.get("sub_scores", {}),
+                            "off_topic": latest_score.get("off_topic", False),
                         },
                     )
                 )
             )
+            # Continue turn for next question / report
+            result = await graph.continue_turn(session_id)
 
-        if len(scores) >= 5:
+        current_q = result.get("current_question", 0) if isinstance(result, dict) else 0
+
+        if is_interview_graph_complete(result):
             # Interview complete → report
             await websocket.send_text(
                 serialize_event(make_node_started(session_id, "report"))
@@ -324,14 +381,14 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
             )
         else:
             # Next question
-            questions = result.get("questions", [])
+            questions = result.get("questions", []) if isinstance(result, dict) else []
             await websocket.send_text(
                 serialize_event(
                     make_node_started(session_id, "question_gen", current_question=current_q)
                 )
             )
+            latest_q = questions[-1] if questions else {}
             if questions:
-                latest_q = questions[-1]
                 await websocket.send_text(
                     serialize_event(
                         make_token_delta(session_id, "question_gen", latest_q.get("question", ""), 0)
@@ -342,13 +399,14 @@ async def _handle_submit_answer(websocket: WebSocket, user_id: str, msg: dict) -
                     make_node_completed(
                         session_id,
                         "question_gen",
-                        checkpoint_id=result.get("checkpoint_id", ""),
+                        checkpoint_id=result.get("checkpoint_id", "") if isinstance(result, dict) else "",
                         summary={
                             "question_no": current_q,
                             "dimension": latest_q.get("dimension", "") if questions else "",
                             "question": latest_q.get("question", "") if questions else "",
                             "expected_points": latest_q.get("expected_points", []) if questions else [],
                             "hints": latest_q.get("hints", []) if questions else [],
+                            "source": latest_q.get("source", "") if questions else "",
                         },
                     )
                 )

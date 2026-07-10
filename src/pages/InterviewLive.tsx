@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils'
 import { zhCN } from '@/lib/i18n/zh-CN'
 import { useInterviewWS, type WSEvent } from '@/hooks/useInterviewWS'
 import { useAuthStore } from '@/stores/useAuthStore'
-import { interviewSessionRepo } from '@/repositories/interviewSessionRepo'
+import { interviewSessionRepo, resolvePlanStatus, type PlanStatus } from '@/repositories/interviewSessionRepo'
 import { getAccessToken } from '@/api/token-storage'
 import { ErrorBanner } from '@/components/interview/ErrorBanner'
 import { InterviewPlanPanel } from '@/components/interview/InterviewPlanPanel'
@@ -66,6 +66,7 @@ function isInterviewWsMockMode(): boolean {
 }
 
 interface QuestionData {
+  question_no?: number
   question: string
   dimension: string
   expected_points: string[]
@@ -131,6 +132,11 @@ export default function InterviewLive() {
   const [sessionMode, setSessionMode] = useState<string | null>(null)
   const [sessionMaxQuestions, setSessionMaxQuestions] = useState<number | null>(null)
   const [sessionEffectiveMax, setSessionEffectiveMax] = useState<number | null>(null)
+  // REQ-058 — plan lifecycle visibility
+  const [planStatus, setPlanStatus] = useState<PlanStatus>('pending')
+  const [planErrorMessage, setPlanErrorMessage] = useState<string | null>(null)
+  const [planDegraded, setPlanDegraded] = useState(false)
+  const [degradeConfirming, setDegradeConfirming] = useState(false)
 
   // track user answers locally
   const [userAnswers, setUserAnswers] = useState<Array<{ content: string; seqNo: number }>>([])
@@ -144,13 +150,12 @@ export default function InterviewLive() {
     const sess = await interviewSessionRepo.getById(id)
     setInterviewPlan(sess.interview_plan ?? null)
     setWebResearch(sess.web_research ?? null)
-    // REQ-048 US3 T071 — capture session mode + max_questions for the
-    // progress-bar counter. The backend's effective_max lands via
-    // ``effective_max`` once the planner subgraph runs; we read both
-    // shapes here so the bar is correct from the very first render.
-    setSessionMode((sess as any).mode ?? null)
-    setSessionMaxQuestions((sess as any).max_questions ?? null)
-    setSessionEffectiveMax((sess as any).effective_max ?? null)
+    setSessionMode(sess.mode ?? null)
+    setSessionMaxQuestions(sess.max_questions ?? null)
+    setSessionEffectiveMax(sess.effective_max ?? null)
+    setPlanStatus(resolvePlanStatus(sess))
+    setPlanErrorMessage(sess.plan_error_message ?? null)
+    setPlanDegraded(Boolean(sess.degraded))
     if (sess.interview_plan) setPlanOpen((open) => open || questions.length === 0)
     return sess
   }, [questions.length])
@@ -186,9 +191,14 @@ export default function InterviewLive() {
           })
         }
         if (evt.node_name === 'question_gen' && summary.question) {
+          const questionNo = Number(summary.question_no || 0)
           setQuestions((prev) => {
-            if (prev.some((q) => q.question === summary.question)) return prev
+            const exists = questionNo > 0
+              ? prev.some((q) => q.question_no === questionNo)
+              : prev.some((q) => q.question === summary.question)
+            if (exists) return prev
             return [...prev, {
+              question_no: questionNo > 0 ? questionNo : undefined,
               question: summary.question,
               dimension: summary.dimension || '',
               expected_points: summary.expected_points || [],
@@ -221,8 +231,14 @@ export default function InterviewLive() {
 
   // ---- auto-scroll ----
   useEffect(() => {
-    messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' })
-  }, [questions, scores, ws.state.streamingText, userAnswers, aiThinking])
+    const el = messagesRef.current
+    if (!el) return
+    if (typeof el.scrollTo === 'function') {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [questions, scores, ws.state.streamingText, userAnswers, aiThinking, ws.state.turnPhase])
 
   // ---- resume: when /interview/:id/live, restore state and connect WS ----
   const resumeRanRef = useRef(false)
@@ -286,7 +302,11 @@ export default function InterviewLive() {
         setWebResearch(sess.web_research ?? values.web_research ?? null)
 
         setQuestions(
-          uniqueBy(restoredQuestions, (q: any) => q?.question || '').map((q: any) => ({
+          uniqueBy(
+            restoredQuestions,
+            (q: any) => String(q?.question_no || q?.sequence_no || q?.question || ''),
+          ).map((q: any) => ({
+            question_no: q.question_no || q.sequence_no || undefined,
             question: q.question || '',
             dimension: q.dimension || '',
             expected_points: q.expected_points || [],
@@ -304,6 +324,8 @@ export default function InterviewLive() {
           })),
         )
 
+        // seqNo is 0-based WS sequence; question_no from scores is 1-based.
+        // Map answer i → score.question_no === i (intro at 0 has no score).
         const reconstructedAnswers = userMessages.map((content, idx) => ({
           content,
           seqNo: idx,
@@ -340,6 +362,57 @@ export default function InterviewLive() {
     })
   }, [interviewPlan, sessionId, syncPlannerOutputs, ws.state.lastCheckpointId])
 
+  const planPollRef = useRef(false)
+  useEffect(() => {
+    if (!sessionId || planStatus !== 'pending' || planPollRef.current) return
+    planPollRef.current = true
+    let cancelled = false
+
+    const poll = async () => {
+      const deadline = Date.now() + 90_000
+      while (!cancelled && Date.now() < deadline) {
+        try {
+          const sess = await interviewSessionRepo.getById(sessionId)
+          if (cancelled) return
+          const status = resolvePlanStatus(sess)
+          setPlanStatus(status)
+          setPlanErrorMessage(sess.plan_error_message ?? null)
+          setPlanDegraded(Boolean(sess.degraded))
+          if (sess.interview_plan) {
+            setInterviewPlan(sess.interview_plan)
+            setWebResearch(sess.web_research ?? null)
+          }
+          if (status !== 'pending') return
+        } catch (err) {
+          console.warn('[interview-live] plan status poll failed', err)
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1_500))
+      }
+    }
+
+    void poll()
+    return () => {
+      cancelled = true
+    }
+  }, [planStatus, sessionId])
+
+  const handleConfirmDegrade = useCallback(async () => {
+    if (!sessionId || degradeConfirming) return
+    setDegradeConfirming(true)
+    try {
+      const result = await interviewSessionRepo.confirmPlanDegrade(sessionId)
+      const sess = result.data
+      setPlanStatus(resolvePlanStatus(sess))
+      setPlanDegraded(Boolean(sess.degraded))
+      setPlanErrorMessage(sess.plan_error_message ?? null)
+    } catch (err: any) {
+      setPlanErrorMessage(err?.message || '降级确认失败，请稍后重试。')
+    } finally {
+      setDegradeConfirming(false)
+    }
+  }, [degradeConfirming, sessionId])
+
   const [resumeErrorMsg, setResumeErrorMsg] = useState<string | null>(null)
   const [resumeRetrying, setResumeRetrying] = useState(false)
   const handleRetryResume = useCallback(() => {
@@ -363,12 +436,15 @@ export default function InterviewLive() {
     ws.submitAnswer(sessionId, input, seq)
   }
 
-  // clear aiThinking when question starts streaming or score completes
+  // clear aiThinking when score arrives or question starts streaming
   useEffect(() => {
+    if (ws.state.turnPhase === 'awaiting_question' || ws.state.turnPhase === 'generating_question') {
+      setAiThinking(false)
+    }
     if (ws.state.currentNode === 'question_gen' && ws.state.streamingText) {
       setAiThinking(false)
     }
-  }, [ws.state.currentNode, ws.state.streamingText])
+  }, [ws.state.currentNode, ws.state.streamingText, ws.state.turnPhase])
 
   // clear aiThinking on error
   useEffect(() => {
@@ -400,6 +476,29 @@ export default function InterviewLive() {
   }
 
   const lastQuestion = questions.length > 0 ? questions[questions.length - 1] : null
+  const turnPhase = ws.state.turnPhase
+  const isPlanBlocking = planStatus === 'failed' && !planDegraded
+  const isInputLocked =
+    isPlanBlocking ||
+    turnPhase !== 'idle' ||
+    ws.state.currentNode === 'report'
+  const inputStatusCopy =
+    turnPhase === 'scoring'
+      ? '面试官正在评估你的回答…'
+      : turnPhase === 'awaiting_question'
+        ? '正在出下一题…'
+        : turnPhase === 'generating_question'
+          ? '正在生成下一题…'
+          : null
+  const latestAnswer = userAnswers.length > 0 ? userAnswers[userAnswers.length - 1] : null
+  const latestScore =
+    latestAnswer != null
+      ? scores.find((s) => s.question_no === latestAnswer.seqNo) ?? null
+      : null
+  const showScoreFirstPending =
+    turnPhase === 'awaiting_question' &&
+    latestScore != null &&
+    questions.length <= userAnswers.length
 
   // ---- resume_error phase: backend failed to restore, keep session id visible ----
   if (phase === 'resume_error') {
@@ -593,6 +692,16 @@ export default function InterviewLive() {
 
         {/* 消息流 */}
         <div ref={messagesRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+          {(planStatus === 'pending' || planStatus === 'ready' || planStatus === 'failed' || planStatus === 'degraded') && (
+            <PlanPhaseBanner
+              status={planStatus}
+              errorMessage={planErrorMessage}
+              degraded={planDegraded}
+              onConfirmDegrade={handleConfirmDegrade}
+              confirming={degradeConfirming}
+            />
+          )}
+
           {interviewPlan && (
             <div className="max-w-3xl">
               <InterviewPlanPanel
@@ -630,6 +739,7 @@ export default function InterviewLive() {
             const relatedQuestion = questions[idx] // question generated BEFORE this answer? No...
             // Actually: first answer (idx=0) triggers Q1. Q1 is questions[0].
             // answer idx relates to question idx (the answer to question idx).
+            // Scores use 1-based question_no; first user turn (seqNo=0) is intro (no score).
             const answerScore = scores.find((s) => s.question_no === ans.seqNo)
             const nextQuestion = questions[idx] // next question after this answer
 
@@ -707,8 +817,28 @@ export default function InterviewLive() {
             )
           })}
 
+          {/* REQ-058 — score visible in thread; show next-question wait hint */}
+          {showScoreFirstPending && (
+            <div className="flex gap-3 max-w-3xl" data-testid="score-first-pending">
+              <Avatar name={INTERVIEWER_NAME} size="md" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-ink-3 mb-1.5 flex items-center gap-1.5">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  正在出下一题
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-4 py-3 rounded-lg rounded-tl-sm bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border">
+                  <div className="flex gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 当前正在流式输出的问题 (when questions.length > userAnswers.length, the latest question is streaming) */}
-          {questions.length > userAnswers.length && ws.state.currentNode === 'question_gen' && (
+          {questions.length > userAnswers.length && ws.state.currentNode === 'question_gen' && !showScoreFirstPending && (
             <div className="flex gap-3 max-w-3xl">
               <Avatar name={INTERVIEWER_NAME} size="md" />
               <div className="flex-1 min-w-0">
@@ -741,8 +871,47 @@ export default function InterviewLive() {
             </div>
           )}
 
-          {/* AI 评分中 */}
-          {aiThinking && ws.state.currentNode !== 'question_gen' && (
+          {/* AI 评分中 / 生成下一题 */}
+          {turnPhase === 'scoring' && (
+            <div className="flex gap-3 max-w-3xl" data-testid="turn-phase-scoring">
+              <Avatar name={INTERVIEWER_NAME} size="md" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-ink-3 mb-1.5 flex items-center gap-1.5">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  面试官正在评估你的回答
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-4 py-3 rounded-lg rounded-tl-sm bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border">
+                  <div className="flex gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {turnPhase === 'generating_question' && questions.length <= userAnswers.length && !showScoreFirstPending && (
+            <div className="flex gap-3 max-w-3xl" data-testid="turn-phase-generating">
+              <Avatar name={INTERVIEWER_NAME} size="md" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-ink-3 mb-1.5 flex items-center gap-1.5">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  正在出下一题
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-4 py-3 rounded-lg rounded-tl-sm bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border">
+                  <div className="flex gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-muted animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* legacy aiThinking fallback when turnPhase not yet updated */}
+          {aiThinking && turnPhase === 'idle' && ws.state.currentNode !== 'question_gen' && (
             <div className="flex gap-3 max-w-3xl">
               <Avatar name={INTERVIEWER_NAME} size="md" />
               <div className="flex-1 min-w-0">
@@ -860,14 +1029,18 @@ export default function InterviewLive() {
                     }
                   }}
                   placeholder={
-                    questions.length === 0
-                      ? '介绍你自己，包括目标岗位和项目经验…（Enter 发送）'
-                      : '输入你的回答…（Enter 发送，Shift+Enter 换行）'
+                    isPlanBlocking
+                      ? '面试计划生成失败，请先确认是否降级继续…'
+                      : inputStatusCopy
+                        ? inputStatusCopy
+                        : questions.length === 0
+                          ? '介绍你自己，包括目标岗位和项目经验…（Enter 发送）'
+                          : '输入你的回答…（Enter 发送，Shift+Enter 换行）'
                   }
                   rows={1}
                   className="w-full px-3 py-2 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border-0 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:bg-surface dark:focus:bg-dark-surface resize-none max-h-32 transition-all"
                   style={{ minHeight: '36px' }}
-                  disabled={aiThinking || ws.state.currentNode === 'report'}
+                  disabled={isInputLocked}
                 />
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -876,7 +1049,7 @@ export default function InterviewLive() {
                   variant="primary"
                   leftIcon={<Send className="h-3.5 w-3.5" />}
                   onClick={submitAnswer}
-                  disabled={!input.trim() || aiThinking}
+                  disabled={!input.trim() || isInputLocked}
                   data-testid="submit-answer"
                 >
                   发送
@@ -1009,4 +1182,90 @@ export default function InterviewLive() {
       </aside>
     </div>
   )
+}
+
+function PlanPhaseBanner({
+  status,
+  errorMessage,
+  degraded,
+  onConfirmDegrade,
+  confirming,
+}: {
+  status: PlanStatus
+  errorMessage: string | null
+  degraded: boolean
+  onConfirmDegrade: () => void
+  confirming: boolean
+}) {
+  if (status === 'ready') {
+    return (
+      <div
+        data-testid="plan-phase-banner-ready"
+        className="max-w-3xl rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          面试计划已就绪，将按 JD 侧重点出题
+        </span>
+      </div>
+    )
+  }
+
+  if (status === 'pending') {
+    return (
+      <div
+        data-testid="plan-phase-banner-pending"
+        className="max-w-3xl rounded-md border border-brand-200 bg-brand-50/70 px-3 py-2 text-xs text-brand-800 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          正在生成面试计划，请稍候…
+        </span>
+      </div>
+    )
+  }
+
+  if (status === 'degraded' || degraded) {
+    return (
+      <div
+        data-testid="plan-phase-banner-degraded"
+        className="max-w-3xl rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <AlertCircle className="h-3.5 w-3.5" />
+          已降级为通用题模式，评分与报告仍可用
+        </span>
+      </div>
+    )
+  }
+
+  if (status === 'failed') {
+    return (
+      <div
+        data-testid="plan-phase-banner-failed"
+        className="max-w-3xl rounded-md border border-red-200 bg-red-50/80 px-3 py-3 text-sm text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-100 space-y-2"
+      >
+        <div className="flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <div className="font-medium">面试计划生成失败</div>
+            <p className="mt-1 text-xs leading-relaxed">
+              {errorMessage || '暂时无法根据 JD 生成定制计划，请稍后重试或选择降级继续。'}
+            </p>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          loading={confirming}
+          onClick={onConfirmDegrade}
+          data-testid="plan-degrade-confirm"
+        >
+          确认降级，继续通用题面试
+        </Button>
+      </div>
+    )
+  }
+
+  return null
 }

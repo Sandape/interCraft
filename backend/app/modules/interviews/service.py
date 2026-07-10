@@ -1,6 +1,7 @@
 """InterviewSessionService — Phase 4 full business logic."""
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -17,6 +18,8 @@ from app.modules.interviews.schemas import InterviewSessionCreate
 from app.repositories.interview_report_repo import InterviewReportRepo
 
 logger = structlog.get_logger(__name__)
+
+PLAN_PREWARM_TIMEOUT_SECONDS = 20.0
 
 
 async def sync_ability_dimensions(
@@ -70,7 +73,8 @@ async def sync_ability_dimensions(
             SET actual_score = EXCLUDED.actual_score,
                 source = 'interview',
                 last_updated_at = EXCLUDED.last_updated_at,
-                updated_at = EXCLUDED.updated_at"""
+                updated_at = EXCLUDED.updated_at
+            -- self_assessed_score intentionally NOT updated (dual-track)"""
         )
 
         now = datetime.now(UTC)
@@ -86,7 +90,8 @@ async def sync_ability_dimensions(
                 },
             )
 
-        await session.commit()
+        # Caller owns the transaction; do not commit here (HTTP/WS session lifecycle).
+        await session.flush()
         logger.info(
             "interview.ability_sync.completed",
             session_id=str(session_id),
@@ -201,11 +206,13 @@ class InterviewSessionService:
             job_id=data.job_id,
         )
 
-        # REQ-048 — persist max_questions + error_question_ids + drill_cache_key.
+        # REQ-048 — persist max_questions + error_question_ids + use_variants.
         if data.mode == "full" and data.max_questions is not None:
             await self.repo.update_max_questions(session.id, data.max_questions)
         if data.mode == "quick_drill" and data.error_question_ids:
             await self.repo.update_error_question_ids(session.id, [str(x) for x in data.error_question_ids])
+        if data.mode == "quick_drill" and data.use_variants:
+            await self.repo.update_use_variants(session.id, True)
 
         # Use session.id as the LangGraph thread_id so that the WebSocket
         # handler (which only knows session_id) and the resume service both
@@ -276,28 +283,245 @@ class InterviewSessionService:
         await self.repo.update_status(id, "in_progress", thread_id=thread_id, started_at=now)
         await self._invalidate_dashboard(user_id)
 
+        plan_fields = {
+            "plan_status": getattr(session, "plan_status", None),
+            "plan_error_code": getattr(session, "plan_error_code", None),
+            "plan_error_message": getattr(session, "plan_error_message", None),
+            "degraded": bool(getattr(session, "degraded", False)),
+        }
+        # REQ-058 — prewarm plan for full mode on start (contracts/plan-lifecycle.md)
+        if (session.mode or "full") == "full":
+            try:
+                plan_fields = await asyncio.wait_for(
+                    self._ensure_plan(id, user_id),
+                    timeout=PLAN_PREWARM_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                msg = "面试计划生成超时，请稍后重试或确认降级后继续。"
+                await self.repo.update_plan_lifecycle(
+                    id,
+                    plan_status="failed",
+                    plan_error_code="PLAN_PREWARM_TIMEOUT",
+                    plan_error_message=msg,
+                    degraded=False,
+                )
+                logger.warning(
+                    "plan.failed_visible",
+                    session_id=str(id),
+                    code="PLAN_PREWARM_TIMEOUT",
+                    timeout_seconds=PLAN_PREWARM_TIMEOUT_SECONDS,
+                )
+                plan_fields = {
+                    "plan_status": "failed",
+                    "plan_error_code": "PLAN_PREWARM_TIMEOUT",
+                    "plan_error_message": msg,
+                    "degraded": False,
+                }
+
         return {
             "id": str(session.id),
             "status": "in_progress",
             "thread_id": thread_id,
             "started_at": now.isoformat(),
+            "job_id": str(session.job_id) if session.job_id else None,
+            "branch_id": str(session.branch_id) if session.branch_id else None,
+            **plan_fields,
         }
 
-    async def generate_plan(self, id: UUID, user_id: UUID) -> dict:
+    async def _ensure_plan(self, id: UUID, user_id: UUID) -> dict:
+        """Idempotent plan ensure: reuse ready plan or generate; map quota → failed.
+
+        Returns plan_status fields for API responses. Logs ``plan.prewarm`` /
+        ``plan.reuse`` / ``plan.failed_visible``.
+        """
+        from app.agents.interview.plan_questions import is_plan_content_ready
+        from app.agents.llm_client import QuotaExceededError
+
         session = await self.repo.get(id, user_id)
         if session is None:
             raise HTTPException(status_code=404, detail="Interview session not found")
 
-        if session.interview_plan:
+        if bool(getattr(session, "degraded", False)):
+            return {
+                "plan_status": "degraded",
+                "plan_error_code": getattr(session, "plan_error_code", None),
+                "plan_error_message": getattr(session, "plan_error_message", None),
+                "degraded": True,
+            }
+
+        existing_status = getattr(session, "plan_status", None)
+        if existing_status == "ready" and is_plan_content_ready(session.interview_plan):
+            logger.info("plan.reuse", session_id=str(id), reason="already_ready")
+            return {
+                "plan_status": "ready",
+                "plan_error_code": None,
+                "plan_error_message": None,
+                "degraded": False,
+            }
+
+        if existing_status == "failed":
+            logger.info("plan.failed_visible", session_id=str(id), reused=True)
+            return {
+                "plan_status": "failed",
+                "plan_error_code": getattr(session, "plan_error_code", None),
+                "plan_error_message": getattr(session, "plan_error_message", None),
+                "degraded": False,
+            }
+
+        await self.repo.update_plan_lifecycle(id, plan_status="pending", clear_errors=True)
+        logger.info("plan.prewarm", session_id=str(id), mode=session.mode)
+
+        try:
+            result = await self.generate_plan(id, user_id, _from_ensure=True)
+        except QuotaExceededError as exc:
+            msg = "本月 AI 额度不足，无法生成面试计划。请升级套餐或确认降级后继续通用题面试。"
+            await self.repo.update_plan_lifecycle(
+                id,
+                plan_status="failed",
+                plan_error_code="QUOTA_EXCEEDED",
+                plan_error_message=msg,
+                degraded=False,
+            )
+            logger.warning(
+                "plan.failed_visible",
+                session_id=str(id),
+                code="QUOTA_EXCEEDED",
+                used=getattr(exc, "used", None),
+                quota=getattr(exc, "quota", None),
+            )
+            return {
+                "plan_status": "failed",
+                "plan_error_code": "QUOTA_EXCEEDED",
+                "plan_error_message": msg,
+                "degraded": False,
+            }
+        except Exception as exc:
+            msg = "面试计划生成失败，请稍后重试或确认降级后继续。"
+            await self.repo.update_plan_lifecycle(
+                id,
+                plan_status="failed",
+                plan_error_code="PLAN_GENERATE_FAILED",
+                plan_error_message=msg,
+                degraded=False,
+            )
+            logger.warning(
+                "plan.failed_visible",
+                session_id=str(id),
+                code="PLAN_GENERATE_FAILED",
+                error=str(exc),
+            )
+            return {
+                "plan_status": "failed",
+                "plan_error_code": "PLAN_GENERATE_FAILED",
+                "plan_error_message": msg,
+                "degraded": False,
+            }
+
+        plan = result.get("interview_plan") if isinstance(result, dict) else None
+        if result.get("plan_status") == "failed":
+            return {
+                "plan_status": "failed",
+                "plan_error_code": result.get("plan_error_code"),
+                "plan_error_message": result.get("plan_error_message"),
+                "degraded": False,
+            }
+
+        if is_plan_content_ready(plan if isinstance(plan, dict) else None):
+            await self.repo.update_plan_lifecycle(
+                id, plan_status="ready", clear_errors=True, degraded=False
+            )
+            logger.info("plan.prewarm", session_id=str(id), outcome="ready")
+            return {
+                "plan_status": "ready",
+                "plan_error_code": None,
+                "plan_error_message": None,
+                "degraded": False,
+            }
+
+        msg = "面试计划内容不完整，无法开始正式出题。请重试或确认降级。"
+        await self.repo.update_plan_lifecycle(
+            id,
+            plan_status="failed",
+            plan_error_code="PLAN_GENERATE_FAILED",
+            plan_error_message=msg,
+            degraded=False,
+        )
+        logger.warning("plan.failed_visible", session_id=str(id), code="EMPTY_PLAN")
+        return {
+            "plan_status": "failed",
+            "plan_error_code": "PLAN_GENERATE_FAILED",
+            "plan_error_message": msg,
+            "degraded": False,
+        }
+
+    async def confirm_plan_degrade(self, id: UUID, user_id: UUID, *, confirm: bool = True) -> dict:
+        """REQ-058 US4 — user confirms continuing without a ready plan."""
+        session = await self.repo.get(id, user_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Interview session not found")
+        if not confirm:
+            raise HTTPException(status_code=400, detail="confirm must be true")
+        await self.repo.update_plan_lifecycle(
+            id,
+            plan_status="degraded",
+            degraded=True,
+        )
+        logger.info("plan.failed_visible", session_id=str(id), degraded=True)
+        return {
+            "id": str(id),
+            "plan_status": "degraded",
+            "degraded": True,
+            "plan_error_code": getattr(session, "plan_error_code", None),
+            "plan_error_message": getattr(session, "plan_error_message", None),
+        }
+
+    def _plan_seed_kwargs(self, session) -> dict:
+        """Build graph seed fields from a ready/degraded session plan."""
+        from app.agents.interview.plan_questions import is_plan_content_ready
+
+        plan = session.interview_plan if isinstance(session.interview_plan, dict) else None
+        status = getattr(session, "plan_status", None)
+        degraded = bool(getattr(session, "degraded", False))
+        seed: dict = {
+            "plan_status": status,
+            "degraded": degraded,
+        }
+        if plan and (status in ("ready", "degraded") or is_plan_content_ready(plan)):
+            seed["interview_plan"] = plan
+            if session.web_research is not None:
+                seed["web_research"] = session.web_research
+            difficulty = plan.get("interview_difficulty") or plan.get("difficulty")
+            if isinstance(difficulty, str) and difficulty.strip():
+                seed["difficulty"] = difficulty.strip().lower()
+            focuses = plan.get("focus_areas") or []
+            seed["planner_focus_area_count"] = len(
+                [a for a in focuses if isinstance(a, dict) and a.get("area")]
+            )
+        return seed
+
+    async def generate_plan(
+        self, id: UUID, user_id: UUID, *, _from_ensure: bool = False
+    ) -> dict:
+        session = await self.repo.get(id, user_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Interview session not found")
+
+        from app.agents.interview.plan_questions import is_plan_content_ready
+
+        if session.interview_plan and is_plan_content_ready(session.interview_plan):
+            if not _from_ensure:
+                logger.info("plan.reuse", session_id=str(id), via="generate_plan")
             return {
                 "id": str(session.id),
                 "interview_plan": session.interview_plan,
                 "web_research": session.web_research,
+                "plan_status": getattr(session, "plan_status", None) or "ready",
             }
 
         from app.agents.interview.nodes.planner_context import planner_context_node
         from app.agents.interview.nodes.planner_generate import planner_generate_node
         from app.agents.interview.nodes.planner_search import planner_search_node
+        from app.agents.llm_client import QuotaExceededError
 
         state = {
             "messages": [],
@@ -314,28 +538,81 @@ class InterviewSessionService:
             "web_research": None,
         }
 
-        state.update(await planner_context_node(state))
-        state.update(await planner_search_node(state))
-        state.update(await planner_generate_node(state))
+        try:
+            state.update(await planner_context_node(state))
+            state.update(await planner_search_node(state))
+            state.update(await planner_generate_node(state))
+        except QuotaExceededError:
+            raise
 
         planner_values = self._extract_planner_outputs(state)
         plan = planner_values.get("interview_plan")
+        plan_error = None
+        if isinstance(state, dict):
+            plan_error = state.get("plan_error") or (
+                plan.get("_error") if isinstance(plan, dict) else None
+            )
+
         if isinstance(plan, dict):
             plan = self._merge_session_targets_into_plan(
                 plan,
                 position=session.position,
                 company=session.company,
             )
+            # Strip internal error marker before persist
+            plan.pop("_error", None)
+            plan.pop("plan_error_code", None)
+
+        failed = False
+        error_code = None
+        error_message = None
+        if isinstance(plan_error, dict):
+            failed = True
+            error_code = plan_error.get("code") or "PLAN_GENERATE_FAILED"
+            error_message = plan_error.get("message") or "面试计划生成失败"
+        elif not is_plan_content_ready(plan if isinstance(plan, dict) else None):
+            failed = True
+            error_code = "PLAN_GENERATE_FAILED"
+            error_message = "面试计划生成失败或内容为空"
+
         await self.repo.update_planner_outputs(
             id,
-            interview_plan=plan if isinstance(plan, dict) else None,
+            interview_plan=plan if isinstance(plan, dict) and not failed else (
+                plan if isinstance(plan, dict) else None
+            ),
             web_research=planner_values.get("web_research"),
         )
 
+        if failed:
+            await self.repo.update_plan_lifecycle(
+                id,
+                plan_status="failed",
+                plan_error_code=error_code,
+                plan_error_message=error_message,
+                degraded=False,
+            )
+            logger.warning(
+                "plan.failed_visible",
+                session_id=str(id),
+                code=error_code,
+            )
+            return {
+                "id": str(session.id),
+                "interview_plan": None,
+                "web_research": planner_values.get("web_research"),
+                "plan_status": "failed",
+                "plan_error_code": error_code,
+                "plan_error_message": error_message,
+            }
+
+        await self.repo.update_plan_lifecycle(
+            id, plan_status="ready", clear_errors=True, degraded=False
+        )
         return {
             "id": str(session.id),
             "interview_plan": plan if isinstance(plan, dict) else None,
             "web_research": planner_values.get("web_research"),
+            "plan_status": "ready",
         }
 
     async def get_report(self, id: UUID, user_id: UUID) -> dict | None:
@@ -420,6 +697,7 @@ class InterviewSessionService:
             raise HTTPException(status_code=400, detail="No active interview thread")
 
         graph = get_interview_graph()
+        plan_seed = self._plan_seed_kwargs(session)
         try:
             result = await graph.submit_answer(
                 thread_id=thread_id,
@@ -433,6 +711,8 @@ class InterviewSessionService:
                 mode=session.mode,
                 max_questions=session.max_questions,
                 error_question_ids=[str(x) for x in session.error_question_ids or []],
+                use_variants=bool(getattr(session, "use_variants", False)),
+                **plan_seed,
             )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Graph execution failed: {exc}") from exc
@@ -466,9 +746,10 @@ class InterviewSessionService:
                 web_research=planner_values.get("web_research"),
             )
 
-        # Check if interview completed
-        scores = result.get("scores", [])
-        if len(scores) >= 5:
+        # Check if interview completed (report node ran — not a fixed score count).
+        from app.modules.interviews.completion import is_interview_graph_complete
+
+        if is_interview_graph_complete(result):
             overall = result.get("overall_score", 0)
             now = datetime.now(UTC)
             started = session.started_at

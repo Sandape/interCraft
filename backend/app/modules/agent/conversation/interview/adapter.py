@@ -350,8 +350,9 @@ def _extract_round(state: Any) -> int | None:
 
 
 def _is_complete(result: dict) -> bool:
-    scores = result.get("scores") or []
-    return len(scores) >= 5 or result.get("status") == "completed"
+    from app.modules.interviews.completion import is_interview_graph_complete
+
+    return is_interview_graph_complete(result)
 
 
 def _format_score_and_next(result: dict, sequence_no: int) -> str:

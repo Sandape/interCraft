@@ -34,6 +34,8 @@ export interface InterviewWebResearch {
   common_questions?: WebResearchResult[]
 }
 
+export type PlanStatus = 'pending' | 'ready' | 'failed' | 'degraded'
+
 export interface InterviewSession {
   id: string
   branch_id: string | null
@@ -42,6 +44,7 @@ export interface InterviewSession {
   company: string | null
   mode: string | null
   max_questions: number | null
+  effective_max?: number | null
   error_question_ids?: string[] | null
   status: string
   thread_id: string | null
@@ -56,6 +59,11 @@ export interface InterviewSession {
   updated_at: string
   interview_plan: InterviewPlan | null
   web_research: InterviewWebResearch | null
+  // REQ-058 — plan lifecycle
+  plan_status?: PlanStatus | string | null
+  plan_error_code?: string | null
+  plan_error_message?: string | null
+  degraded?: boolean
 }
 
 export interface InterviewReport {
@@ -122,8 +130,23 @@ export const interviewSessionRepo = {
     return request('POST', BASE, data)
   },
 
-  async start(id: string): Promise<{ data: { id: string; status: string; thread_id?: string; started_at: string } }> {
+  async start(id: string): Promise<{
+    data: {
+      id: string
+      status: string
+      thread_id?: string
+      started_at: string
+      plan_status?: PlanStatus | string | null
+      plan_error_code?: string | null
+      plan_error_message?: string | null
+      degraded?: boolean
+    }
+  }> {
     return request('POST', `${BASE}/${id}/start`)
+  },
+
+  async confirmPlanDegrade(id: string): Promise<{ data: InterviewSession }> {
+    return request('POST', `${BASE}/${id}/plan/degrade`, { confirm: true })
   },
 
   async generatePlan(id: string): Promise<{ data: { id: string; interview_plan: InterviewPlan | null; web_research: InterviewWebResearch | null } }> {
@@ -145,4 +168,37 @@ export const interviewSessionRepo = {
   async delete(id: string): Promise<void> {
     await request('DELETE', `${BASE}/${id}`)
   },
+}
+
+/** REQ-058 — derive plan_status when API omits explicit field. */
+export function resolvePlanStatus(sess: Pick<InterviewSession, 'plan_status' | 'degraded' | 'interview_plan'>): PlanStatus {
+  const raw = (sess.plan_status || '').toString().trim().toLowerCase()
+  if (raw === 'pending' || raw === 'ready' || raw === 'failed' || raw === 'degraded') {
+    return raw
+  }
+  if (sess.degraded) return 'degraded'
+  const plan = sess.interview_plan
+  if (plan?.suggested_questions?.length || plan?.focus_areas?.length) return 'ready'
+  return 'pending'
+}
+
+/** REQ-058 — poll session until plan reaches a terminal visibility state. */
+export async function pollPlanStatus(
+  sessionId: string,
+  options?: { timeoutMs?: number; intervalMs?: number },
+): Promise<InterviewSession> {
+  const timeoutMs = options?.timeoutMs ?? 90_000
+  const intervalMs = options?.intervalMs ?? 1_500
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const sess = await interviewSessionRepo.getById(sessionId)
+    const status = resolvePlanStatus(sess)
+    if (status === 'ready' || status === 'failed' || status === 'degraded') {
+      return sess
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+
+  return interviewSessionRepo.getById(sessionId)
 }

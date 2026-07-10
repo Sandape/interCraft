@@ -18,10 +18,11 @@ import { DrillCandidatesPreview } from '@/components/interview/DrillCandidatesPr
 import { useInterviewModeStore, type InterviewMode } from '@/stores/useInterviewModeStore'
 import { useJobs } from '@/hooks/queries/useJobs'
 import { useResumeV2List } from '@/hooks/queries/useResumeV2List'
-import { interviewSessionRepo } from '@/repositories/interviewSessionRepo'
+import { interviewSessionRepo, pollPlanStatus, resolvePlanStatus } from '@/repositories/interviewSessionRepo'
 import type { Job } from '@/repositories/JobRepository'
 import type { ResumeV2ListItem } from '@/modules/resume/v2/api'
 import { cn } from '@/lib/utils'
+import { request } from '@/api/client'
 
 interface ErrorCountResponse {
   data: { available: number; required: number }
@@ -32,11 +33,7 @@ type LoadingStage = 'idle' | 'creating' | 'planning' | 'starting'
 
 async function fetchErrorCount(): Promise<number> {
   try {
-    const r = await fetch('/api/v1/interview-sessions/mode-recommendation', {
-      headers: { 'Content-Type': 'application/json' },
-    })
-    if (!r.ok) return 0
-    const body = (await r.json()) as ErrorCountResponse
+    const body = await request<ErrorCountResponse>('GET', '/api/v1/interview-sessions/mode-recommendation')
     return body.data?.available ?? 0
   } catch {
     return 0
@@ -52,6 +49,7 @@ export function InterviewModeSelect() {
   const setSubMode = useInterviewModeStore((s) => s.setSubMode)
   const maxQuestions = useInterviewModeStore((s) => s.maxQuestions)
   const setMaxQuestions = useInterviewModeStore((s) => s.setMaxQuestions)
+  const useVariants = useInterviewModeStore((s) => s.useVariants)
   const setUseVariants = useInterviewModeStore((s) => s.setUseVariants)
 
   const urlJobId = searchParams.get('job_id')
@@ -67,6 +65,7 @@ export function InterviewModeSelect() {
   const [selectedResumeId, setSelectedResumeId] = useState<string | null>(urlBranchId)
   const [onlineMode, setOnlineMode] = useState<OnlineMode>('full')
   const [errorCount, setErrorCount] = useState<number | null>(null)
+  const [quickDrillIds, setQuickDrillIds] = useState<string[]>([])
   const [showDrillPreview, setShowDrillPreview] = useState(false)
   const [loadingStage, setLoadingStage] = useState<LoadingStage>('idle')
   const [startError, setStartError] = useState<string | null>(null)
@@ -142,6 +141,7 @@ export function InterviewModeSelect() {
     setOnlineMode(next)
     setMode(next)
     setSubMode(next)
+    if (next !== 'quick_drill') setQuickDrillIds([])
   }
 
   async function startInterview() {
@@ -155,7 +155,8 @@ export function InterviewModeSelect() {
         branch_id: selectedResume.id,
         mode: requestMode,
         max_questions: requestMode === 'full' ? maxQuestions ?? 10 : undefined,
-        use_variants: false,
+        error_question_ids: requestMode === 'quick_drill' && quickDrillIds.length > 0 ? quickDrillIds : undefined,
+        use_variants: requestMode === 'quick_drill' ? useVariants : false,
       })
       const sessionId = created.data.id
 
@@ -164,7 +165,23 @@ export function InterviewModeSelect() {
         await interviewSessionRepo.generatePlan(sessionId)
       } else {
         setLoadingStage('starting')
-        await interviewSessionRepo.start(sessionId)
+        const started = await interviewSessionRepo.start(sessionId)
+        if (requestMode === 'full') {
+          setLoadingStage('planning')
+          const startStatus = resolvePlanStatus({
+            plan_status: started.data.plan_status,
+            degraded: started.data.degraded,
+            interview_plan: null,
+          })
+          const sess =
+            startStatus === 'ready' || startStatus === 'failed' || startStatus === 'degraded'
+              ? await interviewSessionRepo.getById(sessionId)
+              : await pollPlanStatus(sessionId)
+          const finalStatus = resolvePlanStatus(sess)
+          if (finalStatus === 'failed' && sess.plan_error_message) {
+            setStartError(sess.plan_error_message)
+          }
+        }
       }
 
       navigate(`/interview/${sessionId}/live`)
@@ -420,8 +437,13 @@ export function InterviewModeSelect() {
           <h2 id="drill-preview-title" className="sr-only">错题补漏预览</h2>
           <DrillCandidatesPreview
             jdText={selectedJob.requirements_md || ''}
-            onConfirm={() => setShowDrillPreview(false)}
+            onConfirm={(nextUseVariants, nextErrorQuestionIds) => {
+              setUseVariants(nextUseVariants)
+              setQuickDrillIds(nextErrorQuestionIds)
+              setShowDrillPreview(false)
+            }}
             onCancel={() => {
+              setQuickDrillIds([])
               setShowDrillPreview(false)
               selectOnline('full')
             }}
@@ -593,7 +615,9 @@ function getCannotStartReason(args: {
 
 function loadingLabel(stage: LoadingStage, mode: InterviewMode): string {
   if (stage === 'creating') return '正在创建 session'
-  if (stage === 'planning') return '正在生成豆包 Prompt'
+  if (stage === 'planning') {
+    return mode === 'doubao' ? '正在生成豆包 Prompt' : '正在生成面试计划'
+  }
   if (stage === 'starting') return '正在准备对话'
   return mode === 'doubao' ? '生成豆包 Prompt' : '开始模拟面试'
 }

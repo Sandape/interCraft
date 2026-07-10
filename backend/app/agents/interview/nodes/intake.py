@@ -69,6 +69,8 @@ async def intake_node(state: InterviewGraphState) -> dict:
 
     Uses LLM to extract structured position/company/difficulty,
     falling back to regex parsing on failure.
+
+    REQ-058: skip LLM when position/company (and optional job_id) already seeded.
     """
     position = state.get("position", "")
     company = state.get("company", "")
@@ -81,7 +83,6 @@ async def intake_node(state: InterviewGraphState) -> dict:
         if not base_location and ctx.get("base_location"):
             base_location = ctx["base_location"]
         if state.get("requirements_md") is None and ctx.get("requirements_md"):
-            # 019 — build the block eagerly so downstream nodes can read it
             block, provided, truncated, original = build_requirements_block(
                 ctx["requirements_md"]
             )
@@ -89,6 +90,25 @@ async def intake_node(state: InterviewGraphState) -> dict:
             state["requirements_provided"] = provided
             state["requirements_truncated"] = truncated
             state["requirements_original_chars"] = original
+
+    seeded_complete = bool(position and company)
+    if seeded_complete:
+        logger.info(
+            "intake.skip_llm",
+            reason="targets_seeded",
+            has_job_id=bool(job_id),
+        )
+        return {
+            "position": position,
+            "company": company,
+            "base_location": base_location,
+            "difficulty": state.get("difficulty") or "medium",
+            "current_question": state.get("current_question", 0),
+            "requirements_md": state.get("requirements_md"),
+            "requirements_provided": bool(state.get("requirements_provided", False)),
+            "requirements_truncated": bool(state.get("requirements_truncated", False)),
+            "requirements_original_chars": int(state.get("requirements_original_chars", 0)),
+        }
 
     if not position or not company:
         # Try to extract from last user message

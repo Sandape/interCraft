@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, SmallInteger, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, SmallInteger, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,11 +49,20 @@ class InterviewSession(Base):
     )
     # REQ-048 — Redis cache key mirror for audit / invalidation (FR-015 / AC-09c).
     drill_cache_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # REQ-048 US5 — quick_drill variant re-take (default verbatim replay).
+    use_variants: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     thread_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     checkpoint_ns: Mapped[str | None] = mapped_column(Text, nullable=True)
     interview_plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     web_research: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # REQ-058 — plan lifecycle for Live / start prewarm
+    plan_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plan_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plan_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    degraded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)

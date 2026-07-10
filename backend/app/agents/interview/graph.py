@@ -32,6 +32,7 @@ from __future__ import annotations
 from typing import Any, Literal, Union
 from uuid import uuid4
 
+import structlog
 from langgraph.graph import END, StateGraph
 
 from app.agents.base import BaseAgent
@@ -71,6 +72,8 @@ from app.agents.interview.state import (
     InterviewOutputState,
 )
 from app.observability import traced_node
+
+logger = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +236,30 @@ def _planner_complete_node(state: Any) -> dict[str, Any]:
     }
 
 
+def _state_value(state: Any, key: str, default: Any = None) -> Any:
+    if isinstance(state, dict):
+        return state.get(key, default)
+    return getattr(state, key, default)
+
+
+def _route_after_intake(state: Any) -> str:
+    """Route after intake without re-entering planner for degraded sessions."""
+    mode = _state_value(state, "mode")
+    plan_status = str(_state_value(state, "plan_status", "") or "").strip().lower()
+    degraded = bool(_state_value(state, "degraded", False))
+    plan = _state_value(state, "interview_plan")
+
+    if mode == "doubao":
+        return "interview_planner"
+    if mode == "quick_drill":
+        return "interview.drill_selector"
+    if degraded or plan_status == "degraded":
+        return "interview.mode_guard"
+    if plan_status == "ready" and isinstance(plan, dict) and plan:
+        return "interview.mode_guard"
+    return "interview_planner"
+
+
 # ---------------------------------------------------------------------------
 # Re-decorated leaf node shims (FR-006 / AC-6.1) for graph add_node.
 #
@@ -358,7 +385,15 @@ class InterviewGraph(BaseAgent):
 
         # Edges — Supervisor routing (AC-E2E-2: planner output flows directly).
         builder.set_entry_point("interview.intake_locate")
-        builder.add_edge("interview.intake_locate", "interview_planner")
+        builder.add_conditional_edges(
+            "interview.intake_locate",
+            _route_after_intake,
+            {
+                "interview_planner": "interview_planner",
+                "interview.mode_guard": "interview.mode_guard",
+                "interview.drill_selector": "interview.drill_selector",
+            },
+        )
         # The planner subgraph writes 'interview_plan' to the parent state
         # directly (unified field name); no bridge node needed.
         # REQ-048 — conditional edge after planner picks drill_selector vs
@@ -416,7 +451,8 @@ class InterviewGraph(BaseAgent):
         return builder.compile(
             checkpointer=checkpointer,
             interrupt_before=["interview.sink_error"],
-            interrupt_after=["interview.question_gen"],
+            # REQ-058 — also interrupt after score_llm for score-first WS emit.
+            interrupt_after=["interview.score_llm", "interview.question_gen"],
         )
 
     # ------------------------------------------------------------------
@@ -441,6 +477,13 @@ class InterviewGraph(BaseAgent):
         max_questions: int | None = None,
         error_question_ids: list[str] | None = None,
         use_variants: bool | None = None,
+        interview_plan: dict[str, Any] | None = None,
+        web_research: dict[str, Any] | None = None,
+        difficulty: str | None = None,
+        planner_focus_area_count: int | None = None,
+        plan_status: str | None = None,
+        degraded: bool | None = None,
+        score_first: bool = False,
     ) -> dict[str, Any]:
         """Submit a user answer and advance the interview graph.
 
@@ -450,6 +493,9 @@ class InterviewGraph(BaseAgent):
         relying on the LLM to extract them from the user's free-text answer.
 
         Subsequent calls: updates state with the answer, then resumes from interrupt.
+
+        When ``score_first=True`` (REQ-058 WS), stop after ``score_llm`` so the
+        caller can emit the score event before continuing to question_gen.
         """
         config = await get_graph_config(thread_id)
         from app.agents.utils.loop_termination import InterviewStateConfiguration
@@ -459,17 +505,34 @@ class InterviewGraph(BaseAgent):
         # Check whether the graph has already started
         state = await retry_graph_op(self.build_graph, config, "aget_state")
 
+        seed_update: dict[str, Any] = {}
+        if interview_plan is not None and not (state.values or {}).get("interview_plan"):
+            seed_update["interview_plan"] = interview_plan
+            logger.info("plan.reuse", thread_id=thread_id, via="submit_answer_seed")
+        if web_research is not None and not (state.values or {}).get("web_research"):
+            seed_update["web_research"] = web_research
+        if difficulty and not (state.values or {}).get("difficulty"):
+            seed_update["difficulty"] = difficulty
+        if planner_focus_area_count is not None:
+            seed_update["planner_focus_area_count"] = planner_focus_area_count
+        if plan_status is not None:
+            seed_update["plan_status"] = plan_status
+        if degraded is not None:
+            seed_update["degraded"] = degraded
+
         if state.values:
             # Graph has state — add answer and resume from interrupt
+            update_payload: dict[str, Any] = {
+                "messages": [
+                    {"role": "user", "content": answer, "sequence_no": sequence_no}
+                ],
+            }
+            update_payload.update(seed_update)
             await retry_graph_op(
                 self.build_graph,
                 config,
                 "aupdate_state",
-                {
-                    "messages": [
-                        {"role": "user", "content": answer, "sequence_no": sequence_no}
-                    ],
-                },
+                update_payload,
             )
             result = await retry_graph_op(
                 self.build_graph, config, "ainvoke", None, state_first=True
@@ -502,33 +565,85 @@ class InterviewGraph(BaseAgent):
                 initial_state["error_question_ids"] = list(error_question_ids)
             if use_variants is not None:
                 initial_state["use_variants"] = use_variants
+            initial_state.update(seed_update)
             result = await retry_graph_op(
                 self.build_graph, config, "ainvoke", initial_state, state_first=True
             )
+
+        if score_first:
+            # Stop after score_llm interrupt; caller continues via continue_turn.
+            result = await self._merge_latest_state(config, result)
+            return result
+
         return await self._continue_sink_error_interrupts(config, result)
+
+    async def continue_turn(self, thread_id: str) -> dict[str, Any]:
+        """Resume after a score_first interrupt (REQ-058)."""
+        config = await get_graph_config(thread_id)
+        from app.agents.utils.loop_termination import InterviewStateConfiguration
+
+        config["recursion_limit"] = InterviewStateConfiguration().recursion_limit
+        result = await retry_graph_op(
+            self.build_graph, config, "ainvoke", None, state_first=True
+        )
+        return await self._continue_sink_error_interrupts(config, result)
+
+    async def _merge_latest_state(
+        self, config: dict[str, Any], result: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Prefer checkpoint values so callers see scores written by score_llm."""
+        try:
+            state = await retry_graph_op(self.build_graph, config, "aget_state")
+            values = state.values if state.values else {}
+            if isinstance(result, dict) and values:
+                merged = {**values, **{k: v for k, v in result.items() if v is not None}}
+                return merged
+            if values:
+                return dict(values)
+        except Exception:
+            logger.warning("interview.merge_latest_state_failed", exc_info=True)
+        return result
 
     async def _continue_sink_error_interrupts(
         self,
         config: dict[str, Any],
         result: dict[str, Any],
     ) -> dict[str, Any]:
-        """Keep DB-only low-score persistence internal to a normal WS turn.
+        """Keep DB-only low-score persistence internal to a normal WS/HTTP turn.
 
-        The graph still declares ``interrupt_before=["interview.sink_error"]``
-        so human-in-the-loop surfaces can stop before the side effect. The
-        interview WebSocket does not expose that HITL gate, so a regular
-        submit-answer call should continue through ``sink_error`` and stop
-        after the next question is generated.
+        Also auto-continues past ``score_llm`` interrupts when the caller did
+        not request score-first emission (HTTP submit_answer path).
         """
-        for _ in range(2):
+        for _ in range(4):
             state = await retry_graph_op(self.build_graph, config, "aget_state")
             next_nodes = tuple(state.next or ())
-            if "interview.sink_error" not in next_nodes:
-                return result
-            result = await retry_graph_op(
-                self.build_graph, config, "ainvoke", None, state_first=True
+            if "interview.sink_error" in next_nodes:
+                result = await retry_graph_op(
+                    self.build_graph, config, "ainvoke", None, state_first=True
+                )
+                continue
+            # Auto-continue score_llm → question_gen/report for non-score-first callers
+            values = state.values or {}
+            interrupted_after_score = (
+                not next_nodes
+                and values.get("scores")
+                and "interview.question_gen" not in str(state.tasks or ())
             )
-        return result
+            # LangGraph exposes pending next after interrupt_after as empty next
+            # with tasks; simplest: if scores exist and questions length == scores
+            # length (need next Q) or report pending — continue once.
+            scores = values.get("scores") or []
+            questions = values.get("questions") or []
+            report = values.get("interview_report")
+            if scores and not report and len(questions) <= len(scores):
+                # Mid-turn: scored but next question not yet generated
+                result = await retry_graph_op(
+                    self.build_graph, config, "ainvoke", None, state_first=True
+                )
+                result = await self._merge_latest_state(config, result)
+                continue
+            return await self._merge_latest_state(config, result)
+        return await self._merge_latest_state(config, result)
 
     async def resume_from_checkpoint(
         self,
@@ -611,6 +726,7 @@ def get_interview_graph() -> InterviewGraph:
 __all__ = [
     "InterviewGraph",
     "_planner_complete_node",
+    "_route_after_intake",
     "_route_after_score_llm",
     "get_interview_graph",
 ]

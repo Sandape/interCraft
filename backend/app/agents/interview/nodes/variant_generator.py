@@ -24,6 +24,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from app.agents.interview.noop import noop_state_delta
 from app.agents.interview.state import InterviewGraphState
 from app.core.db import get_session_context
 from app.observability import traced_node
@@ -58,6 +59,8 @@ async def _generate_one_variant(
     dimension: str,
     expected_points: list[str],
     llm_client: Any,
+    user_id: str = "unknown",
+    thread_id: str = "unknown",
 ) -> str:
     """Call the LLM to generate a single variant. Returns the new question_text.
 
@@ -68,13 +71,26 @@ async def _generate_one_variant(
         dimension=dimension,
         expected_points=" / ".join(expected_points),
     )
-    # LLMClient interface (production + MockLLMClient share this method).
-    if hasattr(llm_client, "complete_async"):
+    # Prefer LLMClient.invoke (per-node flash model). Stubs may expose
+    # complete_async / complete for unit tests.
+    if hasattr(llm_client, "invoke"):
+        result = await llm_client.invoke(
+            messages=[
+                {"role": "system", "content": "只返回 JSON，不要 markdown。"},
+                {"role": "user", "content": prompt},
+            ],
+            estimated_tokens=1200,
+            user_id=user_id,
+            thread_id=thread_id,
+            node_name="variant_generator",
+        )
+        raw = _strip_json_envelope(str(result.get("content") or ""))
+    elif hasattr(llm_client, "complete_async"):
         response = await llm_client.complete_async(prompt=prompt, json_mode=True)
+        raw = _strip_json_envelope(str(response))
     else:
-        # Backward-compat: sync complete() or raise.
         response = llm_client.complete(prompt=prompt, json_mode=True)
-    raw = _strip_json_envelope(str(response))
+        raw = _strip_json_envelope(str(response))
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -135,16 +151,16 @@ async def variant_generator_node(state: InterviewGraphState) -> dict[str, Any]:
     """
     use_variants = bool(state.get("use_variants", False))
     if not use_variants:
-        return {}
+        return noop_state_delta(state)
 
     error_question_ids = state.get("error_question_ids") or []
     if not error_question_ids:
-        return {}
+        return noop_state_delta(state)
 
     user_id = str(state.get("user_id", "") or "")
     if not user_id:
         logger.warning("variant_generator.no_user_id", state_keys=list(state.keys()))
-        return {}
+        return noop_state_delta(state)
 
     # 1. Hydrate the source questions from the DB.
     async with get_session_context(user_id=UUID(user_id)) as session:
@@ -164,18 +180,21 @@ async def variant_generator_node(state: InterviewGraphState) -> dict[str, Any]:
         rows = result.mappings().all()
     by_sid = {str(r["source_question_id"]): dict(r) for r in rows}
     if not by_sid:
-        return {}
+        return noop_state_delta(state)
 
     # 2. Resolve LLM client (injected for tests; module default otherwise).
     llm_client = state.get("_llm_client")
     if llm_client is None:
         try:
-            from app.agents.llm_client import LLMClient
+            from app.agents.llm_client import get_llm_client
 
-            llm_client = LLMClient()
+            llm_client = get_llm_client()
         except Exception as exc:  # noqa: BLE001
             logger.warning("variant_generator.no_llm_client", exc=str(exc))
-            return {}
+            return noop_state_delta(state)
+
+    user_id = str(state.get("user_id") or "unknown")
+    thread_id = str(state.get("thread_id") or "unknown")
 
     # 3. Generate variants in parallel (one LLM call per source question).
     variant_results = await asyncio.gather(
@@ -185,6 +204,8 @@ async def variant_generator_node(state: InterviewGraphState) -> dict[str, Any]:
                 dimension=by_sid[sid].get("dimension") or "tech_depth",
                 expected_points=[],
                 llm_client=llm_client,
+                user_id=user_id,
+                thread_id=thread_id,
             )
             for sid in error_question_ids
             if sid in by_sid
