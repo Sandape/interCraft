@@ -5,8 +5,8 @@ import { createShareLink, revokeShareLink } from '@/api/abilityProfileClient'
 export function useCreateShareLink() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ pin, expiresInHours }: { pin?: string; expiresInHours?: number }) =>
-      createShareLink(pin, expiresInHours),
+    mutationFn: ({ expiresInHours }: { expiresInHours?: number }) =>
+      createShareLink(expiresInHours),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shareLinks'] })
     },

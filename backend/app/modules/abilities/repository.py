@@ -73,6 +73,42 @@ class AbilityDimensionRepository:
         await self.session.flush()
         return dimensions
 
+    async def append_history_snapshot(
+        self,
+        user_id: UUID,
+        dimension_key: str,
+        *,
+        actual_score: Decimal,
+        ideal_score: Decimal,
+        aggregate: str = "day",
+    ) -> AbilityDimensionHistory:
+        """Upsert a daily history snapshot (FR-005 self-assess / interview)."""
+        today = date.today()
+        stmt = select(AbilityDimensionHistory).where(
+            AbilityDimensionHistory.user_id == user_id,
+            AbilityDimensionHistory.dimension_key == dimension_key,
+            AbilityDimensionHistory.aggregate == aggregate,
+            AbilityDimensionHistory.snapshot_date == today,
+        )
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            existing.actual_score = actual_score
+            existing.ideal_score = ideal_score
+            await self.session.flush()
+            return existing
+        row = AbilityDimensionHistory(
+            user_id=user_id,
+            dimension_key=dimension_key,
+            snapshot_date=today,
+            aggregate=aggregate,
+            actual_score=actual_score,
+            ideal_score=ideal_score,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        return row
+
     # --- History ---
 
     async def list_history(

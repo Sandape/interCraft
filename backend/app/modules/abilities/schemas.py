@@ -33,6 +33,7 @@ class AbilityDimensionOut(BaseModel):
     dimension_key: str
     actual_score: Decimal
     ideal_score: Decimal
+    self_assessed_score: Decimal | None = None
     sub_scores: dict[str, Any]
     is_active: bool
     source: str
@@ -50,10 +51,12 @@ class AbilityDimensionListOut(BaseModel):
 class PatchAbilityDimensionInput(BaseModel):
     actual_score: Decimal | None = Field(default=None, ge=0, le=10)
     ideal_score: Decimal | None = Field(default=None, ge=0, le=10)
+    self_assessed_score: Decimal | None = Field(default=None, ge=0, le=10)
+    notes: str | None = Field(default=None, max_length=500)
     sub_scores: dict[str, dict[str, Any]] | None = None
     is_active: bool | None = None
 
-    @field_validator("actual_score", "ideal_score")
+    @field_validator("actual_score", "ideal_score", "self_assessed_score")
     @classmethod
     def score_range(cls, v: Decimal | None) -> Decimal | None:
         if v is not None and (v < 0 or v > 10):

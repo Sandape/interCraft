@@ -1,14 +1,13 @@
-"""AbilityProfileRepository — CRUD for profile_share_links, profile_views, export_logs."""
+"""AbilityProfileRepository — CRUD for profile_share_links + export_logs."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.ability_profile.models import ProfileShareLink, ProfileView, ExportLog
+from app.modules.ability_profile.models import ProfileShareLink, ExportLog
 
 
 class AbilityProfileRepository:
@@ -43,16 +42,6 @@ class AbilityProfileRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def list_active_share_links(self, user_id: UUID) -> list[ProfileShareLink]:
-        now = datetime.now(timezone.utc)
-        stmt = select(ProfileShareLink).where(
-            ProfileShareLink.user_id == user_id,
-            ProfileShareLink.revoked_at.is_(None),
-            (ProfileShareLink.expires_at.is_(None)) | (ProfileShareLink.expires_at > now),
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
     async def count_active_share_links(self, user_id: UUID) -> int:
         now = datetime.now(timezone.utc)
         stmt = select(func.count()).select_from(ProfileShareLink).where(
@@ -83,25 +72,6 @@ class AbilityProfileRepository:
             )
         )
         await self.session.execute(stmt)
-
-    # ── Profile Views ────────────────────────────────────────────────────────
-
-    async def create_view(self, view: ProfileView) -> ProfileView:
-        self.session.add(view)
-        await self.session.flush()
-        return view
-
-    async def list_views_for_link(
-        self, share_link_id: UUID, limit: int = 50
-    ) -> list[ProfileView]:
-        stmt = (
-            select(ProfileView)
-            .where(ProfileView.share_link_id == share_link_id)
-            .order_by(ProfileView.viewed_at.desc())
-            .limit(limit)
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
 
     # ── Export Logs ──────────────────────────────────────────────────────────
 

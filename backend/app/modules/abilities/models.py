@@ -33,6 +33,10 @@ class AbilityDimension(Base):
     ideal_score: Mapped[Decimal] = mapped_column(
         Numeric(4, 2), nullable=False, default=Decimal("10.00")
     )
+    # User self-assessment; preserved across interview UPSERTs (Feature 006 dual-track).
+    self_assessed_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(4, 2), nullable=True, default=None
+    )
     sub_scores: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     source: Mapped[str] = mapped_column(Text, nullable=False, default="manual")

@@ -1,15 +1,18 @@
 """AbilityProfileService — business logic for dashboard, share, export, admin.
 
 Per contracts/ and research.md R-5 (time-weighted averaging).
+PIN removed per Feature 024 US5. Sync PDF per Feature 024 US6.
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
 from fastapi import HTTPException
+from fastapi.responses import FileResponse
 
 from app.modules.ability_profile.repository import AbilityProfileRepository
 
@@ -35,7 +38,6 @@ class AbilityProfileService:
 
     async def get_dashboard(self, user_id: UUID) -> dict:
         """Aggregate ability dimensions into dashboard response with trends."""
-        # Read existing ability_dimensions via raw query (no RLS conflict)
         dimensions = await self._fetch_ability_dimensions(user_id)
         history = await self._fetch_dimension_history(user_id)
 
@@ -54,7 +56,9 @@ class AbilityProfileService:
                 "trend": trend,
                 "history": [
                     {
-                        "date": h["snapshot_date"].isoformat() if hasattr(h["snapshot_date"], "isoformat") else str(h["snapshot_date"]),
+                        "date": h["snapshot_date"].isoformat()
+                        if hasattr(h["snapshot_date"], "isoformat")
+                        else str(h["snapshot_date"]),
                         "actual_score": float(h.get("actual_score", 0)),
                         "ideal_score": float(h.get("ideal_score", 10)),
                     }
@@ -81,82 +85,36 @@ class AbilityProfileService:
         return "stable"
 
     async def _fetch_ability_dimensions(self, user_id: UUID) -> list[dict]:
-        """Aggregate ability_dimensions rows into one entry per dimension_key.
+        """Read ability_dimensions with dual-track self_assessed_score column.
 
-        The same dimension_key can have multiple rows (1 manual baseline + 1
-        per interview, all is_active=true). We collapse them so the frontend
-        always sees 6 dimensions with the right semantic split:
-          - actual_score  = latest interview/coach score (system-derived)
-          - self_assessed = latest manual/self score (user-set baseline)
-          - source        = 'manual' when no system data exists
+        One row per (user_id, dimension_key). System score lives in actual_score
+        (source=interview/coach after sync); user self-assessment lives in
+        self_assessed_score and survives interview UPSERTs.
         """
         from sqlalchemy import text
 
         result = await self.repo.session.execute(
             text("""
-                SELECT dimension_key, actual_score, ideal_score, source, is_active,
-                       created_at
+                SELECT dimension_key, actual_score, ideal_score, source,
+                       is_active, self_assessed_score
                 FROM ability_dimensions
                 WHERE user_id = :user_id AND is_active = true
-                ORDER BY dimension_key, created_at DESC
+                ORDER BY dimension_key
             """),
             {"user_id": user_id},
         )
         rows = result.fetchall()
-
-        # Group rows by dimension_key. With ORDER BY created_at DESC, the
-        # first row per dim is the latest.
-        by_dim: dict[str, list[dict]] = {}
-        for r in rows:
-            entry = {
+        return [
+            {
                 "dimension_key": r[0],
-                "actual_score": r[1],
-                "ideal_score": r[2],
-                "source": r[3],
+                "actual_score": float(r[1] or 0),
+                "ideal_score": float(r[2] or 10),
+                "source": r[3] or "manual",
                 "is_active": r[4],
-                "created_at": r[5],
+                "self_assessed_score": float(r[5]) if r[5] is not None else None,
             }
-            by_dim.setdefault(entry["dimension_key"], []).append(entry)
-
-        aggregated: list[dict] = []
-        for dim_key, entries in by_dim.items():
-            system_entry = next(
-                (e for e in entries if e["source"] in ("interview", "coach")),
-                None,
-            )
-            manual_entry = next(
-                (e for e in entries if e["source"] in ("manual", "self")),
-                None,
-            )
-
-            if system_entry is not None:
-                actual_score = float(system_entry["actual_score"] or 0)
-                ideal_score = float(system_entry["ideal_score"] or 10)
-                source = system_entry["source"]
-            elif manual_entry is not None:
-                actual_score = float(manual_entry["actual_score"] or 0)
-                ideal_score = float(manual_entry["ideal_score"] or 10)
-                source = manual_entry["source"]
-            else:
-                actual_score = 0.0
-                ideal_score = 10.0
-                source = "manual"
-
-            self_assessed_score = (
-                float(manual_entry["actual_score"] or 0)
-                if manual_entry is not None
-                else None
-            )
-
-            aggregated.append({
-                "dimension_key": dim_key,
-                "actual_score": actual_score,
-                "ideal_score": ideal_score,
-                "source": source,
-                "is_active": True,
-                "self_assessed_score": self_assessed_score,
-            })
-        return aggregated
+            for r in rows
+        ]
 
     async def _fetch_dimension_history(self, user_id: UUID) -> list[dict]:
         """Read ability_dimensions_history rows within current session."""
@@ -182,12 +140,12 @@ class AbilityProfileService:
             for r in rows
         ]
 
-    # ── Self-Assessment ──────────────────────────────────────────────────────
+    # ── Self-Assessment (delegates to abilities module) ──────────────────────
 
     async def self_assess(
         self, user_id: UUID, dimension_key: str, score: float, notes: str | None = None
     ) -> dict:
-        """Self-assess a dimension. Uses the existing PATCH endpoint logic."""
+        """Self-assess a dimension into self_assessed_score (dual-track)."""
         from app.modules.abilities.repository import AbilityDimensionRepository
         from app.modules.abilities.schemas import ALLOWED_DIMENSION_KEYS
 
@@ -195,26 +153,34 @@ class AbilityProfileService:
             raise HTTPException(status_code=422, detail=f"Invalid dimension_key: {dimension_key}")
 
         ability_repo = AbilityDimensionRepository(self.repo.session)
-        patch_data = {"actual_score": Decimal(str(score)), "source": "manual"}
+        patch_data: dict = {
+            "self_assessed_score": Decimal(str(score)),
+        }
         instance = await ability_repo.patch(user_id, dimension_key, patch_data)
         if instance is None:
             raise HTTPException(status_code=404, detail="Dimension not found")
         if notes:
-            # Store notes in sub_scores notes field
             sub_scores = dict(instance.sub_scores) if instance.sub_scores else {}
-            sub_scores["notes"] = notes
+            sub_scores["_notes"] = notes
             await ability_repo.patch(user_id, dimension_key, {"sub_scores": sub_scores})
+        await ability_repo.append_history_snapshot(
+            user_id,
+            dimension_key,
+            actual_score=Decimal(str(score)),
+            ideal_score=instance.ideal_score,
+        )
 
         return {
             "dimension_key": instance.dimension_key,
+            "self_assessed_score": float(instance.self_assessed_score or 0),
             "actual_score": float(instance.actual_score),
             "source": instance.source,
         }
 
-    # ── System Score Aggregation ─────────────────────────────────────────────
+    # ── System Score Aggregation (R-5; used when multi-row history exists) ───
 
     async def aggregate_system_scores(self, user_id: UUID) -> dict[str, float]:
-        """Compute time-weighted average per dimension for interview/coach sources.
+        """Compute time-weighted average from history for interview/coach sources.
 
         Uses linear decay per research.md R-5:
             weight_n = 1 + (n - 1) * 0.2
@@ -224,10 +190,10 @@ class AbilityProfileService:
 
         result = await self.repo.session.execute(
             text("""
-                SELECT dimension_key, actual_score, created_at
-                FROM ability_dimensions
-                WHERE user_id = :user_id AND source IN ('interview', 'coach') AND is_active = true
-                ORDER BY dimension_key, created_at
+                SELECT dimension_key, actual_score, snapshot_date
+                FROM ability_dimensions_history
+                WHERE user_id = :user_id AND aggregate = 'day'
+                ORDER BY dimension_key, snapshot_date
             """),
             {"user_id": user_id},
         )
@@ -235,10 +201,7 @@ class AbilityProfileService:
 
         scores_by_dim: dict[str, list[float]] = {}
         for r in rows:
-            key = r[0]
-            if key not in scores_by_dim:
-                scores_by_dim[key] = []
-            scores_by_dim[key].append(float(r[1]))
+            scores_by_dim.setdefault(r[0], []).append(float(r[1]))
 
         result_dict: dict[str, float] = {}
         for dim_key, scores in scores_by_dim.items():
@@ -258,9 +221,9 @@ class AbilityProfileService:
     # ── Share Links ──────────────────────────────────────────────────────────
 
     async def create_share_link(
-        self, user_id: UUID, pin: str | None = None, expires_in_hours: int | None = None
+        self, user_id: UUID, expires_in_hours: int | None = None
     ) -> dict:
-        """Create a new share link. Enforce max 10 active per user."""
+        """Create a new share link. Enforce max 10 active per user. No PIN (024)."""
         active_count = await self.repo.count_active_share_links(user_id)
         if active_count >= 10:
             raise HTTPException(
@@ -268,24 +231,17 @@ class AbilityProfileService:
                 detail="Active share links limit reached",
             )
 
-        import bcrypt
         from app.core.ids import new_uuid_v7
+        from app.modules.ability_profile.models import ProfileShareLink
 
         token = str(new_uuid_v7())
-        pin_hash = None
-        if pin:
-            pin_hash = bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
-
         expires_at = None
         if expires_in_hours:
-            expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + __import__("datetime").timedelta(hours=expires_in_hours)
-
-        from app.modules.ability_profile.models import ProfileShareLink
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
 
         link = ProfileShareLink(
             user_id=user_id,
             token=token,
-            pin_hash=pin_hash,
             expires_at=expires_at,
         )
         created = await self.repo.create_share_link(link)
@@ -294,7 +250,6 @@ class AbilityProfileService:
             "id": created.id,
             "token": created.token,
             "url": f"/shared/{created.token}",
-            "has_pin": created.pin_hash is not None,
             "expires_at": created.expires_at,
             "created_at": created.created_at,
         }
@@ -303,7 +258,10 @@ class AbilityProfileService:
         link = await self.repo.revoke_share_link(link_id, user_id)
         if link is None:
             raise HTTPException(status_code=404, detail="Share link not found")
-        logger.info("ability_profile.share_revoked", extra={"link_id": str(link_id), "user_id": str(user_id)})
+        logger.info(
+            "ability_profile.share_revoked",
+            extra={"link_id": str(link_id), "user_id": str(user_id)},
+        )
 
     async def list_share_links(self, user_id: UUID) -> list[dict]:
         links = await self.repo.list_share_links(user_id)
@@ -312,7 +270,7 @@ class AbilityProfileService:
         for l in links:
             if l.revoked_at:
                 status = "revoked"
-            elif l.expires_at and l.expires_at.replace(tzinfo=timezone.utc) < now:
+            elif l.expires_at and _as_utc(l.expires_at) < now:
                 status = "expired"
             else:
                 status = "active"
@@ -320,7 +278,6 @@ class AbilityProfileService:
                 "id": l.id,
                 "token": l.token,
                 "url": f"/shared/{l.token}",
-                "has_pin": l.pin_hash is not None,
                 "expires_at": l.expires_at,
                 "revoked_at": l.revoked_at,
                 "access_count": l.access_count,
@@ -330,9 +287,8 @@ class AbilityProfileService:
             })
         return results
 
-    async def get_shared_profile(self, token: str, pin: str | None = None) -> dict:
-        """Public access to shared profile. Verifies PIN if set."""
-        import bcrypt
+    async def get_shared_profile(self, token: str) -> dict:
+        """Public access to shared profile (no PIN — Feature 024)."""
         from sqlalchemy import text
 
         link = await self.repo.get_share_link_by_token(token)
@@ -340,33 +296,22 @@ class AbilityProfileService:
             raise HTTPException(status_code=404, detail="Profile not found")
         now = datetime.now(timezone.utc)
 
-        # Check revoked
         if link.revoked_at:
-            raise HTTPException(status_code=404, detail="Profile not found or access revoked")
+            # FR-043: revoked → 403
+            raise HTTPException(status_code=403, detail="Share link has been revoked")
 
-        # Check expired
-        if link.expires_at and link.expires_at.replace(tzinfo=timezone.utc) < now:
-            raise HTTPException(status_code=404, detail="Profile not found or access revoked")
+        if link.expires_at and _as_utc(link.expires_at) < now:
+            # FR-043: expired → 410
+            raise HTTPException(status_code=410, detail="Share link has expired")
 
-        # PIN verification
-        if link.pin_hash:
-            if not pin:
-                raise HTTPException(status_code=401, detail="PIN required")
-            if not bcrypt.checkpw(pin.encode(), link.pin_hash.encode()):
-                raise HTTPException(status_code=401, detail="Invalid PIN")
-
-        # Record access
         await self.repo.record_share_link_access(token)
 
-        # Temporarily switch RLS context to the share link owner so we can read
-        # their ability_dimensions / ability_dimensions_history.  SET LOCAL is
-        # transaction-scoped and will be reset on session commit.
+        # Temporarily switch RLS context to the share link owner
         await self.repo.session.execute(
             text("SELECT set_config('app.user_id', :u, true)"),
             {"u": str(link.user_id)},
         )
 
-        # Get owner info
         owner = await self._fetch_user_info(link.user_id)
         dashboard = await self.get_dashboard(link.user_id)
 
@@ -381,6 +326,7 @@ class AbilityProfileService:
                     "key": d["key"],
                     "label_zh": d["label_zh"],
                     "actual_score": d["actual_score"],
+                    "ideal_score": d["ideal_score"],
                 }
                 for d in dashboard["dimensions"]
             ],
@@ -398,10 +344,30 @@ class AbilityProfileService:
             return {"name": row[0] or "", "title": row[1] or ""}
         return {"name": "Unknown", "title": None}
 
-    # ── Export ───────────────────────────────────────────────────────────────
+    # ── Export (024 sync primary path) ───────────────────────────────────────
+
+    async def export_pdf_sync(self, user_id: UUID) -> FileResponse:
+        """Generate PDF synchronously and return FileResponse (024 FR-050)."""
+        from app.modules.ability_profile.pdf import generate_profile_pdf
+
+        filepath = await generate_profile_pdf(user_id)
+        date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+        filename = f"ability-profile-{user_id}-{date_str}.pdf"
+        return FileResponse(
+            path=filepath,
+            media_type="application/pdf",
+            filename=filename,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
 
     async def trigger_export(self, user_id: UUID) -> dict:
-        """Trigger PDF export. Enforce 5/h limit."""
+        """Legacy async export trigger — kept for backward compat, generates sync.
+
+        Prefer GET /export-pdf. This path still writes an ExportLog for audit
+        but generates the PDF inline (no ARQ).
+        """
         recent_count = await self.repo.count_exports_last_hour(user_id)
         if recent_count >= 5:
             raise HTTPException(
@@ -410,21 +376,35 @@ class AbilityProfileService:
             )
 
         from app.modules.ability_profile.models import ExportLog
+        from app.modules.ability_profile.pdf import generate_profile_pdf
 
-        log = ExportLog(user_id=user_id, status="pending")
+        log = ExportLog(user_id=user_id, status="processing")
         created = await self.repo.create_export_log(log)
 
-        # Enqueue to ARQ worker
-        from app.core.redis import enqueue_job
         try:
-            await enqueue_job("pdf_export", export_id=str(created.id), user_id=str(user_id))
-        except Exception:
-            logger.warning("Failed to enqueue PDF export job", exc_info=True)
+            filepath = await generate_profile_pdf(user_id)
+            file_size = os.path.getsize(filepath) if os.path.exists(filepath) else None
+            await self.repo.update_export_status(
+                created.id,
+                "completed",
+                file_path=filepath,
+                file_size_bytes=file_size,
+                completed_at=datetime.now(timezone.utc),
+            )
+            status = "completed"
+        except Exception as e:
+            await self.repo.update_export_status(
+                created.id,
+                "failed",
+                error_message=str(e)[:500],
+                completed_at=datetime.now(timezone.utc),
+            )
+            raise HTTPException(status_code=500, detail="PDF generation failed") from e
 
         return {
             "export_id": created.id,
-            "status": created.status,
-            "estimated_wait_seconds": 10,
+            "status": status,
+            "estimated_wait_seconds": 0,
             "requested_at": created.requested_at,
         }
 
@@ -436,7 +416,12 @@ class AbilityProfileService:
             "export_id": log.id,
             "status": log.status,
             "file_size_bytes": log.file_size_bytes,
-            "download_url": f"/api/v1/ability-profile/exports/{log.id}/download" if log.status == "completed" else None,
+            "file_path": log.file_path,
+            "download_url": (
+                f"/api/v1/ability-profile/exports/{log.id}/download"
+                if log.status == "completed"
+                else None
+            ),
             "requested_at": log.requested_at,
             "completed_at": log.completed_at,
         }
@@ -454,15 +439,28 @@ class AbilityProfileService:
             for l in logs
         ]
 
+    async def download_export_file(self, user_id: UUID, export_id: UUID) -> FileResponse:
+        """Download a previously generated export using file_path (not URL)."""
+        log = await self.repo.get_export_log(export_id, user_id)
+        if log is None:
+            raise HTTPException(status_code=404, detail="Export not found")
+        if log.status != "completed" or not log.file_path:
+            raise HTTPException(status_code=400, detail="Export not yet completed")
+        if not os.path.exists(log.file_path):
+            raise HTTPException(status_code=404, detail="Export file missing")
+        return FileResponse(
+            path=log.file_path,
+            media_type="application/pdf",
+            filename="ability-profile.pdf",
+        )
+
     # ── Admin ────────────────────────────────────────────────────────────────
 
     async def get_admin_dashboard(self, admin_id: UUID, target_user_id: UUID) -> dict:
         """Admin view of a target user's dashboard."""
-        # Verify admin role
         if not await self._is_admin(admin_id):
             raise HTTPException(status_code=403, detail="Admin access required")
 
-        # Verify target user exists
         from sqlalchemy import text
 
         result = await self.repo.session.execute(
@@ -474,13 +472,20 @@ class AbilityProfileService:
             raise HTTPException(status_code=404, detail="User not found")
         user_name = row[0] or "Unknown"
 
+        # Switch RLS to target user for dimension reads
+        await self.repo.session.execute(
+            text("SELECT set_config('app.user_id', :u, true)"),
+            {"u": str(target_user_id)},
+        )
+
         dashboard = await self.get_dashboard(target_user_id)
         dashboard["viewed_user_id"] = target_user_id
         dashboard["viewed_user_name"] = user_name
 
-        logger.info("ability_profile.admin_viewed", extra={
-            "admin_id": str(admin_id), "target_user_id": str(target_user_id),
-        })
+        logger.info(
+            "ability_profile.admin_viewed",
+            extra={"admin_id": str(admin_id), "target_user_id": str(target_user_id)},
+        )
         return dashboard
 
     async def _is_admin(self, user_id: UUID) -> bool:
@@ -494,4 +499,10 @@ class AbilityProfileService:
         return row is not None and bool(row[0])
 
 
-__all__ = ["AbilityProfileService"]
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+__all__ = ["AbilityProfileService", "DIMENSION_LABELS"]

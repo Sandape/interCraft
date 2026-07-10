@@ -1,6 +1,13 @@
 /** React Query hooks for ability profile dashboard. */
 import { useQuery } from '@tanstack/react-query'
-import { fetchDashboard, listShareLinks, listExports, getSharedProfile, getExportStatus, fetchAdminDashboard } from '@/api/abilityProfileClient'
+import {
+  fetchDashboard,
+  listShareLinks,
+  listExports,
+  getSharedProfile,
+  getExportStatus,
+  fetchAdminDashboard,
+} from '@/api/abilityProfileClient'
 
 export function useAbilityDashboard() {
   return useQuery({
@@ -18,12 +25,17 @@ export function useShareLinks() {
   })
 }
 
-export function useSharedProfile(token: string, pin?: string) {
+export function useSharedProfile(token: string) {
   return useQuery({
-    queryKey: ['sharedProfile', token, pin],
-    queryFn: () => getSharedProfile(token, pin),
+    queryKey: ['sharedProfile', token],
+    queryFn: () => getSharedProfile(token),
     enabled: !!token,
     staleTime: 60_000,
+    retry: (failureCount, error) => {
+      const status = (error as { status?: number })?.status
+      if (status === 403 || status === 404 || status === 410) return false
+      return failureCount < 2
+    },
   })
 }
 

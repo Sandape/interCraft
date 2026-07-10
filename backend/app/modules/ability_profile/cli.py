@@ -32,7 +32,6 @@ def list_links(
                 out = [{
                     "id": str(l.id),
                     "token": l.token,
-                    "has_pin": l.pin_hash is not None,
                     "expires_at": l.expires_at.isoformat() if l.expires_at else None,
                     "revoked_at": l.revoked_at.isoformat() if l.revoked_at else None,
                     "access_count": l.access_count,
@@ -51,13 +50,11 @@ def list_links(
 def revoke_expired() -> None:
     """Revoke all expired share links."""
     async def _run() -> None:
-        from app.modules.ability_profile.repository import AbilityProfileRepository
         from app.modules.ability_profile.models import ProfileShareLink
         from sqlalchemy import select
 
         factory = get_session_factory()
         async with factory() as session:
-            repo = AbilityProfileRepository(session)
             now = datetime.now(timezone.utc)
             stmt = select(ProfileShareLink).where(
                 ProfileShareLink.revoked_at.is_(None),

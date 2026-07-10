@@ -1,14 +1,14 @@
 """Pydantic schemas for Personal Ability Profile module.
 
 Per contracts/ — profile, share, export, admin.
+PIN removed per Feature 024 US5.
 """
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -42,22 +42,13 @@ class DashboardOut(BaseModel):
 # ─── Share Link ──────────────────────────────────────────────────────────────
 
 class ShareLinkCreate(BaseModel):
-    pin: str | None = Field(default=None, max_length=4, min_length=4)
     expires_in_hours: int | None = Field(default=None, ge=1, le=720)
-
-    @field_validator("pin")
-    @classmethod
-    def pin_must_be_digits(cls, v: str | None) -> str | None:
-        if v is not None and not v.isdigit():
-            raise ValueError("PIN must be 4 digits")
-        return v
 
 
 class ShareLinkResponse(BaseModel):
     id: UUID
     token: str
     url: str
-    has_pin: bool
     expires_at: datetime | None = None
     created_at: datetime
 
@@ -68,7 +59,6 @@ class ShareLinkListResponse(BaseModel):
     id: UUID
     token: str
     url: str
-    has_pin: bool
     expires_at: datetime | None = None
     revoked_at: datetime | None = None
     access_count: int = 0
@@ -92,6 +82,7 @@ class SharedProfileDimension(BaseModel):
     key: str
     label_zh: str
     actual_score: float
+    ideal_score: float = 10.0
 
 
 class SharedProfileResponse(BaseModel):

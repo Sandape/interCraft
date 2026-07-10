@@ -1,4 +1,4 @@
-/** ShareDialog — create and manage share links. */
+/** ShareDialog — create and manage share links (no PIN — Feature 024). */
 import { useState } from 'react'
 import { X, Copy, Check, Trash2, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -13,10 +13,10 @@ interface Props {
 }
 
 export default function ShareDialog({ onClose }: Props) {
-  const [pin, setPin] = useState('')
   const [expiry, setExpiry] = useState<number | undefined>(undefined)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [newLinkUrl, setNewLinkUrl] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const { data: linksData, isLoading } = useShareLinks()
   const createShareLink = useCreateShareLink()
@@ -24,19 +24,27 @@ export default function ShareDialog({ onClose }: Props) {
   const currentUser = useAuthStore((s) => s.user)
 
   const links = linksData?.data ?? []
-
   const displayName = currentUser?.display_name || currentUser?.email.split('@')[0] || '我'
 
   const handleCreate = async () => {
-    const result = await createShareLink.mutateAsync({
-      pin: pin || undefined,
-      expiresInHours: expiry,
-    })
-    const url = `${window.location.origin}${result.data.url}`
-    setNewLinkUrl(url)
-    await navigator.clipboard.writeText(url)
-    setCopiedId('new')
-    setTimeout(() => setCopiedId(null), 2000)
+    setErrorMsg(null)
+    try {
+      const result = await createShareLink.mutateAsync({
+        expiresInHours: expiry,
+      })
+      const url = `${window.location.origin}${result.data.url}`
+      setNewLinkUrl(url)
+      await navigator.clipboard.writeText(url)
+      setCopiedId('new')
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (err) {
+      const status = (err as { status?: number })?.status
+      if (status === 429) {
+        setErrorMsg('活跃分享链接已达 10 条上限，请先撤销旧链接')
+      } else {
+        setErrorMsg(err instanceof Error ? err.message : '生成链接失败')
+      }
+    }
   }
 
   const handleCopy = async (url: string, id: string) => {
@@ -60,7 +68,6 @@ export default function ShareDialog({ onClose }: Props) {
           </button>
         </div>
 
-        {/* User identity preview */}
         <div className="mb-4 flex items-center gap-2.5" data-testid="share-dialog-user">
           <Avatar
             name={displayName}
@@ -73,7 +80,6 @@ export default function ShareDialog({ onClose }: Props) {
           </div>
         </div>
 
-        {/* Create new link */}
         <div className="mb-6 p-4 rounded-lg bg-surface-muted dark:bg-dark-surface-muted">
           <h4 className="text-sm font-medium text-ink-1 mb-3">生成新分享链接</h4>
           <div className="space-y-3">
@@ -92,17 +98,6 @@ export default function ShareDialog({ onClose }: Props) {
                 <option value={720}>30 天</option>
               </select>
             </div>
-            <div>
-              <label className="text-xs text-ink-2 block mb-1">PIN 码 (可选)</label>
-              <input
-                type="text"
-                maxLength={4}
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder="4 位数字"
-                className="w-full text-sm border border-surface-border dark:border-dark-surface-border rounded-lg p-2 bg-transparent text-ink-1 placeholder:text-ink-4"
-              />
-            </div>
             <Button
               variant="primary"
               onClick={handleCreate}
@@ -111,6 +106,9 @@ export default function ShareDialog({ onClose }: Props) {
             >
               {createShareLink.isPending ? '生成中...' : '生成链接'}
             </Button>
+            {errorMsg && (
+              <p className="text-xs text-red-600 dark:text-red-400">{errorMsg}</p>
+            )}
           </div>
 
           {newLinkUrl && (
@@ -125,7 +123,6 @@ export default function ShareDialog({ onClose }: Props) {
           )}
         </div>
 
-        {/* Existing links */}
         <div>
           <h4 className="text-sm font-medium text-ink-1 mb-2">已生成的链接</h4>
           {isLoading ? (
@@ -141,14 +138,21 @@ export default function ShareDialog({ onClose }: Props) {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`text-2xs font-medium px-1.5 py-0.5 rounded ${
-                        link.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' :
-                        link.status === 'expired' ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' :
-                        'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
-                      }`}>
-                        {link.status === 'active' ? '活跃' : link.status === 'expired' ? '已过期' : '已撤销'}
+                      <span
+                        className={`text-2xs font-medium px-1.5 py-0.5 rounded ${
+                          link.status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+                            : link.status === 'expired'
+                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'
+                              : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
+                        }`}
+                      >
+                        {link.status === 'active'
+                          ? '活跃'
+                          : link.status === 'expired'
+                            ? '已过期'
+                            : '已撤销'}
                       </span>
-                      {link.has_pin && <span className="text-2xs text-ink-3">🔒 PIN</span>}
                       {link.expires_at && (
                         <span className="text-2xs text-ink-3 flex items-center gap-0.5">
                           <Clock className="h-2.5 w-2.5" />
@@ -158,7 +162,8 @@ export default function ShareDialog({ onClose }: Props) {
                     </div>
                     <div className="text-2xs text-ink-3 mt-0.5">
                       访问 {link.access_count} 次
-                      {link.last_accessed_at && ` · 最后访问 ${new Date(link.last_accessed_at).toLocaleDateString()}`}
+                      {link.last_accessed_at &&
+                        ` · 最后访问 ${new Date(link.last_accessed_at).toLocaleDateString()}`}
                     </div>
                   </div>
                   {link.status === 'active' && (
@@ -168,7 +173,11 @@ export default function ShareDialog({ onClose }: Props) {
                         className="p-1.5 text-ink-3 hover:text-brand-600 transition-colors"
                         title="复制链接"
                       >
-                        {copiedId === link.id ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copiedId === link.id ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
                       </button>
                       <button
                         onClick={() => revokeShareLink.mutate(link.id)}

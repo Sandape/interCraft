@@ -454,6 +454,8 @@ class DashboardService:
     def _ability_snapshot(abilities: list[AbilityDimension]) -> AbilitySnapshotOut | None:
         if not abilities:
             return None
+        from app.modules.ability_profile.service import DIMENSION_LABELS
+
         scores = []
         weak: list[WeakDimensionOut] = []
         for d in abilities:
@@ -462,7 +464,7 @@ class DashboardService:
             weak.append(
                 WeakDimensionOut(
                     key=d.dimension_key,
-                    label_zh=d.dimension_key,
+                    label_zh=DIMENSION_LABELS.get(d.dimension_key, d.dimension_key),
                     actual_score=actual,
                 )
             )

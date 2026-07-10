@@ -1,5 +1,7 @@
-/** API client for ability profile endpoints (Feature 006). */
+/** API client for ability profile endpoints (Feature 006 / 024). */
 import { request } from './client'
+import { env } from './env'
+import { getAccessToken } from './token-storage'
 
 const BASE = '/api/v1/ability-profile'
 
@@ -31,7 +33,6 @@ export interface ShareLinkResponse {
   id: string
   token: string
   url: string
-  has_pin: boolean
   expires_at: string | null
   created_at: string
 }
@@ -40,7 +41,6 @@ export interface ShareLinkListItem {
   id: string
   token: string
   url: string
-  has_pin: boolean
   expires_at: string | null
   revoked_at: string | null
   access_count: number
@@ -52,7 +52,7 @@ export interface ShareLinkListItem {
 export interface SharedProfileResponse {
   owner: { name: string; title: string | null }
   generated_at: string
-  dimensions: { key: string; label_zh: string; actual_score: number }[]
+  dimensions: { key: string; label_zh: string; actual_score: number; ideal_score?: number }[]
 }
 
 export interface ExportTriggerResponse {
@@ -90,9 +90,8 @@ export async function fetchDashboard(): Promise<{ data: DashboardResponse }> {
   return request<{ data: DashboardResponse }>('GET', `${BASE}/dashboard`)
 }
 
-export async function createShareLink(pin?: string, expiresInHours?: number): Promise<{ data: ShareLinkResponse }> {
+export async function createShareLink(expiresInHours?: number): Promise<{ data: ShareLinkResponse }> {
   return request<{ data: ShareLinkResponse }>('POST', `${BASE}/share`, {
-    pin: pin || undefined,
     expires_in_hours: expiresInHours || undefined,
   })
 }
@@ -105,13 +104,34 @@ export async function revokeShareLink(linkId: string): Promise<void> {
   return request('DELETE', `${BASE}/share/${linkId}`)
 }
 
-export async function getSharedProfile(token: string, pin?: string): Promise<{ data: SharedProfileResponse }> {
-  const params = new URLSearchParams()
-  if (pin) params.set('pin', pin)
-  const qs = params.toString()
-  return request<{ data: SharedProfileResponse }>('GET', `${BASE}/share/${token}${qs ? `?${qs}` : ''}`)
+export async function getSharedProfile(token: string): Promise<{ data: SharedProfileResponse }> {
+  return request<{ data: SharedProfileResponse }>('GET', `${BASE}/share/${token}`)
 }
 
+/** Sync PDF download (024 FR-050). Triggers browser download. */
+export async function downloadExportPdf(): Promise<void> {
+  const token = getAccessToken()
+  const url = `${env.API_BASE_URL || ''}${BASE}/export-pdf`
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(detail || `PDF export failed (${res.status})`)
+  }
+  const blob = await res.blob()
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const match = disposition.match(/filename="?([^";]+)"?/)
+  const filename = match?.[1] || `ability-profile-${new Date().toISOString().slice(0, 10)}.pdf`
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(objectUrl)
+}
+
+/** @deprecated Prefer downloadExportPdf (sync). Kept for legacy callers. */
 export async function triggerExport(): Promise<{ data: ExportTriggerResponse }> {
   return request<{ data: ExportTriggerResponse }>('POST', `${BASE}/export`)
 }
@@ -125,8 +145,8 @@ export async function listExports(limit = 10): Promise<{ data: ExportListItem[] 
 }
 
 export async function downloadExport(exportId: string): Promise<Blob> {
-  const url = `${BASE}/exports/${exportId}/download`
-  const token = (await import('./token-storage')).getAccessToken()
+  const token = getAccessToken()
+  const url = `${env.API_BASE_URL || ''}${BASE}/exports/${exportId}/download`
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })

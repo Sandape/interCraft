@@ -6,7 +6,8 @@ Endpoints:
 - GET    /ability-profile/share              — US4: List share links
 - DELETE /ability-profile/share/{id}         — US4: Revoke share link
 - GET    /ability-profile/share/{token}      — US4: Public access
-- POST   /ability-profile/export             — US6: Trigger PDF export
+- GET    /ability-profile/export-pdf         — US6: Sync PDF download (024)
+- POST   /ability-profile/export             — US6: Legacy export (inline generate)
 - GET    /ability-profile/exports            — US6: List exports
 - GET    /ability-profile/exports/{id}       — US6: Export status
 - GET    /ability-profile/exports/{id}/download — US6: Download PDF
@@ -16,7 +17,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import db_session_user_dep, get_current_user_id
@@ -27,33 +29,19 @@ from app.modules.ability_profile.schemas import (
     DashboardOut,
     ExportListOut,
     ExportStatusOut,
-    ExportStatusResponse,
     ExportTriggerOut,
-    ExportTriggerResponse,
     ShareLinkCreate,
     ShareLinkCreateOut,
     ShareLinkListOut,
-    ShareLinkListResponse,
-    ShareLinkResponse,
     SharedProfileOut,
-    SharedProfileResponse,
 )
 from app.modules.ability_profile.service import AbilityProfileService
 
 router = APIRouter(prefix="/ability-profile", tags=["ability-profile"])
 
-DIMENSION_LABELS: dict[str, str] = {
-    "tech_depth": "技术深度",
-    "architecture": "架构能力",
-    "engineering_practice": "工程实践",
-    "communication": "沟通表达",
-    "algorithm": "算法能力",
-    "business": "业务理解",
-}
-
 
 def _get_service(session: AsyncSession = Depends(db_session_user_dep)) -> AbilityProfileService:
-    return AbilityProfileService(AbilityProfileRepository(session))
+    return AbilityProfileService(AbilityProfileRepository(session), session)
 
 
 # ── US1: Dashboard ───────────────────────────────────────────────────────────
@@ -79,7 +67,6 @@ async def create_share_link(
     await enforce_rate_limit(request, scope="business", per_minute=10)
     data = await svc.create_share_link(
         user_id,
-        pin=body.pin,
         expires_in_hours=body.expires_in_hours,
     )
     return {"data": data}
@@ -106,17 +93,26 @@ async def revoke_share_link(
 @router.get("/share/{token}", response_model=SharedProfileOut)
 async def get_shared_profile(
     token: str,
-    pin: str | None = Query(default=None),
-    request: Request = None,
+    request: Request,
     svc: AbilityProfileService = Depends(_get_service),
 ) -> dict:
-    # Rate limit: 10/min/IP
-    await enforce_rate_limit(request, scope="business", per_minute=10) if request else None
-    data = await svc.get_shared_profile(token, pin=pin)
+    await enforce_rate_limit(request, scope="business", per_minute=10)
+    data = await svc.get_shared_profile(token)
     return {"data": data}
 
 
 # ── US6: PDF Export ──────────────────────────────────────────────────────────
+
+@router.get("/export-pdf")
+async def export_pdf(
+    request: Request,
+    user_id: UUID = Depends(get_current_user_id),
+    svc: AbilityProfileService = Depends(_get_service),
+) -> FileResponse:
+    """Sync PDF download (Feature 024 FR-050)."""
+    await enforce_rate_limit(request, scope="business", per_minute=5)
+    return await svc.export_pdf_sync(user_id)
+
 
 @router.post("/export", response_model=ExportTriggerOut, status_code=202)
 async def trigger_export(
@@ -124,6 +120,7 @@ async def trigger_export(
     user_id: UUID = Depends(get_current_user_id),
     svc: AbilityProfileService = Depends(_get_service),
 ) -> dict:
+    """Legacy async-shaped export; generates PDF inline (no ARQ)."""
     await enforce_rate_limit(request, scope="business", per_minute=5)
     data = await svc.trigger_export(user_id)
     return {"data": data}
@@ -154,16 +151,8 @@ async def download_export(
     export_id: UUID,
     user_id: UUID = Depends(get_current_user_id),
     svc: AbilityProfileService = Depends(_get_service),
-) -> dict:
-    log = await svc.get_export_status(user_id, export_id)
-    if log["status"] != "completed":
-        raise HTTPException(status_code=400, detail="Export not yet completed")
-    from fastapi.responses import FileResponse
-    return FileResponse(
-        path=log.get("download_url", ""),
-        media_type="application/pdf",
-        filename="ability-profile.pdf",
-    )
+) -> FileResponse:
+    return await svc.download_export_file(user_id, export_id)
 
 
 # ── US7: Admin View ──────────────────────────────────────────────────────────

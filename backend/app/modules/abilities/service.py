@@ -27,14 +27,32 @@ class AbilityService:
 
     async def patch(self, user_id: UUID, dimension_key: str, patch_data: dict) -> dict:
         _validate_dimension_key(dimension_key)
-        # Validate sub_scores keys
+        notes = patch_data.pop("notes", None)
+        # Validate sub_scores keys (notes are stored under a reserved meta key)
         sub_scores = patch_data.get("sub_scores")
         if sub_scores is not None:
             _validate_sub_keys(dimension_key, sub_scores)
 
+        if notes is not None:
+            existing = await self.repo.get_by_key(user_id, dimension_key)
+            merged = dict(existing.sub_scores) if existing and existing.sub_scores else {}
+            if sub_scores:
+                merged.update(sub_scores)
+            merged["_notes"] = notes
+            patch_data["sub_scores"] = merged
+
         instance = await self.repo.patch(user_id, dimension_key, patch_data)
         if instance is None:
             raise HTTPException(status_code=404, detail="Dimension not found")
+
+        # FR-005: append a history snapshot when self-assessment changes
+        if patch_data.get("self_assessed_score") is not None:
+            await self.repo.append_history_snapshot(
+                user_id,
+                dimension_key,
+                actual_score=instance.self_assessed_score or instance.actual_score,
+                ideal_score=instance.ideal_score,
+            )
         return instance
 
     async def toggle(self, user_id: UUID, dimension_key: str, is_active: bool) -> dict:
@@ -79,6 +97,8 @@ def _validate_dimension_key(key: str) -> None:
 def _validate_sub_keys(dimension_key: str, sub_scores: dict) -> None:
     allowed = ALLOWED_SUB_KEYS.get(dimension_key, set())
     for key in sub_scores:
+        if key.startswith("_"):
+            continue  # reserved meta keys (e.g. _notes)
         if key not in allowed:
             raise HTTPException(
                 status_code=422,

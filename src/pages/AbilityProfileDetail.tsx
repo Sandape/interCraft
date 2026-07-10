@@ -95,8 +95,8 @@ export default function AbilityProfileDetail() {
           label={dim.label_zh}
           currentScore={dim.actual_score}
           idealScore={dim.ideal_score}
-          onSubmit={(score) => {
-            selfAssess.mutate({ key: dim.key, score })
+          onSubmit={(score, notes) => {
+            selfAssess.mutate({ key: dim.key, score, notes })
             setShowAssess(false)
           }}
           onClose={() => setShowAssess(false)}
