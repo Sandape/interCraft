@@ -72,8 +72,13 @@ class JobService:
         # 019 — when binding a branch, verify it belongs to the same user.
         if "branch_id" in data and data["branch_id"] is not None:
             from app.modules.resumes.repository import ResumeRepository
+            from app.modules.resumes_v2.repository import ResumeV2Repository
+
             branch_repo = ResumeRepository(self.session)
             branch = await branch_repo.get(data["branch_id"], user_id=user_id)
+            if branch is None:
+                resume_v2_repo = ResumeV2Repository(self.session)
+                branch = await resume_v2_repo.get(data["branch_id"], user_id=user_id)
             if branch is None:
                 raise HTTPException(
                     status_code=404,

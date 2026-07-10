@@ -7,6 +7,8 @@ Job.branch_id is set via PATCH /jobs/{id}; the validation must:
 """
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
 pytestmark = pytest.mark.integration
@@ -34,6 +36,36 @@ class TestJobBranchBind:
         job_id = r.json()["id"]
 
         # 3. PATCH /jobs/{id} with branch_id
+        r = await client.patch(
+            f"/api/v1/jobs/{job_id}",
+            headers=user_a_headers,
+            json={"branch_id": branch_id},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["branch_id"] == branch_id
+
+    async def test_create_resume_v2_then_patch_job_branch_id_succeeds(
+        self, client, user_a_headers
+    ) -> None:
+        # REQ-055 derived resumes live in resumes_v2, but Job.branch_id is
+        # still the cross-module binding field used by interview launch.
+        slug = f"bind-v2-{uuid4().hex[:8]}"
+        r = await client.post(
+            "/api/v1/v2/resumes",
+            headers=user_a_headers,
+            json={"name": "V2 resume for job binding", "slug": slug, "template": "onyx"},
+        )
+        assert r.status_code == 201, r.text
+        branch_id = r.json()["id"]
+
+        r = await client.post(
+            "/api/v1/jobs",
+            headers=user_a_headers,
+            json={"company": "V2Co", "position": "AI App Engineer"},
+        )
+        assert r.status_code == 201, r.text
+        job_id = r.json()["id"]
+
         r = await client.patch(
             f"/api/v1/jobs/{job_id}",
             headers=user_a_headers,
