@@ -6,7 +6,8 @@ Uses an explicit ``psycopg_pool.AsyncConnectionPool`` so FR-023/024/025
 (pool sizing, TCP keepalive, check callback) actually take effect —
 ``AsyncPostgresSaver.from_conn_string`` ignores all pool_config and
 uses a single ``AsyncConnection.connect`` under the hood (verified
-against langgraph-checkpoint-postgres 1.0.9 ``aio.py``).
+against langgraph-checkpoint-postgres 1.0.9 ``aio.py``; verified
+same API surface in 3.1.0 (T183).
 
 Singleton access with asyncio.Lock + double-check for concurrent safety.
 """
@@ -107,7 +108,14 @@ async def get_checkpointer() -> AsyncPostgresSaver:
     Builds an explicit ``AsyncConnectionPool`` (FR-023/024/025) and wraps
     it in ``AsyncPostgresSaver(pool)``.  ``setup()`` is called once on
     first init — it is idempotent per LangGraph contract.
+
+    Enforces ``LANGGRAPH_STRICT_MSGPACK=true`` before importing the
+    checkpointer so that deserialisation rejects unknown module payloads
+    (T183, langgraph 1.2.9+).
     """
+    import os
+
+    os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
     global _checkpointer, _pool
 
     if _checkpointer is not None:
@@ -172,7 +180,7 @@ async def preheat() -> None:
     ``get_checkpointer()`` already calls ``setup()`` + ``pool.open(wait=True)``
     so a successful return means the connection is live.  We deliberately
     do NOT probe with ``cp.list()`` — the sync ``list`` returns a generator
-    (not a coroutine) in langgraph-checkpoint-postgres 1.0.9, so awaiting
+    (not a coroutine) in langgraph-checkpoint-postgres 1.0.9/3.1.0, so awaiting
     it crashes with ``TypeError``.  ``alist`` would also work but adds no
     signal beyond what ``setup()`` already proved.
 

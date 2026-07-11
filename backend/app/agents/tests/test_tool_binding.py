@@ -84,14 +84,12 @@ class TestBindToolsOnRealPlannerGraph:
         from app.agents.interview.planner_graph import get_planner_subgraph
         from app.agents.tools import tavily_search, think_tool, MarkComplete
 
-        planner = await get_planner_subgraph()
-        # The stub returns a passthrough callable; bind_tools here means we verify the
-        # node function can be invoked like an LLM.bind_tools(...) result without raising.
-        # The stub itself does not use LangChain's bind_tools API (that's at the LLM layer),
-        # so we verify that wrapping the node function with bind_tools-shaped binding works
-        # at the call boundary: planner is still callable as async node function.
-        assert callable(planner), "planner_subgraph must be callable"
-        result = await planner({"messages": []})
+        planner = get_planner_subgraph()
+        # get_planner_subgraph() returns a CompiledStateGraph.
+        # In langgraph 1.x (T183) compiled graphs are not directly callable;
+        # use .ainvoke() explicitly. We verify that invoking with an empty
+        # state delta does not raise.
+        result = await planner.ainvoke({"messages": []})
         assert isinstance(result, dict), f"planner must return dict (state delta), got {type(result)}"
 
     async def test_bind_tools_handles_empty_content_with_tool_calls(self):

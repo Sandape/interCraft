@@ -95,6 +95,9 @@ async def _check_connection(conn: Any) -> None:
 
 async def _create_pool(cfg: CheckpointerPoolConfig) -> "AsyncPostgresSaver":
     """Build a per-pool ``AsyncPostgresSaver`` + ``AsyncConnectionPool``."""
+    import os
+
+    os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from psycopg_pool import AsyncConnectionPool
 
