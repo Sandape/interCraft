@@ -183,6 +183,135 @@ def _normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+# High-confidence Chinese patterns used before / after LLM.
+_CREATE_JOB_PATTERNS = (
+    # 新增岗位：腾讯，后端开发工程师 / 新增岗位 腾讯 后端
+    re.compile(
+        r"^(?:新增|添加|创建)?(?:一个)?岗位[：:\s]+(?P<company>[^，,、\s]+)[，,、\s]+(?P<position>.+)$"
+    ),
+    # 帮我记一个字节跳动的AI应用开发工程师岗位
+    re.compile(
+        r"(?:帮我)?(?:记|记一下|记下|加|添加|新增)(?:一个)?(?P<company>[^的\s]{2,20})的(?P<position>.+?)(?:岗位|职位)?$"
+    ),
+    # 加一个阿里的岗位 — incomplete (no position) → still create_job for clarify
+    re.compile(
+        r"(?:帮我)?(?:记|加|添加|新增)(?:一个)?(?P<company>[^的\s]{2,20})的(?:岗位|职位)$"
+    ),
+)
+
+_QUERY_JOBS_EXACT = frozenset(
+    {"我的求职进展", "求职进展", "求职状态", "我的岗位", "岗位列表", "看看我的岗位"}
+)
+_QUERY_ABILITY_EXACT = frozenset({"我的能力画像", "能力画像", "查看能力画像", "我的画像"})
+_QUERY_REPORTS_EXACT = frozenset(
+    {"面试报告", "查看面试报告", "我的面试报告", "备战报告", "查看报告"}
+)
+_START_INTERVIEW_EXACT = frozenset(
+    {"开始模拟面试", "模拟面试", "开始面试", "来一场模拟面试"}
+)
+_CONTINUE_INTERVIEW_EXACT = frozenset({"继续面试", "继续模拟面试"})
+_PAUSE_INTERVIEW_EXACT = frozenset({"暂停面试", "暂停", "先暂停", "不做了"})
+_END_INTERVIEW_EXACT = frozenset({"结束面试", "结束模拟面试", "退出面试"})
+
+
+def try_rule_parse(text: str) -> dict[str, Any] | None:
+    """Deterministic high-confidence intents without LLM.
+
+    Returns a normalized result dict, or ``None`` when no rule matches.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return None
+
+    if stripped in _QUERY_JOBS_EXACT:
+        return _empty_result(intent="query_jobs", confidence=0.95, entities={})
+    if stripped in _QUERY_ABILITY_EXACT:
+        return _empty_result(intent="query_ability", confidence=0.95, entities={})
+    if stripped in _QUERY_REPORTS_EXACT:
+        return _empty_result(intent="query_reports", confidence=0.95, entities={})
+    if stripped in _START_INTERVIEW_EXACT:
+        return _empty_result(intent="start_interview", confidence=0.95, entities={})
+    if stripped in _CONTINUE_INTERVIEW_EXACT:
+        return _empty_result(intent="continue_interview", confidence=0.95, entities={})
+    if stripped in _PAUSE_INTERVIEW_EXACT:
+        return _empty_result(intent="pause_interview", confidence=0.95, entities={})
+    if stripped in _END_INTERVIEW_EXACT:
+        return _empty_result(intent="end_interview", confidence=0.95, entities={})
+
+    # Explicit delete / archive → web guide (no write)
+    if re.search(r"(删掉|删除|归档).{0,20}(岗位|职位)", stripped):
+        return _empty_result(
+            intent="rejected_web_guide",
+            entities={"guide": "delete", "reply": WEB_GUIDE_DELETE},
+            confidence=0.95,
+        )
+
+    for pat in _CREATE_JOB_PATTERNS:
+        m_obj = pat.search(stripped)
+        if not m_obj:
+            continue
+        company = (m_obj.groupdict().get("company") or "").strip(" 「」\"'")
+        position = (m_obj.groupdict().get("position") or "").strip(" 「」\"'")
+        entities: dict[str, Any] = {}
+        if company:
+            entities["company"] = company
+        if position:
+            entities["position"] = position.rstrip("岗位职位。.!！")
+        if not entities.get("company"):
+            continue
+        return _empty_result(
+            intent="create_job",
+            entities=entities,
+            confidence=0.9 if entities.get("position") else 0.75,
+        )
+
+    # Status update: 「字节进一面了」/「腾讯二面了」/「阿里的笔试」
+    status_m = re.search(
+        r"(?P<company>[\u4e00-\u9fffA-Za-z0-9]{2,20})"
+        r"(?:的|进)?"
+        r"(?P<label>一面|二面|三面|笔试|已投递|挂了|没过|过了)"
+        r"(?:了|啦|咯)?",
+        stripped,
+    )
+    if status_m:
+        label = status_m.group("label")
+        status_map = {
+            "一面": "interview_1",
+            "二面": "interview_2",
+            "三面": "interview_3",
+            "笔试": "test",
+            "已投递": "applied",
+            "挂了": "failed",
+            "没过": "failed",
+            "过了": "passed",
+        }
+        target = status_map.get(label)
+        if target:
+            company = status_m.group("company")
+            # Strip trailing connector accidentally absorbed before optional group
+            # (should not happen with non-greedy split, but keep safe).
+            if company.endswith(("的", "进")):
+                company = company[:-1]
+            entities = {
+                "company": company,
+                "target_status": target,
+            }
+            # Optional relative interview time phrase after comma / 「，」
+            time_m = re.search(
+                r"(?:，|,|。)\s*(?P<raw>(?:下|这)?[周天日].{0,20}\d{1,2}[:：]\d{2})",
+                stripped,
+            )
+            if time_m:
+                entities["interview_time_raw"] = time_m.group("raw").strip()
+            return _empty_result(
+                intent="update_status",
+                entities=entities,
+                confidence=0.88,
+            )
+
+    return None
+
+
 class IntentParser:
     """Parse user WeChat text into IntentParseResult via LLMClient."""
 
@@ -205,7 +334,7 @@ class IntentParser:
         thread_id: str | None = None,
         skip_confirm_rules: bool = False,
     ) -> dict[str, Any]:
-        """Parse intent. Rule-based confirm/cancel first unless skipped."""
+        """Parse intent. Rule-based confirm/cancel / fast-path first unless skipped."""
         stripped = (text or "").strip()
         if not stripped:
             return _empty_result(intent="unknown", confidence=0.0)
@@ -218,6 +347,20 @@ class IntentParser:
             # Soft help keywords without LLM
             if stripped in ("帮助", "帮助一下", "你能做什么", "功能", "help", "Help"):
                 return _empty_result(intent="help", confidence=1.0, entities={})
+            rule_hit = try_rule_parse(stripped)
+            if rule_hit is not None:
+                m.intent_parse_total.labels(
+                    intent=rule_hit["intent"], outcome="ok"
+                ).inc()
+                logger.info(
+                    "intent_parsed_rule",
+                    extra={
+                        "user_id": str(user_id),
+                        "intent": rule_hit["intent"],
+                        "confidence": rule_hit["confidence"],
+                    },
+                )
+                return rule_hit
 
         start = time.perf_counter()
         last_error: str | None = None
@@ -271,6 +414,24 @@ class IntentParser:
                 )
                 continue
 
+        # LLM down: try rule fallback even when skip_confirm_rules was set
+        # (queued-after-confirm path), or when rules were already tried.
+        fallback = try_rule_parse(stripped)
+        if fallback is not None:
+            m.intent_parse_total.labels(
+                intent=fallback["intent"], outcome="ok"
+            ).inc()
+            m.intent_parse_latency_seconds.observe(time.perf_counter() - start)
+            logger.info(
+                "intent_parsed_rule_fallback",
+                extra={
+                    "user_id": str(user_id),
+                    "intent": fallback["intent"],
+                    "confidence": fallback["confidence"],
+                },
+            )
+            return fallback
+
         m.intent_parse_total.labels(intent="unknown", outcome="error").inc()
         m.intent_parse_latency_seconds.observe(time.perf_counter() - start)
         return _empty_result(
@@ -305,4 +466,5 @@ __all__ = [
     "VALID_INTENTS",
     "IntentParser",
     "HELP_TEXT",
+    "try_rule_parse",
 ]

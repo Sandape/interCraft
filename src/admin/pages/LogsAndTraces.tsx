@@ -20,12 +20,13 @@ import { LogDetailDrawer } from '@/admin/components/log/LogDetailDrawer'
 import { adminLogsApi, parseDrilldownParam } from '@/api/admin-logs'
 import type { DrilldownSource, LogEvent } from '@/types/admin-logs'
 
-type TabId = 'logs' | 'traces' | 'list'
+type TabId = 'logs' | 'traces' | 'list' | 'tasks'
 
 const TAB_LABELS: Record<TabId, string> = {
   logs: '日志',
   traces: '链路',
   list: '链路列表',
+  tasks: '任务检查',
 }
 
 export function LogsAndTraces() {
@@ -161,6 +162,8 @@ export function LogsAndTraces() {
         {tab === 'list' ? (
           <_BaseLogsAndTraces />
         ) : null}
+
+        {tab === 'tasks' ? <TaskInspectionPanel /> : null}
       </div>
 
       <LogDetailDrawer
@@ -304,6 +307,80 @@ function TracesTab({ source }: TracesTabProps) {
         </li>
       ))}
     </ul>
+  )
+}
+
+/** REQ-061 T163 — soft task inspection surface wired to admin AI APIs. */
+function TaskInspectionPanel() {
+  const [searchParams] = useSearchParams()
+  const taskId = searchParams.get('task_id')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'degraded'>('idle')
+  const [summary, setSummary] = useState<string>('选择 ?task_id= 查看运营任务投影')
+
+  useEffect(() => {
+    if (!taskId) {
+      setStatus('idle')
+      setSummary('选择 ?task_id= 查看运营任务投影')
+      return
+    }
+    let canceled = false
+    setStatus('loading')
+    fetch(`/api/v1/admin-console/ai/tasks/${taskId}`, { credentials: 'include' })
+      .then(async (res) => {
+        if (canceled) return
+        if (res.status === 404) {
+          setStatus('degraded')
+          setSummary('任务投影不可用或不存在')
+          return
+        }
+        if (!res.ok) {
+          setStatus('degraded')
+          setSummary(`投影降级（HTTP ${res.status}）`)
+          return
+        }
+        const body = await res.json()
+        setStatus('ok')
+        setSummary(
+          `${body.status ?? 'unknown'} · ${body.capability_code ?? ''} / ${body.action_code ?? ''}`,
+        )
+      })
+      .catch(() => {
+        if (!canceled) {
+          setStatus('degraded')
+          setSummary('投影降级（网络错误）')
+        }
+      })
+    return () => {
+      canceled = true
+    }
+  }, [taskId])
+
+  return (
+    <div className="ac-lt-task-inspection" data-testid="task-inspection-panel">
+      <div className="ac-page__hint">只读任务检查 · evidence-replay 不触发 provider/ledger</div>
+      <p data-testid="task-inspection-status" data-status={status}>
+        {summary}
+      </p>
+      {taskId ? (
+        <ul className="ac-lt-task-links">
+          <li>
+            <a href={`/api/v1/admin-console/ai/tasks/${taskId}/timeline`}>时间线</a>
+          </li>
+          <li>
+            <a href={`/api/v1/admin-console/ai/tasks/${taskId}/attempts`}>尝试</a>
+          </li>
+          <li>
+            <a href={`/api/v1/admin-console/ai/tasks/${taskId}/evidence-replay`}>只读回放</a>
+          </li>
+          <li>
+            <a href={`/api/v1/admin-console/ai/costs?task_id=${taskId}`}>成本</a>
+          </li>
+          <li>
+            <a href={`/api/v1/admin-console/ai/badcases?task_id=${taskId}`}>差例</a>
+          </li>
+        </ul>
+      ) : null}
+    </div>
   )
 }
 

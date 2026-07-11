@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import db_session_user_dep, get_current_user_id
 from app.modules.interviews.schemas import (
+    InterviewActiveEndIn,
     InterviewPlanDegradeIn,
+    InterviewRetryComponentIn,
     InterviewSessionCreate,
     InterviewSessionCreateOut,
     InterviewSessionListOut,
@@ -179,6 +181,85 @@ async def confirm_plan_degrade(
 ) -> dict:
     """REQ-058 — confirm continuing interview without a ready plan."""
     result = await svc.confirm_plan_degrade(id, user_id, confirm=body.confirm)
+    return {"data": result}
+
+
+@router.post("/{id}/pause", status_code=200)
+async def pause_session(
+    id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    svc: InterviewSessionService = Depends(_get_service),
+) -> dict:
+    """REQ-061 — pause interview (7-day deadline, waiting_user)."""
+    result = await svc.pause_session(id, user_id)
+    return {"data": result}
+
+
+@router.post("/{id}/resume-from-pause", status_code=200)
+async def resume_from_pause(
+    id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    svc: InterviewSessionService = Depends(_get_service),
+) -> dict:
+    """REQ-061 — resume within the pause window."""
+    result = await svc.resume_from_pause(id, user_id)
+    return {"data": result}
+
+
+@router.post("/{id}/active-end", status_code=200)
+async def active_end_session(
+    id: UUID,
+    body: InterviewActiveEndIn,
+    user_id: UUID = Depends(get_current_user_id),
+    svc: InterviewSessionService = Depends(_get_service),
+) -> dict:
+    """REQ-061 — active end with optional partial report settlement."""
+    result = await svc.active_end_session(
+        id,
+        user_id,
+        scored_rounds=body.scored_rounds,
+        generate_partial_report=body.generate_partial_report,
+    )
+    return {"data": result}
+
+
+@router.post("/{id}/retry-component", status_code=200)
+async def retry_component(
+    id: UUID,
+    body: InterviewRetryComponentIn,
+    user_id: UUID = Depends(get_current_user_id),
+    svc: InterviewSessionService = Depends(_get_service),
+) -> dict:
+    """REQ-061 T075 — independently retry score / next-question / report / plan."""
+    if body.component == "score_delivery":
+        result = await svc.retry_score_delivery(
+            id,
+            user_id,
+            round_no=body.round_no or 1,
+            score_payload=body.evidence,
+            dry_run=body.dry_run,
+        )
+    elif body.component == "next_question":
+        result = await svc.retry_next_question(
+            id,
+            user_id,
+            dry_run=body.dry_run,
+            evidence=body.evidence,
+        )
+    elif body.component == "report":
+        result = await svc.retry_report_assembly(
+            id,
+            user_id,
+            dry_run=body.dry_run,
+            report_payload=body.evidence,
+        )
+    else:
+        result = await svc.retry_plan_fallback(
+            id,
+            user_id,
+            dry_run=body.dry_run,
+            consented=body.consented,
+        )
     return {"data": result}
 
 

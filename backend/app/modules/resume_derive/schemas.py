@@ -21,9 +21,9 @@ GuidanceAction = Literal[
 
 
 class DeriveStartIn(_Base):
-    job_id: UUID
+    job_id: UUID | None
     target_page_count: TargetPages
-    template_id: str = "pikachu"
+    template_id: str = "muji-default-autumn"
     root_resume_id: UUID | None = None
 
 
@@ -48,6 +48,11 @@ class DeriveRunOut(_Base):
     error_code: str | None
     error_message: str | None
     artifacts: dict[str, Any]
+    component_status: dict[str, Any] = Field(default_factory=dict)
+    analysis_id: UUID | None = None
+    root_hash: str | None = None
+    jd_hash: str | None = None
+    cancel_requested_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     finished_at: datetime | None

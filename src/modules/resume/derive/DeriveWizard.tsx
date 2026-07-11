@@ -2,23 +2,26 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { Modal } from "@/components/ui/Modal";
 import { useJobs } from "@/hooks/queries/useJobs";
+import { DEFAULT_V3_THEME_ID, listV3Themes } from "@/modules/resume/themes";
+import type { MujiThemeId } from "@/modules/resume/renderer/types";
 import { startDerive } from "./api";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  initialJobId?: string;
 }
 
-export function DeriveWizard({ open, onClose }: Props) {
+export function DeriveWizard({ open, onClose, initialJobId }: Props) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: jobsResp, isLoading: jobsLoading, isFetching } = useJobs();
   const jobs = jobsResp?.data ?? [];
   const [jobId, setJobId] = useState<string>("");
   const [pages, setPages] = useState<1 | 2 | 3>(1);
-  const [templateId, setTemplateId] = useState("pikachu");
+  const [templateId, setTemplateId] = useState<MujiThemeId>(DEFAULT_V3_THEME_ID);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const jobsPending = jobsLoading || (isFetching && jobs.length === 0);
@@ -29,6 +32,10 @@ export function DeriveWizard({ open, onClose }: Props) {
     if (!open) return;
     void queryClient.invalidateQueries({ queryKey: ["jobs"] });
   }, [open, queryClient]);
+
+  useEffect(() => {
+    if (open && initialJobId) setJobId(initialJobId);
+  }, [initialJobId, open]);
 
   const selected = useMemo(
     () => jobs.find((j: { id: string }) => j.id === jobId),
@@ -72,12 +79,29 @@ export function DeriveWizard({ open, onClose }: Props) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      data-testid="derive-wizard"
+    <Modal
+      open={open}
+      onClose={() => !busy && onClose()}
+      title="一键派生简历"
+      description="选择目标岗位、页数和编辑器主题后生成岗位定向简历。"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void handleStart()}
+            disabled={busy || !jobId || !hasJd}
+            loading={busy}
+            data-testid="derive-start-btn"
+          >
+            开始生成
+          </Button>
+        </>
+      }
     >
-      <Card className="w-full max-w-lg space-y-4 p-6">
-        <h2 className="text-xl font-semibold">一键派生简历</h2>
+      <div className="space-y-4" data-testid="derive-wizard">
         <label className="block space-y-1 text-sm">
           <span>目标岗位</span>
           <select
@@ -89,7 +113,7 @@ export function DeriveWizard({ open, onClose }: Props) {
             <option value="">
               {jobsPending ? "加载岗位中…" : "选择求职追踪中的岗位"}
             </option>
-            {jobs.map((j: { id: string; company: string; position: string; requirements_md?: string }) => (
+            {jobs.map((j) => (
               <option key={j.id} value={j.id}>
                 {j.company} · {j.position}
                 {j.requirements_md?.trim() ? "" : "（无 JD）"}
@@ -124,31 +148,20 @@ export function DeriveWizard({ open, onClose }: Props) {
           </div>
         </fieldset>
         <label className="block space-y-1 text-sm">
-          <span>模板</span>
+          <span>简历主题</span>
           <select
             className="w-full rounded border px-2 py-2"
             value={templateId}
-            onChange={(e) => setTemplateId(e.target.value)}
+            onChange={(e) => setTemplateId(e.target.value as MujiThemeId)}
+            data-testid="derive-theme-select"
           >
-            <option value="pikachu">Pikachu</option>
-            <option value="onyx">Onyx</option>
-            <option value="bronzor">Bronzor</option>
+            {listV3Themes().map((theme) => (
+              <option key={theme.id} value={theme.id}>{theme.name}</option>
+            ))}
           </select>
         </label>
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={busy}>
-            取消
-          </Button>
-          <Button
-            onClick={handleStart}
-            disabled={busy || !jobId || !hasJd}
-            data-testid="derive-start-btn"
-          >
-            开始生成
-          </Button>
-        </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }

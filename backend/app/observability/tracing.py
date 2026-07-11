@@ -23,11 +23,13 @@ PII (FR-016, basic):
   ``@traced_node`` or the LLM client wrapper. Complete PII redaction
   (regex-based scrubbing of email / phone / etc.) is ⏳ deferred.
 """
+
 from __future__ import annotations
 
 import contextlib
 import functools
 import inspect
+import re
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -65,6 +67,44 @@ _last_config: TracingConfig | None = None
 # because OTel SDK only allows one provider per process).
 _tracing_initialized: bool = False
 
+_SENSITIVE_SPAN_KEYS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "jd_text",
+        "message_content",
+        "password",
+        "prompt",
+        "provider_body",
+        "raw_message",
+        "reasoning_content",
+        "resume_body",
+        "system_prompt",
+        "token",
+        "tool_args",
+        "tool_result",
+    }
+)
+_SECRET_SPAN_VALUE = re.compile(
+    r"(?i)(authorization\s*:|bearer\s+|\bsk-[a-z0-9_-]+|"
+    r"password\s*=|cookie\s*=|api[_-]?key\s*=)"
+)
+
+
+def _safe_span_attribute(key: str, value: Any) -> Any | None:
+    """Return a bounded, non-secret OTel attribute or ``None``.
+
+    This is the last-resort protection for every span producer, including
+    call sites outside the REQ-060 Agent telemetry wrapper.
+    """
+    if key.strip().lower() in _SENSITIVE_SPAN_KEYS or value is None:
+        return None
+    if isinstance(value, str):
+        return "[REDACTED]" if _SECRET_SPAN_VALUE.search(value) else value[:500]
+    if isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[:200]
+
 
 @dataclass(frozen=True)
 class TraceContext:
@@ -73,9 +113,7 @@ class TraceContext:
     span_id: str | None = None
 
 
-_trace_context_var: ContextVar[TraceContext] = ContextVar(
-    "trace_context", default=TraceContext()
-)
+_trace_context_var: ContextVar[TraceContext] = ContextVar("trace_context", default=TraceContext())
 
 
 @dataclass
@@ -123,11 +161,7 @@ class TracingConfig:
 
 
 def _valid_hex(value: str | None, length: int) -> bool:
-    return bool(
-        value
-        and len(value) == length
-        and all(ch in "0123456789abcdef" for ch in value)
-    )
+    return bool(value and len(value) == length and all(ch in "0123456789abcdef" for ch in value))
 
 
 def bind_trace_context(
@@ -237,18 +271,14 @@ def init_tracing(config: TracingConfig) -> None:
             effective = "console"
 
         if effective == "console":
-            provider.add_span_processor(
-                SimpleSpanProcessor(ConsoleSpanExporter())
-            )
+            provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
         elif effective == "in_memory":
             from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
                 InMemorySpanExporter,
             )
 
             _in_memory_exporter = InMemorySpanExporter()
-            provider.add_span_processor(
-                SimpleSpanProcessor(_in_memory_exporter)
-            )
+            provider.add_span_processor(SimpleSpanProcessor(_in_memory_exporter))
         elif effective == "otlp":
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
                 OTLPSpanExporter,
@@ -388,7 +418,7 @@ def ensure_generic_otlp_representation(requested_level: str) -> str:
 
 
 @contextmanager
-def span(name: str, **attrs: Any) -> Iterator[Any]:
+def span(name: str, *, _links: list[Any] | None = None, **attrs: Any) -> Iterator[Any]:
     """Context manager that creates an OTel span.
 
     Sets initial attributes from ``attrs``. On exception, sets span status
@@ -408,17 +438,17 @@ def span(name: str, **attrs: Any) -> Iterator[Any]:
     otel_cm: Any = None
     try:
         tracer = get_tracer()
-        otel_cm = tracer.start_as_current_span(name)
+        otel_cm = tracer.start_as_current_span(name, links=_links or ())
         otel_span = otel_cm.__enter__()
         # Set initial attributes (best-effort).
         for k, v in attrs.items():
             with contextlib.suppress(Exception):
-                otel_span.set_attribute(k, v)
+                safe_value = _safe_span_attribute(k, v)
+                if safe_value is not None:
+                    otel_span.set_attribute(k, safe_value)
     except Exception:
         # Fail-open: OTel itself is broken. Yield a noop span.
-        logger.warning(
-            "tracing.span_failed_fail_open", span_name=name, exc_info=True
-        )
+        logger.warning("tracing.span_failed_fail_open", span_name=name, exc_info=True)
         otel_span = noop
         otel_cm = None
 
@@ -428,10 +458,10 @@ def span(name: str, **attrs: Any) -> Iterator[Any]:
     except Exception as exc:
         # Mark the span as error (best-effort).
         with contextlib.suppress(Exception):
-            from opentelemetry.trace import StatusCode, Status
+            from opentelemetry.trace import Status, StatusCode
 
-            otel_span.set_status(Status(StatusCode.ERROR, str(exc)))
-            otel_span.record_exception(exc)
+            otel_span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+            otel_span.record_exception(RuntimeError(type(exc).__name__))
         # Exit the OTel CM cleanly (we've already set the error status).
         if otel_cm is not None:
             with contextlib.suppress(Exception):
@@ -452,23 +482,21 @@ def record_llm_span_attributes(otel_span: Any, **attrs: Any) -> None:
     """
     with contextlib.suppress(Exception):
         for k, v in attrs.items():
-            if v is None:
-                continue
-            otel_span.set_attribute(k, v)
+            safe_value = _safe_span_attribute(k, v)
+            if safe_value is not None:
+                otel_span.set_attribute(k, safe_value)
 
 
-def finish_span_with_exception(
-    otel_span: Any, exc: BaseException
-) -> None:
+def finish_span_with_exception(otel_span: Any, exc: BaseException) -> None:
     """Mark a span as ERROR + record the exception.
 
     Best-effort: any OTel exception is swallowed (FR-017 fail-open).
     """
     with contextlib.suppress(Exception):
-        from opentelemetry.trace import StatusCode, Status
+        from opentelemetry.trace import Status, StatusCode
 
-        otel_span.set_status(Status(StatusCode.ERROR, str(exc)))
-        otel_span.record_exception(exc)
+        otel_span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+        otel_span.record_exception(RuntimeError(type(exc).__name__))
 
 
 def traced_node(name: str) -> Callable[[Callable[P, T]], Callable[P, T]]:
@@ -522,9 +550,7 @@ def traced_tool(name: str) -> Callable[[Callable[P, T]], Callable[P, T]]:
                     **{"tool.name": name, "args_summary": args_summary},
                 ) as s:
                     result: Any = await fn(*args, **kwargs)
-                    record_llm_span_attributes(
-                        s, result_summary=_truncate(str(result), 100)
-                    )
+                    record_llm_span_attributes(s, result_summary=_truncate(str(result), 100))
                     return result  # type: ignore[no-any-return]
 
             return async_wrapper  # type: ignore[return-value]
@@ -538,9 +564,7 @@ def traced_tool(name: str) -> Callable[[Callable[P, T]], Callable[P, T]]:
                     **{"tool.name": name, "args_summary": args_summary},
                 ) as s:
                     result = fn(*args, **kwargs)
-                    record_llm_span_attributes(
-                        s, result_summary=_truncate(str(result), 100)
-                    )
+                    record_llm_span_attributes(s, result_summary=_truncate(str(result), 100))
                     return result
 
             return sync_wrapper
@@ -733,6 +757,7 @@ __all__ = [
     "get_tracer",
     "inject_trace_context",
     "init_tracing",
+    "propagate_ai_parent_context",
     "record_llm_span_attributes",
     "record_req035_capture_event",
     "shutdown_tracing",
@@ -740,3 +765,50 @@ __all__ = [
     "traced_node",
     "traced_tool",
 ]
+
+
+def propagate_ai_parent_context(
+    *,
+    root_task_id: str,
+    correlation_id: str,
+    execution_id: str | None = None,
+    attempt_id: str | None = None,
+    parent_span_id: str | None = None,
+) -> dict[str, str]:
+    """REQ-061 T159 — HTTP→worker→engine→attempt parent propagation helpers.
+
+    Returns attribute bag suitable for span attributes; metric labels must
+    stay within ``projections.otel.BOUNDED_METRIC_LABELS``.
+    """
+    from app.modules.ai_runtime.projections.otel import (
+        build_propagated_context,
+        filter_metric_labels,
+    )
+
+    ctx = build_propagated_context(
+        root_task_id=root_task_id,
+        correlation_id=correlation_id,
+        execution_id=execution_id,
+        attempt_id=attempt_id,
+        parent_span_id=parent_span_id,
+    )
+    attrs = {
+        "root_task_id": ctx.root_task_id,
+        "correlation_id": ctx.correlation_id,
+    }
+    if ctx.execution_id:
+        attrs["execution_id"] = ctx.execution_id
+    if ctx.attempt_id:
+        attrs["attempt_id"] = ctx.attempt_id
+    if ctx.parent_span_id:
+        attrs["parent_span_id"] = ctx.parent_span_id
+    # Soft: also expose filtered metric labels for destination exporters.
+    attrs.update(
+        filter_metric_labels(
+            {
+                "destination": "otel",
+                "status": "propagating",
+            }
+        )
+    )
+    return attrs

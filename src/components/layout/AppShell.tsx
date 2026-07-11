@@ -48,7 +48,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="h-screen w-screen flex bg-surface-subtle dark:bg-dark-surface-subtle overflow-hidden">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} onOpenSearch={openPalette} />
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar onOpenSearch={openPalette} />
         <main className="flex-1 overflow-y-auto">{children}</main>

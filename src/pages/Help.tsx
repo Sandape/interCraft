@@ -44,7 +44,7 @@ export default function Help() {
   }
 
   return (
-    <div className="px-8 py-6 max-w-3xl mx-auto">
+    <div className="px-4 py-5 sm:px-6 lg:px-8 lg:py-6 max-w-3xl mx-auto">
       <div className="text-center mb-8">
         <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 mb-3 shadow-notion">
           <Sparkles className="h-5 w-5 text-white" strokeWidth={2.5} />
@@ -93,7 +93,7 @@ export default function Help() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2 mb-6">
+      <div className="grid grid-cols-1 gap-2 mb-6 sm:grid-cols-3">
         <Card hover className="text-center p-4">
           <BookOpen className="h-5 w-5 text-brand-500 mx-auto mb-2" />
           <div className="text-sm font-medium text-ink-1">使用文档</div>
@@ -107,7 +107,7 @@ export default function Help() {
         <Card hover className="text-center p-4">
           <Mail className="h-5 w-5 text-violet-500 mx-auto mb-2" />
           <div className="text-sm font-medium text-ink-1">邮件支持</div>
-          <div className="text-2xs text-ink-3 mt-0.5">support@intercraft.io</div>
+          <div className="mt-0.5 break-all text-2xs text-ink-3">support@intercraft.io</div>
         </Card>
       </div>
 

@@ -34,7 +34,13 @@ async def execute(
         )
 
     dims = dashboard.get("dimensions") or []
-    if not dims:
+    has_data = any(
+        float(d.get("actual_score") or 0) > 0
+        or d.get("self_assessed_score") is not None
+        or (d.get("source") in ("interview", "coach"))
+        for d in dims
+    )
+    if not dims or not has_data:
         m.tool_calls_total.labels(tool="query_ability", phase="execute", outcome="ok").inc()
         return ok(
             "你还没有能力画像数据。回复「开始模拟面试」完成第一场面试后即可生成！"

@@ -125,7 +125,8 @@ export function Governance() {
               Sensitive payloads (raw resume / interview / prompt / model output /
               incident payload) require a reason (≥ 20 chars). The audit event
               is written BEFORE the reveal is granted (AC-33.5). Denied reveals
-              trigger a fullscreen banner (EC-1).
+              trigger a fullscreen banner (EC-1). External OTel/LangSmith links
+              show unavailable when projection destinations are down (REQ-061 T164).
             </p>
             <RevealRequestForm />
           </section>

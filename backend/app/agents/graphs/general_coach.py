@@ -20,6 +20,11 @@ from app.agents.nodes.general_coach.route import route_node
 from app.agents.state.general_coach_state import GeneralCoachState
 from app.observability import traced_node
 
+# REQ-061 T084 — adapter contract version referenced by checkpoint helpers.
+from app.modules.ai_runtime.adapters.general_coach import ADAPTER_VERSION as GENERAL_COACH_ADAPTER_VERSION
+
+assert GENERAL_COACH_ADAPTER_VERSION  # keep import live for adapter cutover hooks
+
 
 # US2 AC-3.4 / AC-E2E-5: re-decorated shims with `__name__` matching the
 # {role}_{action} suffix.

@@ -13,8 +13,8 @@ from app.domain.enums import INTERVIEW_STATUSES, JOB_STATUS_CN
 from app.modules.agent.conversation import metrics as m
 from app.modules.agent.conversation.job_matcher import match_jobs
 from app.modules.agent.conversation.reply_formatter import truncate
-from app.modules.agent.conversation.tools import ToolResult, fail, ok
 from app.modules.agent.conversation.time_parser import SHANGHAI, format_shanghai, now_shanghai
+from app.modules.agent.conversation.tools import ToolResult, fail, ok
 
 
 async def execute(

@@ -88,6 +88,14 @@ describe('Jobs create modal — headcount HTML constraints (020 D-017)', () => {
     expect(screen.getByTestId('job-create-headcount')).toBeInTheDocument()
   })
 
+  it('exposes the required company and position inputs by their visible labels', () => {
+    renderJobs()
+    fireEvent.click(screen.getByRole('button', { name: /添加职位/ }))
+
+    expect(screen.getByLabelText('公司 *')).toHaveAttribute('data-testid', 'job-create-company')
+    expect(screen.getByLabelText('岗位 *')).toHaveAttribute('data-testid', 'job-create-position')
+  })
+
   it('headcount input has type="number"', () => {
     renderJobs()
     fireEvent.click(screen.getByRole('button', { name: /添加职位/ }))

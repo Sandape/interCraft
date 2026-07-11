@@ -1,11 +1,30 @@
-/** REQ-055 derive API client */
+/** REQ-055 / REQ-061 derive API client */
 import { request } from "@/api/client";
 
 export type ResumeKind = "root" | "derived" | "standard";
 
+export interface DeriveMilestone {
+  code: string;
+  status: string;
+  settle_eligible?: boolean;
+}
+
+export interface DeriveRuntimeLinks {
+  task_id: string | null;
+  status_url: string;
+  events_url: string | null;
+}
+
 export interface DeriveRunAccepted {
   run_id: string;
   status: string;
+  task_id?: string | null;
+  execution_id?: string | null;
+  canonical_status?: string;
+  available_actions?: string[];
+  milestones?: DeriveMilestone[];
+  acceptance?: Record<string, unknown> | null;
+  runtime?: DeriveRuntimeLinks;
 }
 
 export interface DeriveRun {
@@ -18,6 +37,19 @@ export interface DeriveRun {
   error_code: string | null;
   error_message: string | null;
   artifacts: Record<string, unknown>;
+  component_status?: Record<string, string>;
+  canonical_status?: string;
+  available_actions?: string[];
+  milestones?: DeriveMilestone[];
+  task_id?: string | null;
+  acceptance?: Record<string, unknown> | null;
+  runtime?: DeriveRuntimeLinks;
+  settlement?: {
+    chargeable_milestone_codes: string[];
+    delivered_milestones: string[];
+    failed_milestones: string[];
+    pending_milestones: string[];
+  };
 }
 
 export interface ExportGate {
@@ -69,6 +101,13 @@ export async function startDerive(body: {
 export async function getDeriveRun(runId: string) {
   return request<DeriveRun>({
     method: "GET",
+    path: `/api/v1/v2/resumes/derive-runs/${encodeURIComponent(runId)}`,
+  });
+}
+
+export async function cancelDeriveRun(runId: string) {
+  return request<DeriveRun>({
+    method: "POST",
     path: `/api/v1/v2/resumes/derive-runs/${encodeURIComponent(runId)}`,
   });
 }

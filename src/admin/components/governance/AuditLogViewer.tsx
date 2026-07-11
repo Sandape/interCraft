@@ -163,6 +163,23 @@ export function AuditLogViewer() {
             <span>{ev.reason ?? ''}</span>
             <span>{ev.result}</span>
             <span>{ev.visibility_mode}</span>
+            {ev.action === 'sensitive_reveal' || ev.action === 'export' ? (
+              <span
+                className="ac-gov-audit__external"
+                data-testid="external-link-state"
+                data-state={
+                  (ev as AuditEvent & { external_available?: boolean })
+                    .external_available === false
+                    ? 'unavailable'
+                    : 'available'
+                }
+              >
+                {(ev as AuditEvent & { external_available?: boolean })
+                  .external_available === false
+                  ? '外部链接不可用'
+                  : ''}
+              </span>
+            ) : null}
           </div>
         ))
       )}

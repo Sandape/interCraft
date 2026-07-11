@@ -19,8 +19,17 @@ async def monthly_quota_reset(ctx: dict) -> dict:
     """Reset monthly_token_used to 0 for all active users.
 
     Called by ARQ cron at midnight UTC on the 1st of each month.
+    REQ-061 T169: no-op when legacy monthly token writes are frozen.
     """
+    from app.modules.ai_runtime.legacy_token_freeze import (
+        legacy_monthly_token_writes_frozen,
+    )
+
     now = datetime.now(timezone.utc)
+    if legacy_monthly_token_writes_frozen():
+        log.info("monthly_quota_reset.skipped_frozen", ts=now.isoformat())
+        return {"status": "skipped_frozen", "rows_updated": 0, "ts": now.isoformat()}
+
     log.info("monthly_quota_reset.start", ts=now.isoformat())
 
     factory = get_session_factory()

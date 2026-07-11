@@ -535,6 +535,7 @@ class ResumeV2CreateIn(_Base):
     name: NameStr
     slug: SlugStr
     template: TemplateId = "pikachu"
+    theme_id: MujiThemeId = "muji-default-autumn"
     from_sample: bool = False
 
 

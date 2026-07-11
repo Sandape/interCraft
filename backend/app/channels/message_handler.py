@@ -5,21 +5,23 @@ Inbound:
   Dedup via Redis SET with TTL (context_token or wechat_msg_id)
 
 Outbound:
-  enqueue_outbound_message() — INSERT agent_messages (status=pending) + LPUSH Redis
-  process_outbound_queue() — consumer: RPOP Redis → send_text → UPDATE status=sent
+  enqueue_outbound_message() — persist PostgreSQL source-of-truth (+ Redis hint)
+  process_outbound_queue() — SKIP LOCKED claim → stable client_id send → CAS finish
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 
-from app.channels.ilink_client import ILinkClient
+from app.channels.ilink_client import ILinkClient, ILinkProviderError
 from app.channels.ilink_utils import split_text
 from app.core.redis import get_redis
 
@@ -122,7 +124,7 @@ def parse_inbound_message(msg: Dict[str, Any]) -> ParsedMessage | None:
 
     text = "\n".join(text_parts).strip()
     if not text:
-        logger.debug("skipping empty message from=%s", from_user_id[:20])
+        logger.debug("skipping_empty_user_message")
         return None
 
     # Determine primary message type
@@ -186,6 +188,8 @@ async def enqueue_outbound_message(
     client_id: UUID | None = None,
     context_token: str | None = None,
     in_reply_to_msg_id: str | None = None,
+    task_id: UUID | None = None,
+    trace_id: str | None = None,
 ) -> List[UUID]:
     """Persist outbound message to PG + push to Redis send queue.
 
@@ -230,12 +234,15 @@ async def enqueue_outbound_message(
             direction="outbound",
             content=segment,
             status="pending",
+            delivery_status="pending",
             message_type="text",
             segments_total=total if total > 1 else None,
             segment_index=(i + 1) if total > 1 else None,
             client_id=seg_client_id,
             context_token=context_token,
             wechat_msg_id=in_reply_to_msg_id,
+            task_id=task_id,
+            trace_id=trace_id,
         )
         if msg_repo is not None:
             await msg_repo.create(msg)
@@ -251,18 +258,17 @@ async def enqueue_outbound_message(
         except Exception as exc:
             logger.warning(
                 "outbound_redis_lpush_failed_continuing",
-                extra={"user_id": str(user_id), "error": str(exc)[:120]},
+                extra={"error_type": type(exc).__name__},
             )
         message_ids.append(msg_id)
 
     logger.info(
         "outbound_enqueued",
         extra={
-            "user_id": str(user_id),
             "segments": total,
             "priority": priority,
             "client_id": str(client_id) if client_id else None,
-            "context_token": bool(context_token),
+            "has_context": bool(context_token),
         },
     )
     return message_ids
@@ -296,28 +302,147 @@ async def process_outbound_queue(
     if session_factory is None:
         return 0
 
-    from app.modules.agent.models import AgentMessage
-    from app.modules.agent.repository import AgentMessageRepository
-
     # Use the caller-supplied session factory (an async context manager
     # that commits on exit) so status updates are persisted. Do NOT
     # create a separate session via get_db_session — the commit on that
     # path can be unreliable when called from inside _poll_loop's
     # already-active connection pool context.
     from uuid import UUID as _UUID
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from app.core.config import get_settings
+    from app.modules.agent.models import AgentTask
+    from app.modules.agent.repository import AgentMessageRepository
+    from app.modules.agent.runtime.telemetry import agent_span, emit_event, record_metric
+
     async with session_factory() as session:
         repo = AgentMessageRepository(session)
-        pending = await repo.list_pending(_UUID(user_id))
-        for row in pending:
+        owner_id = uuid4()
+        settings = get_settings()
+        claimed = await repo.claim_outbound(
+            _UUID(user_id),
+            owner_id=owner_id,
+            claim_seconds=settings.wechat_agent_message_claim_seconds,
+        )
+        record_metric(
+            "wechat_queue_depth",
+            value=len(claimed),
+            direction="outbound",
+            state="claimed",
+        )
+        for row in claimed:
             content = row.content or ""
+            source_message_id = None
+            if row.task_id is not None:
+                source_message_id = await session.scalar(
+                    select(AgentTask.source_message_id).where(
+                        AgentTask.id == row.task_id,
+                        AgentTask.user_id == _UUID(user_id),
+                    )
+                )
+            correlation_id = str(source_message_id) if source_message_id is not None else None
             try:
-                await client.send_text(to_user_id, content, row.context_token or context_token)
-                await repo.update_status(row.id, "sent")
+                with agent_span(
+                    "wechat.delivery",
+                    message_id=str(row.id),
+                    delivery_id=str(row.client_id),
+                    task_id=str(row.task_id) if row.task_id else None,
+                    correlation_id=correlation_id,
+                    trace_id=row.trace_id,
+                ):
+                    await asyncio.wait_for(
+                        client.send_text(
+                            to_user_id,
+                            content,
+                            row.context_token or context_token,
+                            client_id=row.client_id,
+                        ),
+                        timeout=settings.wechat_agent_api_timeout_seconds,
+                    )
+                await repo.finish_outbound_claim(
+                    row.id,
+                    owner_id=owner_id,
+                    delivery_status="sent",
+                )
+                emit_event(
+                    logger,
+                    "wechat.delivery.completed",
+                    message_id=str(row.id),
+                    task_id=str(row.task_id) if row.task_id else None,
+                    delivery_id=str(row.client_id),
+                    correlation_id=correlation_id,
+                    trace_id=row.trace_id,
+                    segment=row.segment_index or 1,
+                    attempt=row.attempt_count,
+                    status="sent",
+                )
+                record_metric("wechat_delivery_total", outcome="sent")
                 sent_count += 1
+            except (asyncio.TimeoutError, httpx.TimeoutException):
+                # The provider may have accepted the message even though no
+                # response reached us. Never auto-retry an ambiguous result.
+                await repo.finish_outbound_claim(
+                    row.id,
+                    owner_id=owner_id,
+                    delivery_status="unknown_delivery",
+                    error_category="provider_result_unknown",
+                )
+                logger.warning(
+                    "outbound_delivery_unknown",
+                    extra={"message_id": str(row.id), "attempt": row.attempt_count},
+                )
+                emit_event(
+                    logger,
+                    "wechat.delivery.unknown",
+                    message_id=str(row.id),
+                    task_id=str(row.task_id) if row.task_id else None,
+                    delivery_id=str(row.client_id),
+                    correlation_id=correlation_id,
+                    trace_id=row.trace_id,
+                    segment=row.segment_index or 1,
+                    attempt=row.attempt_count,
+                    reconciliation_mode="manual_or_provider_status",
+                )
+                record_metric("wechat_delivery_total", outcome="unknown")
+                break
+            except ILinkProviderError as exc:
+                await repo.finish_outbound_claim(
+                    row.id,
+                    owner_id=owner_id,
+                    delivery_status="failed",
+                    error_category="provider_rejected",
+                )
+                emit_event(
+                    logger,
+                    "wechat.delivery.completed",
+                    message_id=str(row.id),
+                    task_id=str(row.task_id) if row.task_id else None,
+                    delivery_id=str(row.client_id),
+                    correlation_id=correlation_id,
+                    trace_id=row.trace_id,
+                    segment=row.segment_index or 1,
+                    attempt=row.attempt_count,
+                    status="rejected",
+                    provider_code=exc.code,
+                )
+                record_metric("wechat_delivery_total", outcome="rejected")
+                break
             except Exception as exc:
+                retry_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=min(300, 2 ** min(row.attempt_count, 8))
+                )
+                await repo.finish_outbound_claim(
+                    row.id,
+                    owner_id=owner_id,
+                    delivery_status="retry_wait",
+                    error_category="provider_retriable",
+                    retry_at=retry_at,
+                )
                 logger.warning(
                     "outbound_send_failed",
-                    extra={"user_id": user_id, "msg_id": str(row.id), "error": str(exc)[:120]},
+                    extra={"message_id": str(row.id), "error_type": type(exc).__name__},
                 )
                 break
 
@@ -334,15 +459,21 @@ async def persist_inbound_message(
     parsed: ParsedMessage,
     *,
     session: Any = None,
+    dedupe_key: str | None = None,
+    binding_epoch: int | None = None,
 ) -> UUID:
     """Persist a parsed inbound message to agent_messages table.
 
     Returns:
         The UUID of the created message row.
     """
+    from app.core.config import get_settings
     from app.modules.agent.models import AgentMessage
+    from app.modules.agent.runtime.telemetry import emit_event, privacy_ref
 
     msg_id = UUID(bytes=__import__("os").urandom(16))
+    trace_id = str(getattr(parsed, "trace_id", "") or uuid4().hex)
+    parsed.trace_id = trace_id
     msg = AgentMessage(
         id=msg_id,
         user_id=user_id,
@@ -353,6 +484,12 @@ async def persist_inbound_message(
         wechat_msg_id=parsed.msg_id or None,
         context_token=parsed.context_token or None,
         received_at=datetime.now(timezone.utc),
+        channel="wechat",
+        external_message_id=parsed.msg_id or None,
+        dedupe_key=dedupe_key,
+        processing_status="processing",
+        binding_epoch=binding_epoch,
+        trace_id=trace_id,
     )
     if session is not None:
         session.add(msg)
@@ -361,12 +498,32 @@ async def persist_inbound_message(
     logger.info(
         "inbound_persisted",
         extra={
-            "user_id": str(user_id),
-            "msg_id": str(msg_id),
+            "message_id": str(msg_id),
             "message_type": parsed.message_type,
             "content_len": len(parsed.text),
         },
     )
+    correlation_id = str(msg_id)
+    emit_event(
+        logger,
+        "wechat.message.received",
+        correlation_id=correlation_id,
+        trace_id=trace_id,
+        message_id=correlation_id,
+        external_id_hash=hashlib.sha256(str(parsed.msg_id or msg_id).encode()).hexdigest(),
+        duplicate=False,
+    )
+    if binding_epoch is not None:
+        emit_event(
+            logger,
+            "wechat.identity.resolved",
+            correlation_id=correlation_id,
+            trace_id=trace_id,
+            message_id=correlation_id,
+            binding_epoch=binding_epoch,
+            binding_status="active",
+            user_ref=privacy_ref(str(user_id), salt=get_settings().master_key),
+        )
     return msg_id
 
 
@@ -454,7 +611,7 @@ async def generate_reply(
         if resp.status_code != 200:
             logger.warning(
                 "llm_reply_error",
-                extra={"status": resp.status_code, "body": resp.text[:200]},
+                extra={"status": resp.status_code},
             )
             return "（抱歉，AI 服务暂时不可用，请稍后再试）"
 
@@ -462,11 +619,11 @@ async def generate_reply(
         reply = data["choices"][0]["message"]["content"].strip()
         logger.info(
             "llm_reply_generated",
-            extra={"user_id": user_id, "len": len(reply)},
+            extra={"reply_length": len(reply)},
         )
         return reply
-    except Exception:
-        logger.exception("llm_reply_failed")
+    except Exception as exc:
+        logger.error("llm_reply_failed", extra={"error_type": type(exc).__name__})
         return "（抱歉，处理你的消息时出现了错误，请稍后再试）"
 
 

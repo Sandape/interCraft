@@ -48,6 +48,11 @@ export interface HistoryEntry {
   at: number;
 }
 
+export interface ResumeAIAnchorFocus {
+  nodeId: string;
+  requestedAt: number;
+}
+
 const DEBOUNCE_MS = 500;
 const MAX_HISTORY = 20;
 const HISTORY_TTL_MS = 30 * 60 * 1000; // 30 min
@@ -78,6 +83,7 @@ export interface ResumeV2Store {
   hydrated: boolean;
   /** Timestamp of the most recent local edit (used to throttle / display). */
   lastEditAt: number | null;
+  aiFocusAnchor: ResumeAIAnchorFocus | null;
 
   // ── history (US17) ──
   undoStack: HistoryEntry[];
@@ -106,6 +112,7 @@ export interface ResumeV2Store {
   setMetadata: (patch: Partial<Metadata>) => void;
 
   setSourceMarkdown: (sourceMarkdown: string) => void;
+  focusAIAnchor: (nodeId: string) => void;
   setMarkdownTheme: (themeId: MujiThemeId) => void;
   setManualLineHeight: (lineHeight: LineHeightPreset) => void;
   enableSmartOnePage: (
@@ -322,6 +329,7 @@ export const useResumeV2Store = create<ResumeV2Store>()(
       lastError: null,
       hydrated: false,
       lastEditAt: null,
+      aiFocusAnchor: null,
       undoStack: [],
       redoStack: [],
       historyTTLExpired: false,
@@ -431,6 +439,12 @@ export const useResumeV2Store = create<ResumeV2Store>()(
             ...draft.metadata.markdown,
             sourceMarkdown,
           };
+        });
+      },
+
+      focusAIAnchor: (nodeId) => {
+        set((s) => {
+          s.aiFocusAnchor = { nodeId, requestedAt: Date.now() };
         });
       },
 

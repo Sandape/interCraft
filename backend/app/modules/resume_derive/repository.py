@@ -25,6 +25,13 @@ class ResumeDeriveRepository:
         root_version: int,
         target_page_count: int,
         template_id: str,
+        root_hash: str | None = None,
+        jd_hash: str | None = None,
+        root_snapshot: dict[str, Any] | None = None,
+        job_snapshot: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+        request_hash: str | None = None,
+        input_fingerprint: str | None = None,
     ) -> ResumeDeriveRun:
         row = ResumeDeriveRun(
             id=new_uuid_v7(),
@@ -39,10 +46,35 @@ class ResumeDeriveRepository:
             calibrate_round=0,
             progress_pct=0,
             artifacts={},
+            root_hash=root_hash,
+            jd_hash=jd_hash,
+            root_snapshot=root_snapshot or {},
+            job_snapshot=job_snapshot or {},
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            input_fingerprint=input_fingerprint,
+            component_status={
+                "derived_resume": "pending",
+                "analysis": "pending",
+                "suggestions": "pending",
+            },
+            prompt_version="resume-intelligence.v1",
+            schema_version="derive.v2",
+            scoring_version="scoring.v1",
         )
         self._session.add(row)
         await self._session.flush()
         return row
+
+    async def get_by_idempotency_key(
+        self, *, user_id: UUID, idempotency_key: str
+    ) -> ResumeDeriveRun | None:
+        stmt = select(ResumeDeriveRun).where(
+            ResumeDeriveRun.user_id == user_id,
+            ResumeDeriveRun.idempotency_key == idempotency_key,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get(self, run_id: UUID, *, user_id: UUID) -> ResumeDeriveRun | None:
         stmt = select(ResumeDeriveRun).where(

@@ -415,6 +415,58 @@ class BadcaseEscalateResponse(BaseModel):
     escalated_by: str = Field(..., min_length=1, max_length=128)
 
 
+# ---------------------------------------------------------------------------
+# REQ-061 US10 — canonical operational Bad Case facade schemas (T134)
+# ---------------------------------------------------------------------------
+
+
+class OperationalDataQuality(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fresh_at: str
+    coverage_percent: float = Field(ge=0, le=100)
+    unknown_count: int = Field(ge=0)
+    seed_or_mock_count: int = Field(ge=0, le=0)
+
+
+class OperationalBadcaseSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    badcase_id: str
+    status: str
+    severity: str
+    category: str
+    capabilities: list[str] = Field(default_factory=list)
+    owner: str | None = None
+    privacy_class: str
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
+    task_count: int = 0
+    user_count: int | None = None
+    user_count_status: str = "unknown"
+    point_treatment_status: str = "unknown"
+    sla_status: str = "within_sla"
+    version: int = 1
+    data_completeness: str = "partial"
+
+
+class OperationalBadcasePage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[OperationalBadcaseSummary] = Field(default_factory=list)
+    next_cursor: str | None = None
+    data_quality: OperationalDataQuality
+    compatibility: dict[str, str] = Field(default_factory=dict)
+
+
+class OperationalCompatibilityLinks(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    legacy_admin_badcases: str = "/api/v1/admin-console/badcases"
+    legacy_domain_badcases: str = "/api/v1/badcases"
+    canonical: str = "/api/v1/admin-console/ai/badcases"
+
+
 # Resolve forward references (AuditTrailEntry referenced by Incident / Badcase).
 Incident.model_rebuild()
 Badcase.model_rebuild()
@@ -439,5 +491,9 @@ __all__ = [
     "IncidentSeverity",
     "IncidentStatus",
     "IncidentTrend",
+    "OperationalBadcasePage",
+    "OperationalBadcaseSummary",
+    "OperationalCompatibilityLinks",
+    "OperationalDataQuality",
     "StatusChangeRequest",
 ]

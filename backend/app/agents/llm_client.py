@@ -5,12 +5,14 @@ Pre-deduct + actual adjust token quota, auto-retry, structured logging.
 
 Per contracts/llm-client.md.
 """
+
 from __future__ import annotations
 
 import os
 import time
 import uuid
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 import openai
@@ -25,15 +27,11 @@ from openai import (
     RateLimitError,
     UnprocessableEntityError,
 )
-from typing import Any
-from typing_extensions import TypedDict
-
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from app.agents.structured_output.client import parse_structured_output
 from app.agents.structured_output.errors import (
-    ParseFail,
-    SchemaInvalid,
     StructuredOutputError,
 )
 from app.agents.token_estimator import TokenEstimator
@@ -59,6 +57,7 @@ def _infer_graph_name(node_name: str) -> str:
     if normalized in _INTERVIEW_LLM_NODES or normalized.startswith("interview."):
         return "interview"
     return "unknown"
+
 
 # ---------------------------------------------------------------------------
 # Prometheus metrics
@@ -98,9 +97,7 @@ class QuotaExceededError(Exception):
         self.used = used
         self.quota = quota
         self.estimated = estimated
-        super().__init__(
-            f"Token quota exceeded: used={used}, quota={quota}, needed={estimated}"
-        )
+        super().__init__(f"Token quota exceeded: used={used}, quota={quota}, needed={estimated}")
 
 
 class LLMInvokeError(RuntimeError):
@@ -170,8 +167,11 @@ class LLMClient:
     def __init__(self) -> None:
         settings = get_settings()
         api_key = settings.deepseek_api_key or os.environ.get("DEEPSEEK_API_KEY", "")
-        base_url = settings.deepseek_base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        base_url = settings.deepseek_base_url or os.environ.get(
+            "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+        )
         self._model = settings.deepseek_model or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
+        self._tool_model = settings.agent_tool_model
         self._quota = settings.monthly_token_quota
 
         self._client = openai.AsyncOpenAI(
@@ -197,8 +197,13 @@ class LLMClient:
         max_retries: int = 3,
         timeout_ms: int = 30_000,
         stream: bool = False,
+        execution_context: Any | None = None,
     ) -> LLMResponse:
         """Invoke DeepSeek V4 Pro with pre-deduct, call, adjust, log.
+
+        Optional ``execution_context`` (REQ-061 ``ExecutionContext``) carries
+        task/execution/claim identity for future provider-gateway fencing.
+        Legacy callers remain unchanged when it is omitted.
 
         Raises:
             QuotaExceededError: insufficient quota
@@ -208,6 +213,14 @@ class LLMClient:
             estimated_tokens = self._estimator.estimate(node_name)
 
         model = self._estimator.get_model(node_name)
+        if execution_context is not None:
+            logger.debug(
+                "llm.invoke.execution_context",
+                task_id=str(getattr(execution_context, "task_id", "")),
+                execution_id=str(getattr(execution_context, "execution_id", "")),
+                claim_generation=getattr(execution_context, "claim_generation", None),
+                capability_code=getattr(execution_context, "capability_code", None),
+            )
 
         # 1. Pre-deduct quota
         await self._pre_deduct(user_id, estimated_tokens)
@@ -249,7 +262,12 @@ class LLMClient:
                         },
                     )
                 break
-            except (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError) as exc:
+            except (
+                RateLimitError,
+                APITimeoutError,
+                APIConnectionError,
+                InternalServerError,
+            ) as exc:
                 retry_count = attempt + 1
                 if attempt >= max_retries:
                     self._record_metrics(model, node_name, "error")
@@ -290,7 +308,7 @@ class LLMClient:
                         node_name=node_name,
                         retry_count=retry_count,
                     ) from exc
-                wait_s = 2 ** attempt  # 1s, 2s, 4s
+                wait_s = 2**attempt  # 1s, 2s, 4s
                 logger.warning(
                     "llm.retry",
                     node_name=node_name,
@@ -301,7 +319,12 @@ class LLMClient:
                 import asyncio
 
                 await asyncio.sleep(wait_s)
-            except (AuthenticationError, PermissionDeniedError, BadRequestError, UnprocessableEntityError) as exc:
+            except (
+                AuthenticationError,
+                PermissionDeniedError,
+                BadRequestError,
+                UnprocessableEntityError,
+            ) as exc:
                 self._record_metrics(model, node_name, "error")
                 logger.error(
                     "llm.invoke",
@@ -458,7 +481,12 @@ class LLMClient:
                         total_prompt_tokens = chunk.usage.prompt_tokens or 0
                         total_completion_tokens = chunk.usage.completion_tokens or 0
                 break
-            except (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError) as exc:
+            except (
+                RateLimitError,
+                APITimeoutError,
+                APIConnectionError,
+                InternalServerError,
+            ) as exc:
                 retry_count = attempt + 1
                 if attempt >= max_retries:
                     raise LLMInvokeError(
@@ -466,8 +494,10 @@ class LLMClient:
                         node_name=node_name,
                         retry_count=retry_count,
                     ) from exc
-                wait_s = 2 ** attempt
-                logger.warning("llm.stream_retry", node_name=node_name, attempt=retry_count, wait_s=wait_s)
+                wait_s = 2**attempt
+                logger.warning(
+                    "llm.stream_retry", node_name=node_name, attempt=retry_count, wait_s=wait_s
+                )
                 import asyncio
 
                 await asyncio.sleep(wait_s)
@@ -495,6 +525,117 @@ class LLMClient:
                 duration_ms=duration_ms,
             )
 
+    async def invoke_with_tools(
+        self,
+        *,
+        messages: list[dict],
+        tools: list[dict],
+        user_id: str,
+        thread_id: str,
+        timeout_ms: int = 45_000,
+        tool_choice: str | dict = "auto",
+    ):
+        """Invoke DeepSeek's OpenAI-compatible function-calling surface.
+
+        Tool selection deliberately uses non-thinking mode. The application,
+        not the model, validates authorization, schemas and side effects.
+        """
+        node_name = "wechat_agent_tools"
+        estimated_tokens = self._estimator.estimate(node_name)
+        await self._pre_deduct(user_id, estimated_tokens)
+        started_ms = int(time.time() * 1000)
+        response = None
+        for attempt in range(3):
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self._tool_model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    stream=False,
+                    timeout=timeout_ms / 1000.0,
+                )
+                break
+            except (
+                RateLimitError,
+                APITimeoutError,
+                APIConnectionError,
+                InternalServerError,
+            ) as exc:
+                if attempt >= 2:
+                    try:
+                        await self._actual_adjust(user_id, estimated_tokens, 0)
+                    except Exception as refund_exc:
+                        logger.error(
+                            "llm.tool_refund_failed",
+                            error_type=type(refund_exc).__name__,
+                        )
+                    raise LLMInvokeError(
+                        "Agent model invocation failed after bounded retries",
+                        node_name=node_name,
+                        retry_count=attempt + 1,
+                    ) from exc
+                wait_s = 2**attempt
+                logger.warning(
+                    "llm.tool_retry",
+                    node_name=node_name,
+                    attempt=attempt + 1,
+                    wait_s=wait_s,
+                    error_type=type(exc).__name__,
+                )
+                import asyncio
+
+                await asyncio.sleep(wait_s)
+            except (
+                AuthenticationError,
+                PermissionDeniedError,
+                BadRequestError,
+                UnprocessableEntityError,
+            ) as exc:
+                try:
+                    await self._actual_adjust(user_id, estimated_tokens, 0)
+                except Exception as refund_exc:
+                    logger.error(
+                        "llm.tool_refund_failed",
+                        error_type=type(refund_exc).__name__,
+                    )
+                raise LLMInvokeError(
+                    "Agent model invocation rejected",
+                    node_name=node_name,
+                    retry_count=0,
+                ) from exc
+        assert response is not None
+        usage = response.usage
+        actual_tokens = 0
+        if usage is not None:
+            actual_tokens = (usage.prompt_tokens or 0) + (usage.completion_tokens or 0)
+        if actual_tokens:
+            try:
+                await self._actual_adjust(user_id, estimated_tokens, actual_tokens)
+            except Exception as adjust_exc:
+                logger.error(
+                    "llm.tool_quota_adjust_failed",
+                    error_type=type(adjust_exc).__name__,
+                )
+        try:
+            await self._write_ai_message(
+                user_id=user_id,
+                thread_id=thread_id,
+                checkpoint_id=None,
+                node_name=node_name,
+                role="assistant",
+                model=self._tool_model,
+                prompt_tokens=(usage.prompt_tokens or 0) if usage else 0,
+                completion_tokens=(usage.completion_tokens or 0) if usage else 0,
+                duration_ms=int(time.time() * 1000) - started_ms,
+            )
+        except Exception as audit_exc:
+            logger.error(
+                "llm.tool_audit_failed",
+                error_type=type(audit_exc).__name__,
+            )
+        return response
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -509,9 +650,7 @@ class LLMClient:
 
         settings = get_settings()
         # Thinking only on pro (plan gen). Flash skips thinking for latency.
-        use_thinking = (
-            settings.deepseek_thinking_enabled and thinking_enabled_for_model(model)
-        )
+        use_thinking = settings.deepseek_thinking_enabled and thinking_enabled_for_model(model)
         kwargs: dict = {
             "model": model,
             "messages": messages,
@@ -524,13 +663,18 @@ class LLMClient:
         return await self._client.chat.completions.create(**kwargs)
 
     async def _pre_deduct(self, user_id: str, estimated_tokens: int) -> None:
-        """Atomically check and pre-deduct quota via SELECT...FOR UPDATE."""
+        """Atomically pre-deduct without conflicting with task FK key-share locks."""
         from uuid import UUID as _UUID
 
         from sqlalchemy import text
 
-        from app.core.db import get_session_factory
-        from app.domain.rls import set_user_context
+        from app.core.db import get_session_context
+        from app.modules.ai_runtime.legacy_token_freeze import should_write_monthly_token_used
+
+        # REQ-061 T169: after points cutover, freeze direct monthly_token_used writes.
+        if not should_write_monthly_token_used():
+            logger.info("llm.pre_deduct_skipped_frozen", user_id=user_id)
+            return
 
         # Non-fatal: if user_id is not a valid UUID (e.g. "unknown"), skip quota check
         try:
@@ -539,33 +683,38 @@ class LLMClient:
             logger.warning("llm.pre_deduct_skip", user_id=user_id, reason="invalid_uuid")
             return
 
-        factory = get_session_factory()
-        async with factory() as session:
+        async with get_session_context(user_id=uid) as session:
             result = await session.execute(
                 text(
-                    "SELECT monthly_token_used, monthly_token_quota "
-                    "FROM users WHERE id = :uid FOR UPDATE"
+                    "UPDATE users SET monthly_token_used = "
+                    "COALESCE(monthly_token_used, 0) + :est "
+                    "WHERE id = :uid AND COALESCE(monthly_token_used, 0) + :est "
+                    "<= COALESCE(monthly_token_quota, :default_quota) "
+                    "RETURNING monthly_token_used, "
+                    "COALESCE(monthly_token_quota, :default_quota)"
                 ),
-                {"uid": uid},
+                {"uid": uid, "est": estimated_tokens, "default_quota": self._quota},
             )
             row = result.fetchone()
-            if row is None:
-                return  # User not found, let it proceed
-
-            used = row[0] or 0
-            quota = row[1] or self._quota
-
-            if used + estimated_tokens > quota:
-                raise QuotaExceededError(used=used, quota=quota, estimated=estimated_tokens)
-
-            await session.execute(
-                text(
-                    "UPDATE users SET monthly_token_used = monthly_token_used + :est "
-                    "WHERE id = :uid"
-                ),
-                {"est": estimated_tokens, "uid": _UUID(user_id)},
+            if row is not None:
+                return
+            current = (
+                await session.execute(
+                    text(
+                        "SELECT COALESCE(monthly_token_used, 0), "
+                        "COALESCE(monthly_token_quota, :default_quota) "
+                        "FROM users WHERE id = :uid"
+                    ),
+                    {"uid": uid, "default_quota": self._quota},
+                )
+            ).fetchone()
+            if current is None:
+                return
+            raise QuotaExceededError(
+                used=int(current[0]),
+                quota=int(current[1]),
+                estimated=estimated_tokens,
             )
-            await session.commit()
 
     async def _actual_adjust(self, user_id: str, estimated: int, actual: int) -> None:
         """Adjust quota: subtract estimate, add actual."""
@@ -573,7 +722,7 @@ class LLMClient:
 
         from sqlalchemy import text
 
-        from app.core.db import get_session_factory
+        from app.core.db import get_session_context
 
         delta = actual - estimated
         if delta == 0:
@@ -593,30 +742,15 @@ class LLMClient:
             )
             return
 
-        # REQ-053: skip DB adjustment when user_id is not a UUID (e.g. for
-        # background pipelines that use a synthetic user_id like
-        # "research-pipeline"). Otherwise asyncpg raises
-        # "badly formed hexadecimal UUID string" and the caller sees a
-        # confusing failure.
-        try:
-            parsed_uid = _UUID(user_id)
-        except (ValueError, AttributeError, TypeError):
-            logger.debug(
-                "_actual_adjust: skipping quota update (user_id=%r is not a UUID)",
-                user_id,
-            )
-            return
-
-        factory = get_session_factory()
-        async with factory() as session:
+        async with get_session_context(user_id=parsed_uid) as session:
             await session.execute(
                 text(
-                    "UPDATE users SET monthly_token_used = monthly_token_used + :delta "
+                    "UPDATE users SET monthly_token_used = "
+                    "GREATEST(0, COALESCE(monthly_token_used, 0) + :delta) "
                     "WHERE id = :uid"
                 ),
-                {"delta": delta, "uid": _UUID(user_id)},
+                {"delta": delta, "uid": parsed_uid},
             )
-            await session.commit()
 
     async def _write_ai_message(
         self,
@@ -637,7 +771,7 @@ class LLMClient:
 
         from sqlalchemy import text
 
-        from app.core.db import get_session_factory
+        from app.core.db import get_session_context
 
         # REQ-053: skip audit when user_id is not a UUID (e.g. background
         # pipeline with synthetic id). Otherwise asyncpg raises "badly
@@ -651,8 +785,7 @@ class LLMClient:
             )
             return
 
-        factory = get_session_factory()
-        async with factory() as session:
+        async with get_session_context(user_id=parsed_uid) as session:
             await session.execute(
                 text(
                     """INSERT INTO ai_messages
@@ -678,7 +811,6 @@ class LLMClient:
                     "dur": duration_ms,
                 },
             )
-            await session.commit()
 
     @staticmethod
     def _record_metrics(model: str, node: str, result: str) -> None:
@@ -897,11 +1029,10 @@ def _extract_and_record_ai_invocation(summary: AIInvocationSummary) -> None:
     """
     try:
         import asyncio
+        from uuid import UUID as _UUID
 
         from app.core.db import get_session_factory
         from app.domain.rls import set_user_context
-        from uuid import UUID as _UUID
-
         from app.modules.telemetry_contracts.repository import (
             insert_ai_invocation,
         )

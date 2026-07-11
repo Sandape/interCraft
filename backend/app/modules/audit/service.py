@@ -56,6 +56,32 @@ class AuditService:
             },
         )
 
+    async def log_ai_admin_access(
+        self,
+        *,
+        actor_id: UUID,
+        capability: str,
+        field: str | None = None,
+        allowed: bool,
+        reason: str | None = None,
+        resource_id: UUID | None = None,
+        reveal_ttl_seconds: int | None = None,
+    ) -> None:
+        """REQ-061 T024 — audit hook for named AI admin capability / field decisions."""
+        await self.log(
+            actor_id=actor_id,
+            action=f"ai.admin.{capability}",
+            resource_type="ai_admin_capability",
+            resource_id=resource_id,
+            new_values={
+                "capability": capability,
+                "field": field,
+                "allowed": allowed,
+                "reason": reason,
+                "reveal_ttl_seconds": reveal_ttl_seconds,
+            },
+        )
+
     async def query(
         self,
         actor_id: UUID | None = None,

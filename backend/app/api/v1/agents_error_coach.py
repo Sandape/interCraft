@@ -31,6 +31,8 @@ class StartResponse(BaseModel):
     thread_id: str
     status: str
     current_node: str | None = None
+    # REQ-061 T086 — canonical control/detail links.
+    runtime_links: dict[str, str] | None = None
 
 
 class MessageRequest(BaseModel):
@@ -45,12 +47,14 @@ class MessageResponse(BaseModel):
     correct_count: int | None = None
     hint_level: str | None = None
     hint_content: str | None = None
+    runtime_links: dict[str, str] | None = None
 
 
 class AbortResponse(BaseModel):
     thread_id: str
     status: str
     correct_count_achieved: int | None = None
+    runtime_links: dict[str, str] | None = None
 
 
 class StateResponse(BaseModel):
@@ -59,6 +63,7 @@ class StateResponse(BaseModel):
     correct_count: int | None = None
     attempt_count: int | None = None
     current_hint_level: str | None = None
+    runtime_links: dict[str, str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +78,7 @@ async def error_coach_start(
 ):
     """Start error coach session for a specific error question."""
     from app.agents.graphs.error_coach import get_error_coach_graph
+    from app.modules.ai_runtime.adapters.error_coach import runtime_links_for_thread
 
     user_id = str(current_user.id)
     graph = get_error_coach_graph()
@@ -85,7 +91,12 @@ async def error_coach_start(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    return StartResponse(thread_id=thread_id, status="running", current_node="fetch_question")
+    return StartResponse(
+        thread_id=thread_id,
+        status="running",
+        current_node="fetch_question",
+        runtime_links=runtime_links_for_thread(thread_id),
+    )
 
 
 @router.post("/{thread_id}/messages")
@@ -96,6 +107,7 @@ async def error_coach_messages(
 ):
     """Submit user answer in error coach session."""
     from app.agents.graphs.error_coach import get_error_coach_graph
+    from app.modules.ai_runtime.adapters.error_coach import runtime_links_for_thread
 
     graph = get_error_coach_graph()
     try:
@@ -111,6 +123,7 @@ async def error_coach_messages(
         correct_count=result.get("correct_count"),
         hint_level=result.get("hint_level"),
         hint_content=result.get("hint_content"),
+        runtime_links=runtime_links_for_thread(thread_id),
     )
 
 
@@ -121,6 +134,7 @@ async def error_coach_abort(
 ):
     """User-initiated abort for error coach session."""
     from app.agents.graphs.error_coach import get_error_coach_graph
+    from app.modules.ai_runtime.adapters.error_coach import runtime_links_for_thread
 
     graph = get_error_coach_graph()
     try:
@@ -132,6 +146,7 @@ async def error_coach_abort(
         thread_id=thread_id,
         status="aborted",
         correct_count_achieved=result.get("correct_count", 0),
+        runtime_links=runtime_links_for_thread(thread_id),
     )
 
 
@@ -143,6 +158,7 @@ async def error_coach_state(
     """Get current state of error coach session."""
     from app.agents.graphs.error_coach import get_error_coach_graph
     from app.agents.utils.node_error import serialize_state_error
+    from app.modules.ai_runtime.adapters.error_coach import runtime_links_for_thread
 
     graph = get_error_coach_graph()
     try:
@@ -158,4 +174,8 @@ async def error_coach_state(
     # was invoking it.
     err = state.pop("error", None)
     serialized = serialize_state_error(state_error=err, state_error_legacy=None)
-    return {**state, **serialized}
+    return {
+        **state,
+        **serialized,
+        "runtime_links": runtime_links_for_thread(thread_id),
+    }

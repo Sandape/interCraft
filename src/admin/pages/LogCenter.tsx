@@ -347,6 +347,15 @@ export function LogCenter() {
 
   return (
     <div className="ac-page" data-testid="log-center">
+      {/* REQ-061 T163: deep-link hint to canonical task inspection */}
+      {searchParams.get('task_id') ? (
+        <div className="ac-page__hint" data-testid="log-center-task-deeplink">
+          运营任务检查：
+          <a href={`/admin-console/logs-and-traces?from=user:${searchParams.get('task_id')}&task_id=${searchParams.get('task_id')}`}>
+            打开任务时间线 / 只读回放
+          </a>
+        </div>
+      ) : null}
       <div className="ac-page__header">
         <h1 className="ac-page__title">Logs &amp; Traces</h1>
         <span className="ac-page__hint">

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
@@ -30,6 +30,7 @@ from app.modules.account.schemas import (
     LogoutOtherDevicesResponse,
     NotificationCenterResponse,
     NotificationOut,
+    NotificationPatchIn,
 )
 from app.modules.account.subscription import SubscriptionService, SubscriptionError
 from app.modules.auth.models import User
@@ -44,7 +45,7 @@ async def list_subscription_plans(
     db: AsyncSession = Depends(db_session_user_dep),
     user = Depends(get_current_user),
 ):
-    """Get all available subscription plans."""
+    """Legacy plan catalog (kept for compatibility; UI uses beta entitlement)."""
     from app.modules.account.subscription import SubscriptionService
     svc = SubscriptionService(db)
     plans = await svc.list_plans()
@@ -56,7 +57,11 @@ async def get_current_subscription(
     user = Depends(get_current_user),
     db: AsyncSession = Depends(db_session_user_dep),
 ):
-    """Get current user's subscription status."""
+    """Beta entitlement + point projection (REQ-061 US8 / T053).
+
+    Response is Pro +「新用户体验」display truth with point balances.
+    Legacy monthly-token fields live under ``legacy_monthly_token`` only.
+    """
     from app.modules.account.subscription import SubscriptionService
     svc = SubscriptionService(db, user.id)
     return await svc.get_current_subscription()
@@ -67,7 +72,7 @@ async def subscription_pre_check(
     user = Depends(get_current_user),
     db: AsyncSession = Depends(db_session_user_dep),
 ):
-    """Pre-check before starting an interview."""
+    """Pre-check before starting an interview (legacy monthly-token comparison)."""
     from app.modules.account.subscription import SubscriptionService, SubscriptionError
     svc = SubscriptionService(db, user.id)
     try:
@@ -251,6 +256,23 @@ async def notification_center(
         ],
         unread_count=unread_count,
     )
+
+
+@router.patch(
+    "/account/notifications/{notification_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def mark_notification_read(
+    notification_id: UUID,
+    body: NotificationPatchIn,
+    user = Depends(get_current_user),
+    db: AsyncSession = Depends(db_session_user_dep),
+) -> Response:
+    """Idempotently mark one current-user notification as read."""
+    svc = NotificationService(db, user.id)
+    if body.is_read:
+        await svc.mark_as_read(notification_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---- Devices ----

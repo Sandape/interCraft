@@ -18,8 +18,8 @@ export function JobTimeline({ entries }: { entries: JobTimelineEntry[] }) {
   return (
     <div className="space-y-3">
       {entries.map((entry, i) => {
-        const toStatus = (entry as any).to_status ?? entry.to
-        const fromStatus = (entry as any).from_status ?? entry.from
+        const toStatus = entry.to_status ?? entry.to ?? 'applied'
+        const fromStatus = entry.from_status ?? entry.from
         const changedAt = entry.changed_at ?? (entry as any).at
         return (
         <div key={i} className="flex items-start gap-3">

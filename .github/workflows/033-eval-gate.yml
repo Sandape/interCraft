@@ -5,11 +5,13 @@ name: 033 Eval Gate (Golden-Case PR)
 # PRs are NOT required to run the heavy eval suite as a merge gate
 # (per FR-021, US5 acceptance scenario 3).
 #
-# Triggering paths (prompt-adjacent):
+# Triggering paths (prompt-adjacent + REQ-061 runtime/metering/eval cases):
 #   backend/app/agents/**                  — agent graph + nodes
-#   backend/app/eval/**                    — eval runner / checker
+#   backend/app/eval/**                    — eval runner / checker / judges
 #   backend/app/modules/telemetry_contracts/** — telemetry contracts
-#                                              (PM dashboard, redaction)
+#   backend/app/modules/ai_runtime/**      — adapters, policy, release gates
+#   backend/app/modules/ai_metering/**     — charging / point safety eval
+#   specs/061-ai-agent-production/eval-cases/** — REQ-061 golden fixtures
 #
 # When a PR changes one of these paths we:
 #   1. checkout
@@ -43,6 +45,9 @@ on:
       - "backend/app/agents/**"
       - "backend/app/eval/**"
       - "backend/app/modules/telemetry_contracts/**"
+      - "backend/app/modules/ai_runtime/**"
+      - "backend/app/modules/ai_metering/**"
+      - "specs/061-ai-agent-production/eval-cases/**"
       - ".github/workflows/033-eval-gate.yml"
 
 # Cancel in-flight runs when a new commit lands on the same PR.

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Plus,
   Search,
@@ -23,7 +24,7 @@ import { useJobTransitions } from '@/hooks/queries/useJobTransitions'
 import { OfflineBanner } from '@/components/lock/OfflineBanner'
 import { useCreateJob, useUpdateJobStatus, useDeleteJob } from '@/hooks/mutations/useJobMutations'
 import type { Job } from '@/repositories/JobRepository'
-import { JOB_STATUS_LABELS } from '@/types/jobs'
+import { INTERVIEW_STATUSES, JOB_STATUS_LABELS } from '@/types/jobs'
 
 /**
  * REQ-053 (T025) — Status labels come from the canonical map. The legacy
@@ -47,14 +48,28 @@ interface RowMutationState {
 }
 
 export default function Jobs() {
-  const [tab, setTab] = useState('all')
+  const navigate = useNavigate()
+  const { jobId } = useParams<{ jobId?: string }>()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [tab, setTab] = useState(() => searchParams.get('status') || 'all')
   const [search, setSearch] = useState('')
-  const [showCreate, setShowCreate] = useState(false)
+  const [showCreate, setShowCreate] = useState(() => searchParams.get('new') === 'true')
   const [rowState, setRowState] = useState<Record<string, RowMutationState>>({})
   // 020 (FIX-002, D-014) — mount JobsDetailPanel on row click.
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(jobId ?? null)
+
+  useEffect(() => {
+    setSelectedJobId(jobId ?? null)
+  }, [jobId])
+
+  useEffect(() => {
+    setTab(searchParams.get('status') || 'all')
+    setShowCreate(searchParams.get('new') === 'true')
+  }, [searchParams])
 
   const status = tab === 'all' ? undefined : tab
+  const aggregateView = searchParams.get('view')
+  const interviewView = searchParams.get('interview')
   const { data: jobsData, isLoading } = useJobs({ status })
   const { data: statsData } = useJobStats()
   const { data: transitions, isStale: transitionsStale, refetch: refetchTransitions } =
@@ -77,6 +92,38 @@ export default function Jobs() {
     }
     return list
   }, [transitions.statuses, stats, total])
+
+  const updateSearchParam = (key: string, value: string | null) => {
+    const next = new URLSearchParams(searchParams)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
+
+  const handleTabChange = (nextTab: string) => {
+    setTab(nextTab)
+    const next = new URLSearchParams(searchParams)
+    if (nextTab === 'all') next.delete('status')
+    else next.set('status', nextTab)
+    next.delete('view')
+    next.delete('interview')
+    setSearchParams(next, { replace: true })
+  }
+
+  const openJob = (id: string) => {
+    setSelectedJobId(id)
+    const searchString = searchParams.toString()
+    navigate(`/jobs/${id}${searchString ? `?${searchString}` : ''}`)
+  }
+
+  const closeJob = () => {
+    setSelectedJobId(null)
+    const searchString = searchParams.toString()
+    navigate(`/jobs${searchString ? `?${searchString}` : ''}`)
+  }
+
+  const openCreate = () => updateSearchParam('new', 'true')
+  const closeCreate = () => updateSearchParam('new', null)
 
   const setRow = (id: string, patch: Partial<RowMutationState>) => {
     setRowState((prev) => ({
@@ -133,19 +180,43 @@ export default function Jobs() {
 
   const filtered = jobs.filter((j) => {
     if (search && !j.company.toLowerCase().includes(search.toLowerCase()) && !j.position.toLowerCase().includes(search.toLowerCase())) return false
+    if (aggregateView === 'interviewing' && !INTERVIEW_STATUSES.includes(j.status as (typeof INTERVIEW_STATUSES)[number])) return false
+    if (aggregateView === 'awaiting_feedback') {
+      if (!INTERVIEW_STATUSES.includes(j.status as (typeof INTERVIEW_STATUSES)[number])) return false
+      if (!j.interview_time || new Date(j.interview_time).getTime() >= Date.now()) return false
+    }
+    if (interviewView === 'today') {
+      if (!j.interview_time || !isSameLocalDate(new Date(j.interview_time), new Date())) return false
+    }
     return true
   })
 
+  const contextLabel =
+    aggregateView === 'interviewing'
+      ? '正在查看：面试中的岗位'
+      : aggregateView === 'awaiting_feedback'
+        ? '正在查看：等待反馈的岗位'
+        : interviewView === 'today'
+          ? '正在查看：今日面试'
+          : null
+
+  const clearContextView = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('view')
+    next.delete('interview')
+    setSearchParams(next, { replace: true })
+  }
+
   return (
-    <div className="px-8 py-6 max-w-7xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-6">
+    <div className="px-4 py-5 sm:px-6 lg:px-8 lg:py-6 max-w-7xl mx-auto">
+      <div className="flex flex-col items-stretch sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">求职追踪</h1>
           <p className="text-sm text-ink-3 mt-1">
             管理你所有的求职机会 · 联动简历分支与模拟面试
           </p>
         </div>
-        <Button variant="primary" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowCreate(true)}>
+        <Button variant="primary" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={openCreate} className="sm:self-start">
           添加职位
         </Button>
       </div>
@@ -203,33 +274,44 @@ export default function Jobs() {
         />
       </div>
 
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <Tabs
-          value={tab}
-          onChange={setTab}
-          getTabId={(k) => `status-tab-${k}`}
-          items={tabs.map((t) => ({
-            key: t.key,
-            label: (
-              <span className="inline-flex items-center gap-1.5">
-                <span>{t.label}</span>
-                <span
-                  data-testid={`status-tab-count-${t.key}`}
-                  className="text-2xs text-ink-3 tabular-nums"
-                >
-                  {t.count}
+      {contextLabel && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-brand-200 bg-brand-50/70 px-3 py-2 text-xs text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200" data-testid="jobs-context-filter">
+          <span>{contextLabel}</span>
+          <button type="button" onClick={clearContextView} className="min-h-8 px-2 font-medium hover:underline">
+            查看全部
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-col items-stretch gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="overflow-x-auto pb-1 sm:pb-0">
+          <Tabs
+            value={tab}
+            onChange={handleTabChange}
+            getTabId={(k) => `status-tab-${k}`}
+            items={tabs.map((t) => ({
+              key: t.key,
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <span>{t.label}</span>
+                  <span
+                    data-testid={`status-tab-count-${t.key}`}
+                    className="text-2xs text-ink-3 tabular-nums"
+                  >
+                    {t.count}
+                  </span>
                 </span>
-              </span>
-            ),
-          }))}
-        />
-        <div className="relative">
+              ),
+            }))}
+          />
+        </div>
+        <div className="relative sm:flex-none">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-muted pointer-events-none" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索公司…"
-            className="h-8 pl-8 pr-3 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border-0 focus:outline-none focus:ring-2 focus:ring-brand-500/30 w-56"
+            className="h-9 pl-8 pr-3 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border-0 focus:outline-none focus:ring-2 focus:ring-brand-500/30 w-full sm:w-56"
           />
         </div>
       </div>
@@ -272,7 +354,7 @@ export default function Jobs() {
                     <tr
                       key={j.id}
                       data-testid={`job-row-${j.id}`}
-                      onClick={() => setSelectedJobId(j.id)}
+                      onClick={() => openJob(j.id)}
                       className="cursor-pointer border-b border-surface-border dark:border-dark-surface-border last:border-0 hover:bg-surface-muted/40 dark:hover:bg-dark-surface-muted/30 transition-colors group"
                     >
                       <td className="px-4 py-3">
@@ -334,15 +416,15 @@ export default function Jobs() {
         <Card className="mt-4" data-testid="job-detail-card">
           <JobsDetailPanel
             job={selectedJob}
-            onClose={() => setSelectedJobId(null)}
+            onClose={closeJob}
           />
         </Card>
       )}
 
       {showCreate && (
         <CreateJobModal
-          onClose={() => setShowCreate(false)}
-          onCreate={(input) => createJob.mutate(input, { onSuccess: () => setShowCreate(false) })}
+          onClose={closeCreate}
+          onCreate={(input) => createJob.mutate(input, { onSuccess: closeCreate })}
           isPending={createJob.isPending}
         />
       )}
@@ -356,6 +438,14 @@ function extractError(e: unknown): string {
     return String((e as { message: unknown }).message)
   }
   return '更新失败'
+}
+
+function isSameLocalDate(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
 }
 
 function KanbanStat({
@@ -376,12 +466,12 @@ function KanbanStat({
     danger: 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400',
   }
   return (
-    <Card className="p-4 flex items-center gap-3">
-      <div className={`h-9 w-9 rounded-md flex items-center justify-center ${toneClass[tone]}`}>
+    <Card className="flex flex-col items-start gap-2 p-3 min-[360px]:flex-row min-[360px]:items-center min-[360px]:gap-3 min-[360px]:p-4">
+      <div className={`h-9 w-9 flex-none rounded-md flex items-center justify-center ${toneClass[tone]}`}>
         {icon}
       </div>
       <div>
-        <div className="text-2xl font-semibold text-ink-1 tabular-nums tracking-tight">{value}</div>
+        <div className="text-xl font-semibold text-ink-1 tabular-nums tracking-tight min-[360px]:text-2xl">{value}</div>
         <div className="text-2xs text-ink-3">{label}</div>
       </div>
     </Card>
@@ -420,18 +510,31 @@ function CreateJobModal({
     <Modal open title="添加职位" onClose={onClose}>
       <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
         <div>
-          <label className="block text-xs font-medium text-ink-2 mb-1">公司 *</label>
-          <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="如：字节跳动" />
+          <label htmlFor="job-create-company" className="block text-xs font-medium text-ink-2 mb-1">公司 *</label>
+          <Input
+            id="job-create-company"
+            data-testid="job-create-company"
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            placeholder="如：字节跳动"
+          />
         </div>
         <div>
-          <label className="block text-xs font-medium text-ink-2 mb-1">岗位 *</label>
-          <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="如：高级前端工程师" />
+          <label htmlFor="job-create-position" className="block text-xs font-medium text-ink-2 mb-1">岗位 *</label>
+          <Input
+            id="job-create-position"
+            data-testid="job-create-position"
+            value={position}
+            onChange={(e) => setPosition(e.target.value)}
+            placeholder="如：高级前端工程师"
+          />
         </div>
         {/* 019 — extended fields */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">Base 地</label>
+            <label htmlFor="job-create-base-location" className="block text-xs font-medium text-ink-2 mb-1">Base 地</label>
             <Input
+              id="job-create-base-location"
               value={baseLocation}
               onChange={(e) => setBaseLocation(e.target.value)}
               placeholder="如：北京"
@@ -440,8 +543,9 @@ function CreateJobModal({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">岗位类型</label>
+            <label htmlFor="job-create-employment-type" className="block text-xs font-medium text-ink-2 mb-1">岗位类型</label>
             <select
+              id="job-create-employment-type"
               value={employmentType}
               onChange={(e) => setEmploymentType(e.target.value)}
               className="w-full px-3 py-2 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 border border-surface-border dark:border-dark-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500/30"
@@ -456,10 +560,11 @@ function CreateJobModal({
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-ink-2 mb-1">
+          <label htmlFor="job-create-requirements" className="block text-xs font-medium text-ink-2 mb-1">
             招聘需求 (Markdown) · {requirementsMd.length}/5000
           </label>
           <textarea
+            id="job-create-requirements"
             value={requirementsMd}
             onChange={(e) => setRequirementsMd(e.target.value)}
             placeholder="## 要求&#10;- 3 年 React 经验&#10;- TypeScript 熟练"
@@ -469,10 +574,11 @@ function CreateJobModal({
             className="w-full px-3 py-2 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border border-surface-border dark:border-dark-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500/30 resize-none font-mono"
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">薪资范围</label>
+            <label htmlFor="job-create-salary" className="block text-xs font-medium text-ink-2 mb-1">薪资范围</label>
             <Input
+              id="job-create-salary"
               value={salaryRange}
               onChange={(e) => setSalaryRange(e.target.value)}
               placeholder="如：30-50K · 16薪"
@@ -481,8 +587,9 @@ function CreateJobModal({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">招聘人数</label>
+            <label htmlFor="job-create-headcount" className="block text-xs font-medium text-ink-2 mb-1">招聘人数</label>
             <Input
+              id="job-create-headcount"
               value={headcount}
               onChange={(e) => setHeadcount(e.target.value.replace(/[^0-9]/g, ''))}
               placeholder="如：5"
@@ -498,8 +605,9 @@ function CreateJobModal({
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-ink-2 mb-1">备注</label>
+          <label htmlFor="job-create-notes" className="block text-xs font-medium text-ink-2 mb-1">备注</label>
           <textarea
+            id="job-create-notes"
             value={notesMd}
             onChange={(e) => setNotesMd(e.target.value)}
             placeholder="投递渠道、薪资范围等"

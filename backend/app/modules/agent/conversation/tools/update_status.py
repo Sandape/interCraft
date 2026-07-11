@@ -152,8 +152,9 @@ async def execute(
     user_id: UUID,
     params: dict[str, Any],
 ) -> ToolResult:
-    from app.modules.jobs.service import JobService
     from fastapi import HTTPException
+
+    from app.modules.jobs.service import JobService
 
     job_id = UUID(str(params["job_id"]))
     to = params["target_status"]

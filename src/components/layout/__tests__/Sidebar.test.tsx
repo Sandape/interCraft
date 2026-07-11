@@ -4,7 +4,7 @@
  *   - 没有 v2 简历副本（v1 "v2 简历" 入口已下线）
  *   - 主导航里没有 /resume-v2 / /resume/v2 链接 */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Sidebar } from '@/components/layout/Sidebar'
@@ -35,12 +35,12 @@ beforeEach(() => {
   })
 })
 
-function renderSidebar() {
+function renderSidebar(options?: { collapsed?: boolean; onOpenSearch?: () => void }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={['/dashboard']}>
-        <Sidebar collapsed={false} onToggle={vi.fn()} />
+        <Sidebar collapsed={options?.collapsed ?? false} onToggle={vi.fn()} onOpenSearch={options?.onOpenSearch} />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -75,5 +75,21 @@ describe('Sidebar — single resume entry (036 Phase A.2 US1)', () => {
     const resumeLink = allLinks.find((a) => a.getAttribute('href') === '/resume')
     expect(resumeLink).toBeDefined()
     expect(resumeLink?.textContent).toContain('3')
+  })
+
+  it('opens the existing command palette from the sidebar search', () => {
+    const onOpenSearch = vi.fn()
+    renderSidebar({ onOpenSearch })
+
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    expect(onOpenSearch).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps search and navigation accessible when collapsed', () => {
+    renderSidebar({ collapsed: true, onOpenSearch: vi.fn() })
+
+    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '工作台' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '简历中心' })).toBeInTheDocument()
   })
 })

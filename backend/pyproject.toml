@@ -103,6 +103,7 @@ markers = [
     "integration: integration tests (need DB/Redis)",
     "contract: API contract tests",
     "unit: pure unit tests",
+    "live: live-provider tests skipped by default",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

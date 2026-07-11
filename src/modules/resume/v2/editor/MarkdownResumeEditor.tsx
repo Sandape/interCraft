@@ -14,6 +14,7 @@ import { paginateMarkdownHtml } from "@/modules/resume/pagination/markdown-pages
 import { ThemeMenu } from "./controls/ThemeMenu";
 import { LineSpacingControl } from "./controls/LineSpacingControl";
 import { SmartOnePageControl } from "./controls/SmartOnePageControl";
+import { useResumeV2Store } from "../store";
 import "./markdown-resume.css";
 
 export interface MarkdownResumeEditorProps {
@@ -68,6 +69,7 @@ export function MarkdownResumeEditor({
   );
   const [paginatedPreview, setPaginatedPreview] = useState(initialPaginatedPreview);
   const latestPageCountRef = useRef(initialPaginatedPreview.pageCount);
+  const aiFocusAnchor = useResumeV2Store((state) => state.aiFocusAnchor);
 
   useEffect(() => {
     latestPageCountRef.current = paginatedPreview.pageCount;
@@ -106,6 +108,17 @@ export function MarkdownResumeEditor({
       window.clearTimeout(timer);
     };
   }, [effectiveLineHeight, onPaginationChange, renderResult.html, themeId]);
+
+  useEffect(() => {
+    if (!aiFocusAnchor) return;
+    const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(aiFocusAnchor.nodeId) : aiFocusAnchor.nodeId;
+    const target = document.querySelector<HTMLElement>(`[data-node-id="${escaped}"]`);
+    if (!target) return;
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    target.setAttribute("data-ai-highlight", "true");
+    const timer = window.setTimeout(() => target.removeAttribute("data-ai-highlight"), 1800);
+    return () => window.clearTimeout(timer);
+  }, [aiFocusAnchor]);
 
   const handleEnableSmartOnePage = () => {
     const result = computeSmartOnePage({

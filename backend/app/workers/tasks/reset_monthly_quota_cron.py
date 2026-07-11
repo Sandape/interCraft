@@ -15,7 +15,16 @@ log = get_logger("workers.reset_monthly_quota")
 
 
 async def reset_monthly_quota_cron(ctx: dict) -> dict:
+    """REQ-061 T169: no-op when legacy monthly token writes are frozen."""
+    from app.modules.ai_runtime.legacy_token_freeze import (
+        legacy_monthly_token_writes_frozen,
+    )
+
     now = datetime.now(timezone.utc)
+    if legacy_monthly_token_writes_frozen():
+        log.info("reset_monthly_quota.skipped_frozen", ts=now.isoformat())
+        return {"reset_count": 0, "status": "skipped_frozen", "ts": now.isoformat()}
+
     log.info("reset_monthly_quota.start", ts=now.isoformat())
 
     factory = get_session_factory()

@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils'
 import { zhCN } from '@/lib/i18n/zh-CN'
 import { useInterviewWS, type WSEvent } from '@/hooks/useInterviewWS'
 import { useAuthStore } from '@/stores/useAuthStore'
-import { interviewSessionRepo, resolvePlanStatus, type PlanStatus } from '@/repositories/interviewSessionRepo'
+import { interviewSessionRepo, resolvePlanStatus, type InterviewSession, type PlanStatus } from '@/repositories/interviewSessionRepo'
 import { getAccessToken } from '@/api/token-storage'
 import { ErrorBanner } from '@/components/interview/ErrorBanner'
 import { InterviewPlanPanel } from '@/components/interview/InterviewPlanPanel'
@@ -137,6 +137,13 @@ export default function InterviewLive() {
   const [planErrorMessage, setPlanErrorMessage] = useState<string | null>(null)
   const [planDegraded, setPlanDegraded] = useState(false)
   const [degradeConfirming, setDegradeConfirming] = useState(false)
+  // REQ-061 US4 — server-derived controls / recovery chrome
+  const [availableActions, setAvailableActions] = useState<string[]>([])
+  const [savedRoundExplanation, setSavedRoundExplanation] = useState<string | null>(null)
+  const [reportFailure, setReportFailure] = useState<{ code: string; message: string } | null>(null)
+  const [pointsSummary, setPointsSummary] = useState<InterviewSession['points_summary']>(null)
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const [pauseBusy, setPauseBusy] = useState(false)
 
   // track user answers locally
   const [userAnswers, setUserAnswers] = useState<Array<{ content: string; seqNo: number }>>([])
@@ -156,9 +163,25 @@ export default function InterviewLive() {
     setPlanStatus(resolvePlanStatus(sess))
     setPlanErrorMessage(sess.plan_error_message ?? null)
     setPlanDegraded(Boolean(sess.degraded))
+    if (sess.available_actions) setAvailableActions(sess.available_actions)
+    if (sess.points_summary) setPointsSummary(sess.points_summary)
+    if (sess.task_id) setTaskId(sess.task_id)
+    if (sess.failure) {
+      setReportFailure({ code: sess.failure.code, message: sess.failure.message })
+    }
+    if (sess.status === 'partially_succeeded' && sess.failure) {
+      // Keep live phase so failure chrome is visible without claiming completion.
+      setPhase((p) => (p === 'completed' ? 'live' : p))
+    }
+    ws.hydrateRuntime?.({
+      taskId: sess.task_id ?? null,
+      executionId: sess.execution_id ?? null,
+      availableActions: sess.available_actions ?? [],
+      pointsSummary: sess.points_summary ?? null,
+    })
     if (sess.interview_plan) setPlanOpen((open) => open || questions.length === 0)
     return sess
-  }, [questions.length])
+  }, [questions.length, ws])
 
   // ---- accumulate WS events into interview state ----
   const lastProcessedRef = useRef(0)
@@ -175,20 +198,54 @@ export default function InterviewLive() {
   }, [ws.state.events])
 
   const processEvent = useCallback((evt: WSEvent) => {
+    const applyScore = (summary: Record<string, any>) => {
+      if (!(summary.score > 0)) return
+      const qNo = Number(summary.question_no || 0)
+      setScores((prev) => {
+        if (qNo > 0 && prev.some((s) => Number(s.question_no) === qNo)) return prev
+        if (prev.some((s) => s.feedback === summary.feedback && s.score === summary.score)) {
+          return prev
+        }
+        return [...prev, {
+          question_no: qNo,
+          score: summary.score,
+          dimension: summary.dimension || '',
+          feedback: summary.feedback || '',
+          sub_scores: summary.sub_scores || {},
+        }]
+      })
+    }
+
     switch (evt.type) {
+      case 'round.score':
+      case 'score.delivered': {
+        applyScore(evt.payload.summary || evt.payload)
+        break
+      }
+      case 'round.next_question': {
+        const q = evt.payload
+        if (q.question) {
+          setQuestions((prev) => {
+            const questionNo = Number(q.question_no || 0)
+            const exists = questionNo > 0
+              ? prev.some((item) => item.question_no === questionNo)
+              : prev.some((item) => item.question === q.question)
+            if (exists) return prev
+            return [...prev, {
+              question_no: questionNo > 0 ? questionNo : undefined,
+              question: q.question,
+              dimension: q.dimension || '',
+              expected_points: q.expected_points || [],
+              hints: q.hints || [],
+            }]
+          })
+        }
+        break
+      }
       case 'node.completed': {
         const summary = evt.payload.summary || {}
         if (evt.node_name === 'score' && summary.score > 0) {
-          setScores((prev) => {
-            if (prev.some((s) => s.question_no === summary.question_no)) return prev
-            return [...prev, {
-              question_no: summary.question_no,
-              score: summary.score,
-              dimension: summary.dimension || '',
-              feedback: summary.feedback || '',
-              sub_scores: summary.sub_scores || {},
-            }]
-          })
+          applyScore(summary)
         }
         if (evt.node_name === 'question_gen' && summary.question) {
           const questionNo = Number(summary.question_no || 0)
@@ -207,16 +264,29 @@ export default function InterviewLive() {
           })
         }
         if (evt.node_name === 'report') {
-          setReport({
-            overall_score: summary.overall_score || 0,
-            report_id: summary.report_id || '',
-          })
-          setPhase('completed')
+          if (summary.failed || summary.error_code) {
+            setReportFailure({
+              code: summary.error_code || 'REPORT_ASSEMBLY_FAILED',
+              message: summary.message || summary.feedback || '报告生成失败，已完成评分已保留。',
+            })
+          } else {
+            setReport({
+              overall_score: summary.overall_score || 0,
+              report_id: summary.report_id || '',
+            })
+            setPhase('completed')
+          }
         }
         break
       }
       case 'error': {
         setAiThinking(false)
+        if (evt.payload?.code || evt.payload?.message) {
+          setReportFailure({
+            code: String(evt.payload.code || 'REPORT_ASSEMBLY_FAILED'),
+            message: String(evt.payload.message || '报告生成失败，已完成评分已保留。'),
+          })
+        }
         break
       }
     }
@@ -301,28 +371,51 @@ export default function InterviewLive() {
         setInterviewPlan(sess.interview_plan ?? values.interview_plan ?? null)
         setWebResearch(sess.web_research ?? values.web_research ?? null)
 
-        setQuestions(
-          uniqueBy(
+        setQuestions((prev) => {
+          const restored = uniqueBy(
             restoredQuestions,
             (q: any) => String(q?.question_no || q?.sequence_no || q?.question || ''),
           ).map((q: any) => ({
-            question_no: q.question_no || q.sequence_no || undefined,
+            question_no: q.question_no != null || q.sequence_no != null
+              ? Number(q.question_no || q.sequence_no)
+              : undefined,
             question: q.question || '',
             dimension: q.dimension || '',
             expected_points: q.expected_points || [],
             hints: q.hints || [],
-          })),
-        )
+          }))
+          // Merge WS events already applied before resume resolved (avoid wipe).
+          const merged = [...restored]
+          for (const q of prev) {
+            const qNo = Number(q.question_no || 0)
+            const exists = qNo > 0
+              ? merged.some((item) => Number(item.question_no) === qNo)
+              : merged.some((item) => item.question === q.question)
+            if (!exists) merged.push(q)
+          }
+          return merged
+        })
 
-        setScores(
-          uniqueBy(restoredScores, (s: any) => String(s?.question_no || s?.sequence_no || '')).map((s: any) => ({
-            question_no: s.question_no || s.sequence_no || 0,
+        setScores((prev) => {
+          const restored = uniqueBy(
+            restoredScores,
+            (s: any) => String(s?.question_no || s?.sequence_no || ''),
+          ).map((s: any) => ({
+            question_no: Number(s.question_no || s.sequence_no || 0),
             score: s.score || 0,
             dimension: s.dimension || '',
             feedback: s.feedback || '',
             sub_scores: s.sub_scores || {},
-          })),
-        )
+          }))
+          const merged = [...restored]
+          for (const s of prev) {
+            const qNo = Number(s.question_no || 0)
+            if (qNo > 0 && merged.some((item) => Number(item.question_no) === qNo)) continue
+            if (merged.some((item) => item.feedback === s.feedback && item.score === s.score)) continue
+            merged.push(s)
+          }
+          return merged
+        })
 
         // seqNo is 0-based WS sequence; question_no from scores is 1-based.
         // Map answer i → score.question_no === i (intro at 0 has no score).
@@ -337,6 +430,31 @@ export default function InterviewLive() {
 
         setSessionId(routeSessionId)
         setResumedNotice(true)
+        if (Array.isArray(resumed.data?.available_actions)) {
+          setAvailableActions(resumed.data.available_actions)
+        } else if (sess.available_actions) {
+          setAvailableActions(sess.available_actions)
+        }
+        if (resumed.data?.task_id || sess.task_id) {
+          setTaskId(String(resumed.data?.task_id ?? sess.task_id))
+        }
+        ws.hydrateRuntime?.({
+          taskId: resumed.data?.task_id
+            ? String(resumed.data.task_id)
+            : sess.task_id ?? null,
+          executionId: resumed.data?.execution_id
+            ? String(resumed.data.execution_id)
+            : sess.execution_id ?? null,
+          availableActions:
+            resumed.data?.available_actions ?? sess.available_actions ?? [],
+          pointsSummary: sess.points_summary ?? null,
+        })
+        if (typeof resumed.data?.saved_round_explanation === 'string') {
+          setSavedRoundExplanation(resumed.data.saved_round_explanation)
+        }
+        if (sess.failure) {
+          setReportFailure({ code: sess.failure.code, message: sess.failure.message })
+        }
         ws.connect()
         setPhase('live')
       } catch (err: any) {
@@ -412,6 +530,67 @@ export default function InterviewLive() {
       setDegradeConfirming(false)
     }
   }, [degradeConfirming, sessionId])
+
+  const effectiveActions =
+    availableActions.length > 0
+      ? availableActions
+      : (ws.state.availableActions ?? [])
+
+  const handlePauseInterview = useCallback(async () => {
+    if (!sessionId || pauseBusy) return
+    setPauseBusy(true)
+    try {
+      const result = await interviewSessionRepo.pause(sessionId)
+      if (result.available_actions) setAvailableActions(result.available_actions)
+      if (result.task_id) setTaskId(result.task_id)
+      if (result.points_summary) setPointsSummary(result.points_summary)
+      ws.pause?.(sessionId)
+    } catch (err) {
+      console.warn('[interview-live] pause failed', err)
+    } finally {
+      setPauseBusy(false)
+    }
+  }, [pauseBusy, sessionId, ws])
+
+  const handleResumeInterview = useCallback(async () => {
+    if (!sessionId || pauseBusy) return
+    setPauseBusy(true)
+    try {
+      const result = await interviewSessionRepo.resumeFromPause(sessionId)
+      if (result.available_actions) setAvailableActions(result.available_actions)
+      if (result.task_id) setTaskId(result.task_id)
+      if (result.points_summary) setPointsSummary(result.points_summary)
+      ws.resume?.(sessionId)
+    } catch (err) {
+      console.warn('[interview-live] resume-from-pause failed', err)
+    } finally {
+      setPauseBusy(false)
+    }
+  }, [pauseBusy, sessionId, ws])
+
+  const handleActiveEnd = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      const result = await interviewSessionRepo.activeEnd(sessionId, {
+        confirm_partial_report: true,
+      })
+      if (result.available_actions) setAvailableActions(result.available_actions)
+      if (result.points_summary) setPointsSummary(result.points_summary)
+      if (result.status === 'partially_succeeded') {
+        setReportFailure((prev) =>
+          prev ?? {
+            code: 'PARTIAL_END',
+            message: '面试已结束；部分报告里程碑可能仍在恢复中。',
+          },
+        )
+      } else {
+        setPhase('completed')
+      }
+    } catch (err) {
+      console.warn('[interview-live] active-end failed', err)
+      setPhase('completed')
+    }
+  }, [sessionId])
 
   const [resumeErrorMsg, setResumeErrorMsg] = useState<string | null>(null)
   const [resumeRetrying, setResumeRetrying] = useState(false)
@@ -497,8 +676,10 @@ export default function InterviewLive() {
       : null
   const showScoreFirstPending =
     turnPhase === 'awaiting_question' &&
-    latestScore != null &&
-    questions.length <= userAnswers.length
+    scores.length > 0 &&
+    questions.length <= Math.max(userAnswers.length, scores.length)
+
+  const pendingScore = scores[scores.length - 1] ?? null
 
   // ---- resume_error phase: backend failed to restore, keep session id visible ----
   if (phase === 'resume_error') {
@@ -673,17 +854,41 @@ export default function InterviewLive() {
               </Button>
               {phase === 'live' && (
                 <>
-                  <Button size="sm" variant="ghost" leftIcon={<Pause className="h-3.5 w-3.5" />}>
-                    暂停
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    leftIcon={<Square className="h-3.5 w-3.5" />}
-                    onClick={() => setPhase('completed')}
-                  >
-                    结束
-                  </Button>
+                  {effectiveActions.includes('pause') && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      leftIcon={<Pause className="h-3.5 w-3.5" />}
+                      onClick={() => void handlePauseInterview()}
+                      disabled={pauseBusy}
+                      data-testid="interview-action-pause"
+                    >
+                      暂停
+                    </Button>
+                  )}
+                  {effectiveActions.includes('resume') && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      leftIcon={<Pause className="h-3.5 w-3.5" />}
+                      onClick={() => void handleResumeInterview()}
+                      disabled={pauseBusy}
+                      data-testid="interview-action-resume"
+                    >
+                      继续
+                    </Button>
+                  )}
+                  {(effectiveActions.includes('end') || effectiveActions.includes('cancel') || effectiveActions.length === 0) && (
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      leftIcon={<Square className="h-3.5 w-3.5" />}
+                      onClick={() => void handleActiveEnd()}
+                      data-testid="interview-action-end"
+                    >
+                      结束
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -717,9 +922,55 @@ export default function InterviewLive() {
           {resumedNotice && phase === 'live' && (
             <div
               data-testid="resume-summary"
-              className="max-w-3xl rounded-md border border-brand-200 bg-brand-50/70 px-3 py-2 text-xs text-brand-800 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200"
+              className="max-w-3xl rounded-lg border border-brand-200 bg-brand-50/60 px-4 py-3 text-sm text-brand-800"
             >
-              {`${zhCN.interview.restore}（${userAnswers.length} 道回答 · ${questions.length} 道题 · ${scores.length} 项评分）`}
+              已从断点恢复面试会话
+              {taskId ? (
+                <>
+                  {' · '}
+                  <Link to={`/ai-tasks/${encodeURIComponent(taskId)}`} className="underline">
+                    查看 AI 任务
+                  </Link>
+                </>
+              ) : null}
+              {pointsSummary ? (
+                <span className="ml-2 text-xs text-ink-3">
+                  点数 已扣 {pointsSummary.settled ?? 0} / 预留 {pointsSummary.reserved ?? 0}
+                </span>
+              ) : null}
+            </div>
+          )}
+
+          {savedRoundExplanation && (
+            <div
+              data-testid="saved-round-explanation"
+              className="max-w-3xl rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+            >
+              {savedRoundExplanation}
+            </div>
+          )}
+
+          {reportFailure && (
+            <div
+              data-testid="interview-report-failure"
+              className="max-w-3xl rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+              role="alert"
+            >
+              <p className="font-medium">{reportFailure.message}</p>
+              <p className="mt-1 text-xs text-amber-800">
+                错误码 {reportFailure.code}
+                {taskId ? (
+                  <>
+                    {' · '}
+                    <Link to={`/ai-tasks/${encodeURIComponent(taskId)}`} className="underline">
+                      任务详情
+                    </Link>
+                  </>
+                ) : null}
+                {pointsSummary ? (
+                  <> · 已结算 {pointsSummary.settled ?? 0} 点</>
+                ) : null}
+              </p>
             </div>
           )}
 
@@ -740,8 +991,13 @@ export default function InterviewLive() {
             // Actually: first answer (idx=0) triggers Q1. Q1 is questions[0].
             // answer idx relates to question idx (the answer to question idx).
             // Scores use 1-based question_no; first user turn (seqNo=0) is intro (no score).
-            const answerScore = scores.find((s) => s.question_no === ans.seqNo)
+            const answerScore = scores.find((s) => Number(s.question_no) === ans.seqNo)
             const nextQuestion = questions[idx] // next question after this answer
+            // score-first panel owns the pending score until next question arrives
+            const hideInThread =
+              showScoreFirstPending &&
+              pendingScore != null &&
+              Number(answerScore?.question_no) === Number(pendingScore.question_no)
 
             return (
               <div key={ans.seqNo}>
@@ -761,8 +1017,8 @@ export default function InterviewLive() {
                 </div>
 
                 {/* 反馈卡片 */}
-                {answerScore && (
-                  <div className="flex gap-3 max-w-3xl mb-4">
+                {answerScore && !hideInThread && (
+                  <div className="flex gap-3 max-w-3xl mb-4" data-testid="answer-score-card">
                     <Avatar name={INTERVIEWER_NAME} size="md" />
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-ink-3 mb-1.5">
@@ -770,9 +1026,12 @@ export default function InterviewLive() {
                       </div>
                       <div className="p-3 rounded-lg rounded-tl-sm bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border space-y-2">
                         <div className="flex items-center gap-2">
+                          <Badge variant="default">{answerScore.dimension}</Badge>
+                        </div>
+                        <p className="text-sm text-ink-2 leading-relaxed">
                           <span
                             className={cn(
-                              'text-lg font-semibold tabular-nums',
+                              'font-semibold tabular-nums',
                               answerScore.score >= 8
                                 ? 'text-emerald-600'
                                 : answerScore.score >= 6
@@ -782,9 +1041,9 @@ export default function InterviewLive() {
                           >
                             {answerScore.score}/10
                           </span>
-                          <Badge variant="default">{answerScore.dimension}</Badge>
-                        </div>
-                        <p className="text-sm text-ink-2 leading-relaxed">{answerScore.feedback}</p>
+                          {' · '}
+                          {answerScore.feedback}
+                        </p>
                         {Object.keys(answerScore.sub_scores).length > 0 && (
                           <div className="flex gap-3 text-2xs text-ink-3">
                             {Object.entries(answerScore.sub_scores).map(([k, v]) => (
@@ -821,7 +1080,21 @@ export default function InterviewLive() {
           {showScoreFirstPending && (
             <div className="flex gap-3 max-w-3xl" data-testid="score-first-pending">
               <Avatar name={INTERVIEWER_NAME} size="md" />
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 space-y-2">
+                {pendingScore && (
+                  <div
+                    className="p-3 rounded-lg rounded-tl-sm bg-surface dark:bg-dark-surface border border-surface-border dark:border-dark-surface-border"
+                    data-testid="score-first-score"
+                  >
+                    <p className="text-sm text-ink-2 leading-relaxed">
+                      <span className="font-semibold text-emerald-600 tabular-nums">
+                        {pendingScore.score}/10
+                      </span>
+                      {' · '}
+                      {pendingScore.feedback}
+                    </p>
+                  </div>
+                )}
                 <div className="text-xs text-ink-3 mb-1.5 flex items-center gap-1.5">
                   <Loader2 className="h-2.5 w-2.5 animate-spin" />
                   正在出下一题

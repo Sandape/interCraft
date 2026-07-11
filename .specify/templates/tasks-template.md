@@ -9,7 +9,9 @@ description: "Task list template for feature implementation"
 
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
+**Tests**: Every behavior slice requires a regression/invariant test that fails without the
+change or documented equivalent pre-change evidence. Bugs and R2/R3 deterministic behavior
+retain RED/GREEN commands and results; all slices require passing verification evidence.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -22,7 +24,8 @@ description: "Task list template for feature implementation"
 ## Path Conventions
 
 - **Single project**: `src/`, `tests/` at repository root
-- **Web app**: `backend/src/`, `frontend/src/`
+- **InterCraft web app**: backend `backend/app/`, backend tests `backend/tests/`,
+  frontend `src/`, canonical E2E `tests/e2e/`
 - **Mobile**: `api/src/`, `ios/src/` or `android/src/`
 - Paths shown below assume single project - adjust based on plan.md structure
 
@@ -69,6 +72,17 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T007 Create base models/entities that all stories depend on
 - [ ] T008 Configure error handling and logging infrastructure
 - [ ] T009 Setup environment configuration management
+- [ ] TXXX Record exact resolved dependencies, support status, and time-bounded deviations
+- [ ] TXXX Define framework-neutral service/context factories plus API/worker/CLI/graph composition roots
+- [ ] TXXX Define per-process resources, session-per-concurrent-task, transaction and external-I/O boundaries
+- [ ] TXXX Define authorization and tenant/resource isolation at API and worker/tool boundaries
+- [ ] TXXX Define request/task/thread/execution correlation and mandatory audit facts
+- [ ] TXXX Define database-enforced migration exclusion/ledger, resumable backfill, separate expand/contract releases, and tested backout or roll-forward
+- [ ] TXXX [Background] Define atomic task+dispatch intent, idempotent dispatcher/reconciler, bounded admission, authoritative-write/effect fencing, and dead-letter
+- [ ] TXXX [AI/Agent] Define typed graph state, reducers, durable checkpointer, interrupt/resume, live-version/retention matrix, decoder/upcasters, and N-1 rolling compatibility
+- [ ] TXXX [AI/Agent] Define centralized model/tool adapters, timeouts, budgets, idempotency, and result reconciliation
+- [ ] TXXX [Agent] Define immutable authorization receipts and fenced durable external-effect intents with bound-field/CAS tests
+- [ ] TXXX Define per-store/provider/derived-copy privacy lifecycle, provenance deletion propagation and verification, and inherited operational controls
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -80,23 +94,31 @@ Examples of foundational tasks (adjust based on your project):
 
 **Independent Test**: [How to verify this story works on its own]
 
-### Tests for User Story 1 (OPTIONAL - only if tests requested) ⚠️
+### Tests for User Story 1 (REQUIRED) ⚠️
 
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
+> **NOTE: Define pre-change evidence first. Retain an actual RED run for bugs and R2/R3
+> deterministic behavior; use an approved equivalent baseline for migrations/config/evaluations.**
 
-- [ ] T010 [P] [US1] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T011 [P] [US1] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T010 [P] [US1] Contract test for [endpoint] in backend/tests/contract/test_[name].py
+- [ ] T011 [P] [US1] Integration test for [user journey] in backend/tests/integration/test_[name].py
+- [ ] TXXX [P] [US1] Authorization, validation, timeout, cancellation, and duplicate-delivery tests
+- [ ] TXXX [P] [US1] [AI/Agent] Node/routing/checkpoint/interrupt-resume and malformed-output tests
+- [ ] TXXX [P] [US1] [AI/Agent] Offline evaluation cases and release threshold
+- [ ] TXXX [P] [US1] Capture applicable RED/equivalent pre-change evidence and GREEN commands/results
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Create [Entity1] model in src/models/[entity1].py
-- [ ] T013 [P] [US1] Create [Entity2] model in src/models/[entity2].py
-- [ ] T014 [US1] Implement [Service] in src/services/[service].py (depends on T012, T013)
-- [ ] T015 [US1] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T012 [P] [US1] Create [Entity1] model in backend/app/modules/[module]/models.py
+- [ ] T013 [P] [US1] Create [Entity2] schema in backend/app/modules/[module]/schemas.py
+- [ ] T014 [US1] Implement [Service] in backend/app/modules/[module]/service.py (depends on T012, T013)
+- [ ] T015 [US1] Implement [endpoint/feature] in backend/app/modules/[module]/api.py
 - [ ] T016 [US1] Add validation and error handling
 - [ ] T017 [US1] Add logging for user story 1 operations
+- [ ] TXXX [US1] Add metrics, traces, immutable audit facts, redaction, and rollback controls
+- [ ] TXXX [US1] Complete risk-derived security, recovery, privacy, evaluation, and runbook evidence
 
-**Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
+**Checkpoint**: User Story 1 is independently functional and has all applicable risk,
+security, recovery, privacy, evaluation, telemetry, and operational evidence.
 
 ---
 
@@ -106,19 +128,22 @@ Examples of foundational tasks (adjust based on your project):
 
 **Independent Test**: [How to verify this story works on its own]
 
-### Tests for User Story 2 (OPTIONAL - only if tests requested) ⚠️
+### Tests for User Story 2 (REQUIRED) ⚠️
 
-- [ ] T018 [P] [US2] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T019 [P] [US2] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T018 [P] [US2] Contract test for [endpoint] in backend/tests/contract/test_[name].py
+- [ ] T019 [P] [US2] Integration test for [user journey] in backend/tests/integration/test_[name].py
+- [ ] TXXX [P] [US2] Add applicable authorization/failure/recovery tests and RED/equivalent evidence
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Create [Entity] model in src/models/[entity].py
-- [ ] T021 [US2] Implement [Service] in src/services/[service].py
-- [ ] T022 [US2] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T020 [P] [US2] Create [Entity] model in backend/app/modules/[module]/models.py
+- [ ] T021 [US2] Implement [Service] in backend/app/modules/[module]/service.py
+- [ ] T022 [US2] Implement [endpoint/feature] in backend/app/modules/[module]/api.py
 - [ ] T023 [US2] Integrate with User Story 1 components (if needed)
+- [ ] TXXX [US2] Complete risk-derived security, recovery, privacy, evaluation, telemetry, and runbook evidence
 
-**Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
+**Checkpoint**: User Stories 1 and 2 work independently and each has all applicable
+risk controls and verification evidence.
 
 ---
 
@@ -128,18 +153,21 @@ Examples of foundational tasks (adjust based on your project):
 
 **Independent Test**: [How to verify this story works on its own]
 
-### Tests for User Story 3 (OPTIONAL - only if tests requested) ⚠️
+### Tests for User Story 3 (REQUIRED) ⚠️
 
-- [ ] T024 [P] [US3] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T025 [P] [US3] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T024 [P] [US3] Contract test for [endpoint] in backend/tests/contract/test_[name].py
+- [ ] T025 [P] [US3] Integration test for [user journey] in backend/tests/integration/test_[name].py
+- [ ] TXXX [P] [US3] Add applicable authorization/failure/recovery tests and RED/equivalent evidence
 
 ### Implementation for User Story 3
 
-- [ ] T026 [P] [US3] Create [Entity] model in src/models/[entity].py
-- [ ] T027 [US3] Implement [Service] in src/services/[service].py
-- [ ] T028 [US3] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T026 [P] [US3] Create [Entity] model in backend/app/modules/[module]/models.py
+- [ ] T027 [US3] Implement [Service] in backend/app/modules/[module]/service.py
+- [ ] T028 [US3] Implement [endpoint/feature] in backend/app/modules/[module]/api.py
+- [ ] TXXX [US3] Complete risk-derived security, recovery, privacy, evaluation, telemetry, and runbook evidence
 
-**Checkpoint**: All user stories should now be independently functional
+**Checkpoint**: All selected stories are independently functional and each has all
+applicable risk controls and verification evidence.
 
 ---
 
@@ -147,15 +175,20 @@ Examples of foundational tasks (adjust based on your project):
 
 ---
 
-## Phase N: Polish & Cross-Cutting Concerns
+## Phase N: Aggregate Validation & Release Readiness
 
-**Purpose**: Improvements that affect multiple user stories
+**Purpose**: Aggregate controls already implemented in each slice. This phase MUST NOT be
+the first implementation of security, recovery, privacy, evaluation, observability, or rollback.
 
 - [ ] TXXX [P] Documentation updates in docs/
 - [ ] TXXX Code cleanup and refactoring
 - [ ] TXXX Performance optimization across all stories
-- [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
-- [ ] TXXX Security hardening
+- [ ] TXXX [P] Additional unit/regression tests required by uncovered risks in backend/tests/unit/ or src/**/*.test.ts(x)
+- [ ] TXXX Verify every selected story already has its applicable risk controls and evidence
+- [ ] TXXX Run aggregate fault/recovery and cross-story security regression suites
+- [ ] TXXX [AI/Agent] Run aggregate offline eval and verify online feedback wiring already exists
+- [ ] TXXX Verify inherited/capability SLOs, capacity, alerts, runbooks, staged rollout, and rollback
+- [ ] TXXX Verify dependency support deviations and migration/checkpoint compatibility gates are closed
 - [ ] TXXX Run quickstart.md validation
 
 ---
@@ -169,7 +202,7 @@ Examples of foundational tasks (adjust based on your project):
 - **User Stories (Phase 3+)**: All depend on Foundational phase completion
   - User stories can then proceed in parallel (if staffed)
   - Or sequentially in priority order (P1 → P2 → P3)
-- **Polish (Final Phase)**: Depends on all desired user stories being complete
+- **Aggregate Validation (Final Phase)**: Depends on all desired user stories being complete
 
 ### User Story Dependencies
 
@@ -179,7 +212,7 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Within Each User Story
 
-- Tests (if included) MUST be written and FAIL before implementation
+- Regression/invariant tests or equivalent pre-change evidence MUST precede implementation
 - Models before services
 - Services before endpoints
 - Core implementation before integration
@@ -199,13 +232,13 @@ Examples of foundational tasks (adjust based on your project):
 ## Parallel Example: User Story 1
 
 ```bash
-# Launch all tests for User Story 1 together (if tests requested):
-Task: "Contract test for [endpoint] in tests/contract/test_[name].py"
-Task: "Integration test for [user journey] in tests/integration/test_[name].py"
+# Launch independent tests for User Story 1 together:
+Task: "Contract test for [endpoint] in backend/tests/contract/test_[name].py"
+Task: "Integration test for [user journey] in backend/tests/integration/test_[name].py"
 
 # Launch all models for User Story 1 together:
-Task: "Create [Entity1] model in src/models/[entity1].py"
-Task: "Create [Entity2] model in src/models/[entity2].py"
+Task: "Create [Entity1] model in backend/app/modules/[module]/models.py"
+Task: "Create [Entity2] schema in backend/app/modules/[module]/schemas.py"
 ```
 
 ---
@@ -246,7 +279,7 @@ With multiple developers:
 - [P] tasks = different files, no dependencies
 - [Story] label maps task to specific user story for traceability
 - Each user story should be independently completable and testable
-- Verify tests fail before implementing
+- Capture RED or constitution-approved equivalent pre-change evidence before implementing
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence

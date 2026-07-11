@@ -6,7 +6,7 @@ from datetime import datetime, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 AgentStatus = Literal["active", "degraded", "dormant"]
 NotificationMode = Literal["realtime", "hourly_digest"]
@@ -91,6 +91,29 @@ class SendMessageResponse(BaseModel):
     message_id: UUID
     status: str = "queued"
     segment_count: int = 1
+
+
+# ── Dev ingress (CLI-equivalent HTTP) ───────────────────────────────
+
+
+class DevChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=8000)
+    idempotency_key: str | None = Field(default=None, max_length=128)
+
+
+class DevChatResponse(BaseModel):
+    reply: str
+    inbound_message_id: UUID
+    outbound_message_id: UUID | None = None
+    task_id: UUID | None = None
+    correlation_id: str
+    status: str
+    pending_confirmation: bool = False
+    idempotent_replay: bool = False
+    # REQ-061 T086 — canonical task/runtime links (no binding/provider internals).
+    runtime_links: dict[str, str] | None = None
 
 
 # ── Admin ───────────────────────────────────────────────────────────

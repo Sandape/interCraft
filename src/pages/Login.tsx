@@ -1,9 +1,9 @@
 /**
- * Login page — uses `useLogin` mutation; on success navigates to /dashboard.
+ * Login/register page — routes first-time users into onboarding.
  */
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Mail, Lock, ArrowRight, Eye, EyeOff, Sparkles } from 'lucide-react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Mail, Lock, ArrowRight, Eye, EyeOff, Layers3, FileText, Target, MessageSquareText } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useLogin } from '@/hooks/mutations/useLogin'
@@ -11,9 +11,28 @@ import { useRegister } from '@/hooks/mutations/useRegister'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { cn } from '@/lib/utils'
 import { AuthError, ValidationError } from '@/api/errors'
+import {
+  hasSavedOnboardingState,
+  loadOnboardingState,
+  onboardingStorageKey,
+} from '@/features/onboarding/onboarding-state'
+
+function safeInternalPath(value?: string | null): string | null {
+  return value?.startsWith('/') && !value.startsWith('//') ? value : null
+}
+
+function defaultPostLoginPath(userId: string): string {
+  const storageKey = onboardingStorageKey(userId)
+  if (!hasSavedOnboardingState(undefined, storageKey)) return '/onboarding'
+  return loadOnboardingState(undefined, storageKey).status === 'in_progress'
+    ? '/onboarding?resume=1'
+    : '/dashboard'
+}
 
 export default function Login({ initialMode: initialModeProp }: { initialMode?: 'login' | 'register' } = {}) {
   const [search] = useSearchParams()
+  const navigate = useNavigate()
+  const location = useLocation()
   const urlMode = search.get('mode') === 'register' ? 'register' : null
   const [mode, setMode] = useState<'login' | 'register'>(
     urlMode ?? initialModeProp ?? 'login',
@@ -37,6 +56,13 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
         {
           onSuccess: (data) => {
             setUser(data.user)
+            const redirect = search.get('redirect')
+            const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
+            const destination =
+              safeInternalPath(redirect) ??
+              safeInternalPath(from) ??
+              defaultPostLoginPath(data.user.id)
+            navigate(destination, { replace: true })
           },
           onError: (err) => setErrorMsg(humanizeError(err)),
         },
@@ -47,6 +73,7 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
         {
           onSuccess: (data) => {
             setUser(data.user)
+            navigate('/onboarding', { replace: true })
           },
           onError: (err) => setErrorMsg(humanizeError(err)),
         },
@@ -57,29 +84,39 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
   const submitting = login.isPending || register.isPending
 
   return (
-    <div className="min-h-screen w-screen flex bg-surface dark:bg-dark-surface">
-      <div className="hidden lg:flex flex-1 bg-gradient-to-br from-brand-900 via-brand-800 to-brand-900 p-12 flex-col justify-between">
+    <div className="min-h-dvh w-full flex bg-surface dark:bg-dark-surface">
+      <div className="hidden lg:flex flex-1 bg-brand-900 p-12 flex-col justify-between">
         <div className="flex items-center gap-2.5">
           <div className="h-9 w-9 rounded-md bg-white flex items-center justify-center">
-            <Sparkles className="h-4 w-4 text-brand-900" strokeWidth={2.5} />
+            <Layers3 className="h-4 w-4 text-brand-900" strokeWidth={1.8} />
           </div>
           <div className="text-base font-semibold text-white">InterCraft</div>
         </div>
         <div>
-          <h1 className="text-3xl font-semibold text-white leading-tight tracking-tight">
-            AI 驱动的<br />技术求职赋能平台
+          <div className="text-2xs font-medium uppercase tracking-[0.16em] text-white/45">AI job-search workspace</div>
+          <h1 className="mt-4 text-3xl font-semibold text-white leading-tight tracking-tight">
+            一套工作台，贯穿<br />每个目标岗位的准备
           </h1>
-          <p className="text-sm text-white/70 mt-3 max-w-md">
-            从简历管理到模拟面试，帮助每一位技术求职者精准匹配理想岗位。
+          <p className="text-sm text-white/65 mt-4 max-w-md leading-6">
+            从根简历到岗位定制版本，再到模拟面试、错题复盘和能力画像。
           </p>
+          <ol className="mt-8 grid gap-3 text-xs text-white/65">
+            <li className="flex items-center gap-3"><FileText className="h-4 w-4" /> 根简历沉淀可复用职业素材</li>
+            <li className="flex items-center gap-3"><Target className="h-4 w-4" /> 围绕岗位生成定制简历与差距分析</li>
+            <li className="flex items-center gap-3"><MessageSquareText className="h-4 w-4" /> 带着岗位上下文继续面试训练</li>
+          </ol>
         </div>
-        <div className="text-2xs text-white/50">
-          © 2026 InterCraft. SOC 2 Type II 合规在审.
+        <div className="text-2xs text-white/45">
+          面向校招、社招、实习与转行用户
         </div>
       </div>
 
       <div className="flex-1 flex items-center justify-center px-6 py-12">
         <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4">
+          <Link to="/" className="mb-8 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-ink-1 lg:hidden">
+            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-900 text-white"><Layers3 className="h-4 w-4" /></span>
+            InterCraft
+          </Link>
           <div>
             <h2 className="text-xl font-semibold text-ink-1 tracking-tight">
               {mode === 'login' ? '欢迎回来' : '创建账号'}
@@ -91,8 +128,9 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
 
           {mode === 'register' && (
             <div>
-              <label className="block text-xs font-medium text-ink-2 mb-1.5">姓名（可选）</label>
+              <label htmlFor="display-name" className="block text-xs font-medium text-ink-2 mb-1.5">姓名（可选）</label>
               <Input
+                id="display-name"
                 name="displayName"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -103,8 +141,9 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
           )}
 
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1.5">邮箱</label>
+            <label htmlFor="auth-email" className="block text-xs font-medium text-ink-2 mb-1.5">邮箱</label>
             <Input
+              id="auth-email"
               type="email"
               name="email"
               required
@@ -118,8 +157,9 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1.5">密码</label>
+            <label htmlFor="auth-password" className="block text-xs font-medium text-ink-2 mb-1.5">密码</label>
             <Input
+              id="auth-password"
               type={showPwd ? 'text' : 'password'}
               name="password"
               required
@@ -170,8 +210,10 @@ export default function Login({ initialMode: initialModeProp }: { initialMode?: 
             <button
               type="button"
               onClick={() => {
-                setMode(mode === 'login' ? 'register' : 'login')
+                const nextMode = mode === 'login' ? 'register' : 'login'
+                setMode(nextMode)
                 setErrorMsg(null)
+                navigate(nextMode === 'register' ? '/register' : '/login')
               }}
               className="text-brand-600 dark:text-brand-300 font-medium ml-1 hover:underline"
             >

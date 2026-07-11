@@ -49,6 +49,33 @@ export default function AbilityProfileDetail() {
         返回画像页面
       </button>
 
+      <div className="mb-4 grid gap-3 md:grid-cols-2">
+        <Card className="p-4" data-testid="verified-score-panel">
+          <h3 className="text-sm font-semibold">已验证评分</h3>
+          <p className="mt-1 text-sm">当前 {dim.actual_score}</p>
+        </Card>
+        <Card className="p-4" data-testid="ai-insight-panel">
+          <h3 className="text-sm font-semibold">AI 洞察</h3>
+          <p className="mt-1 text-xs text-ink-3">与确定性评分独立；失败不影响已验证分。</p>
+          {(data as { data?: { ai_insight?: { task_id?: string; status?: string } } } | undefined)?.data?.ai_insight?.task_id && (
+            <button
+              type="button"
+              className="mt-2 text-xs text-brand-600 underline"
+              data-testid="ai-insight-task-link"
+              onClick={() =>
+                navigate(
+                  `/ai-tasks/${encodeURIComponent(
+                    (data as { data: { ai_insight: { task_id: string } } }).data.ai_insight.task_id,
+                  )}`,
+                )
+              }
+            >
+              查看洞察任务
+            </button>
+          )}
+        </Card>
+      </div>
+
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">{dim.label_zh}</h1>

@@ -1,5 +1,5 @@
 /**
- * React Query hooks for the AI Operations workspace — REQ-044 US3.
+ * React Query hooks for AI Operations — REQ-044 legacy + REQ-061 T120 real metrics.
  */
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -7,6 +7,10 @@ import {
   type LatencyBandsParams,
   type VolumeByFeatureParams,
 } from '@/api/admin-ai-operations'
+import {
+  aiOperationsApi,
+  type OpsFilters,
+} from '@/admin/api/ai-operations'
 
 export const aiOperationsQueryKeys = {
   kpis: () => ['ai-operations', 'kpis'] as const,
@@ -22,6 +26,14 @@ export const aiOperationsQueryKeys = {
   costQualityFlag: () => ['ai-operations', 'cost-quality-flag'] as const,
   evalBadcaseSummary: () => ['ai-operations', 'eval-badcase-summary'] as const,
   health: () => ['ai-operations', 'health'] as const,
+}
+
+export const aiOpsKeys = {
+  all: ['admin', 'ai-operations'] as const,
+  metrics: (filters: OpsFilters) => [...aiOpsKeys.all, 'metrics', filters] as const,
+  costDrilldown: (filters: OpsFilters & { task_id?: string }) =>
+    [...aiOpsKeys.all, 'cost-drilldown', filters] as const,
+  pointTimeline: (taskId: string) => [...aiOpsKeys.all, 'point-timeline', taskId] as const,
 }
 
 export function useKpis() {
@@ -113,5 +125,35 @@ export function useAIOperationsHealth() {
     queryKey: aiOperationsQueryKeys.health(),
     queryFn: ({ signal }) => adminAIOperationsApi.getHealth(signal),
     staleTime: 30_000,
+  })
+}
+
+/** REQ-061 — fact-joined metrics with filters + data quality. */
+export function useAIOpsMetrics(filters: OpsFilters = {}) {
+  return useQuery({
+    queryKey: aiOpsKeys.metrics(filters),
+    queryFn: ({ signal }) => aiOperationsApi.getMetrics(filters, signal),
+    staleTime: 30_000,
+  })
+}
+
+export function useAIOpsCostDrilldown(
+  filters: OpsFilters & { task_id?: string } = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: aiOpsKeys.costDrilldown(filters),
+    queryFn: ({ signal }) => aiOperationsApi.getCostDrilldown(filters, signal),
+    enabled,
+    staleTime: 15_000,
+  })
+}
+
+export function useAIOpsPointTimeline(taskId: string | null) {
+  return useQuery({
+    queryKey: aiOpsKeys.pointTimeline(taskId ?? ''),
+    queryFn: ({ signal }) => aiOperationsApi.getPointTimeline(taskId as string, signal),
+    enabled: Boolean(taskId),
+    staleTime: 15_000,
   })
 }

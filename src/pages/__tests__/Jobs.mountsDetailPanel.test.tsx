@@ -52,6 +52,7 @@ vi.mock('@/hooks/mutations/useJobMutations', () => ({
   useCreateJob: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateJobStatus: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteJob: () => ({ mutate: vi.fn(), isPending: false }),
+  useBindBranchToJob: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 vi.mock('@/components/lock/OfflineBanner', () => ({

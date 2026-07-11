@@ -40,7 +40,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_uuid_v7
 from app.core.logging import get_logger
-from app.modules.resumes_v2.defaults import apply_template, default_resume_data_v2
+from app.modules.resumes_v2.defaults import (
+    apply_creation_preferences,
+    apply_template,
+    default_resume_data_v2,
+)
 from app.modules.resumes_v2.models import ResumeV2
 from app.modules.resumes_v2.repository import ResumeV2Repository
 from app.modules.resumes_v2.schemas import TemplateId
@@ -219,6 +223,7 @@ class ResumeV2Service:
         name: str,
         slug: str,
         template: str = "pikachu",
+        theme_id: str = "muji-default-autumn",
         from_sample: bool = False,
     ) -> ResumeV2:
         if not _SLUG_RE.match(slug) or not (1 <= len(slug) <= 64):
@@ -230,6 +235,7 @@ class ResumeV2Service:
 
         data = default_resume_data_v2()
         apply_template(data, template)
+        apply_creation_preferences(data, theme_id=theme_id, from_sample=from_sample)
 
         try:
             row = await self.repo.create(

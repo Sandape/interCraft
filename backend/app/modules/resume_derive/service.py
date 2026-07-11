@@ -19,8 +19,14 @@ from app.modules.resume_derive.metrics import derive_runs_total, suggestion_appl
 from app.modules.resume_derive.models import ResumeDeriveRun
 from app.modules.resume_derive.repository import ResumeDeriveRepository
 from app.modules.resume_derive.root_completeness import compute_root_completeness
+from app.modules.resume_derive.themes import normalize_derive_theme_id
 from app.modules.resumes_v2.models import ResumeV2
 from app.modules.resumes_v2.repository import ResumeV2Repository
+from app.modules.resume_intelligence.snapshots import (
+    build_input_fingerprint,
+    canonical_hash,
+    normalize_jd_text,
+)
 
 log = get_logger("resume_derive")
 
@@ -106,11 +112,17 @@ class ResumeDeriveService:
         user_id: UUID,
         job_id: UUID,
         target_page_count: int,
-        template_id: str = "pikachu",
+        template_id: str = "muji-default-autumn",
         root_resume_id: UUID | None = None,
+        idempotency_key: str | None = None,
+        enqueue_immediately: bool = True,
     ) -> ResumeDeriveRun:
         if target_page_count not in (1, 2, 3):
             raise DeriveError(400, "INVALID_TARGET_PAGES", "target_page_count must be 1, 2, or 3.")
+        try:
+            theme_id = normalize_derive_theme_id(template_id)
+        except ValueError as exc:
+            raise DeriveError(400, "INVALID_THEME", "Select one of the supported resume themes.") from exc
 
         root = None
         if root_resume_id is not None:
@@ -125,9 +137,57 @@ class ResumeDeriveService:
         job = await self.session.get(Job, job_id)
         if job is None or job.user_id != user_id:
             raise DeriveError(404, "JOB_NOT_FOUND", "Job not found.")
-        jd = (job.requirements_md or "").strip()
+        jd = normalize_jd_text(job.requirements_md or "")
         if not jd:
             raise DeriveError(400, "NO_JD", "Job has no requirements_md; supplement JD first.")
+
+        root_data = root.data if isinstance(getattr(root, "data", None), dict) else {}
+        company = job.company if isinstance(getattr(job, "company", None), str) else ""
+        position = job.position if isinstance(getattr(job, "position", None), str) else ""
+        root_snapshot = {
+            "id": str(root.id),
+            "version": int(root.version),
+            "name": root.name,
+            "data": copy.deepcopy(root_data),
+        }
+        job_snapshot = {
+            "id": str(job.id),
+            "company": company,
+            "position": position,
+            "requirements_md": jd,
+        }
+        root_hash = canonical_hash(root_snapshot["data"])
+        jd_hash = canonical_hash(jd)
+        request_hash = canonical_hash(
+            {
+                "job_id": str(job_id),
+                "root_resume_id": str(root.id),
+                "root_hash": root_hash,
+                "jd_hash": jd_hash,
+                "target_page_count": target_page_count,
+                "template_id": theme_id,
+            }
+        )
+        fingerprint = build_input_fingerprint(
+            operation="derive",
+            resume_hash=root_hash,
+            jd_hash=jd_hash,
+            prompt_version="resume-intelligence.v1",
+            schema_version="derive.v2",
+            scoring_version="scoring.v1",
+        )
+        if idempotency_key:
+            existing = await self.runs.get_by_idempotency_key(
+                user_id=user_id, idempotency_key=idempotency_key
+            )
+            if existing is not None:
+                if existing.request_hash != request_hash:
+                    raise DeriveError(
+                        409,
+                        "IDEMPOTENCY_MISMATCH",
+                        "Idempotency key was already used with different inputs.",
+                    )
+                return existing
 
         run = await self.runs.create(
             user_id=user_id,
@@ -135,14 +195,51 @@ class ResumeDeriveService:
             root_resume_id=root.id,
             root_version=int(root.version),
             target_page_count=target_page_count,
-            template_id=template_id or "pikachu",
+            template_id=theme_id,
+            root_hash=root_hash,
+            jd_hash=jd_hash,
+            root_snapshot=root_snapshot,
+            job_snapshot=job_snapshot,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            input_fingerprint=fingerprint,
         )
+        runtime = await self._accept_canonical_task(
+            user_id=user_id,
+            root_resume_id=root.id,
+            root_version=int(root.version),
+            job_id=job_id,
+            target_page_count=target_page_count,
+            template_id=theme_id,
+            root_hash=root_hash,
+            jd_hash=jd_hash,
+            domain_run_id=run.id,
+            idempotency_key=idempotency_key,
+        )
+        if runtime:
+            artifacts = dict(run.artifacts or {})
+            artifacts["ai_task_id"] = runtime.get("task_id")
+            artifacts["ai_execution_id"] = runtime.get("execution_id")
+            artifacts["runtime_links"] = {
+                "status_url": runtime.get("status_url"),
+                "events_url": runtime.get("events_url"),
+            }
+            artifacts["acceptance"] = runtime.get("acceptance_envelope")
+            run.artifacts = artifacts
+        if not enqueue_immediately:
+            await self.session.flush()
+            return run
         await self.session.commit()
 
         try:
             from app.core.redis import enqueue_job
 
-            await enqueue_job("execute_resume_derive", run_id=str(run.id))
+            await enqueue_job(
+                "execute_resume_derive",
+                run_id=str(run.id),
+                user_id=str(user_id),
+                _job_id=str(run.id),
+            )
             log.info(
                 "resume_derive.enqueued",
                 run_id=str(run.id),
@@ -171,6 +268,185 @@ class ResumeDeriveService:
 
         return run
 
+    async def _accept_canonical_task(
+        self,
+        *,
+        user_id: UUID,
+        root_resume_id: UUID,
+        root_version: int,
+        job_id: UUID,
+        target_page_count: int,
+        template_id: str,
+        root_hash: str | None,
+        jd_hash: str | None,
+        domain_run_id: UUID,
+        idempotency_key: str | None,
+        service_tier: str = "standard",
+        allow_degrade: bool = False,
+    ) -> dict[str, Any] | None:
+        from app.modules.ai_runtime.acceptance import AcceptanceError, AcceptanceService
+        from app.modules.ai_runtime.adapters import resume_derive as derive
+        from app.modules.ai_runtime.adapters.runtime_links import (
+            acceptance_result_payload,
+            envelope_payload,
+            runtime_links_for_task,
+        )
+
+        snap = derive.build_input_snapshot(
+            root_resume_id=str(root_resume_id),
+            root_version=root_version,
+            job_id=str(job_id),
+            target_page_count=target_page_count,
+            template_id=template_id,
+            root_hash=root_hash,
+            jd_hash=jd_hash,
+            extra={"domain_run_id": str(domain_run_id)},
+        )
+        snap_ref = f"resume-derive:{root_resume_id}:v{root_version}:{domain_run_id}"
+        adapter = derive.ResumeDeriveAdapter()
+        envelope = adapter.build_acceptance_envelope(
+            service_tier=service_tier,
+            input_snapshot_ref=snap_ref,
+            allow_degrade=allow_degrade,
+            input_payload=snap,
+        )
+        envelope_dict = envelope_payload(envelope)
+        accept_key = idempotency_key or f"accept:{domain_run_id}"
+        try:
+            svc = AcceptanceService(self.session)
+            quote = await svc.create_quote(
+                user_id=user_id,
+                capability=derive.CAPABILITY_CODE,
+                action=derive.DEFAULT_ACTION,
+                service_tier=service_tier,
+                input_snapshot_ref=snap_ref,
+                allow_degrade=allow_degrade,
+                idempotency_key=f"quote:{accept_key}",
+            )
+            result = await svc.accept(
+                user_id=user_id,
+                capability=derive.CAPABILITY_CODE,
+                action=derive.DEFAULT_ACTION,
+                service_tier=service_tier,
+                quote_id=quote.quote_id,
+                input_snapshot_ref=snap_ref,
+                allow_degrade=allow_degrade,
+                idempotency_key=accept_key,
+            )
+            accepted = acceptance_result_payload(svc, result)
+            accepted["acceptance_envelope"] = envelope_dict
+            return accepted
+        except AcceptanceError:
+            links = runtime_links_for_task(domain_run_id)
+            return {
+                "task_id": str(domain_run_id),
+                "execution_id": None,
+                "status": "accepted",
+                "status_url": links["status_url"],
+                "events_url": links["events_url"],
+                "acceptance_envelope": envelope_dict,
+                "degraded_acceptance": True,
+            }
+        except Exception:
+            return {
+                "acceptance_envelope": envelope_dict,
+                "degraded_acceptance": True,
+            }
+
+    @staticmethod
+    def start_response_payload(run: ResumeDeriveRun) -> dict[str, Any]:
+        from app.modules.ai_runtime.adapters import resume_derive as derive
+        from app.modules.ai_runtime.adapters.runtime_links import runtime_links_for_task
+
+        artifacts = run.artifacts or {}
+        task_id = artifacts.get("ai_task_id")
+        links = (
+            runtime_links_for_task(task_id)
+            if task_id
+            else {
+                "task_id": None,
+                "status_url": f"/api/v1/v2/resumes/derive-runs/{run.id}",
+                "events_url": None,
+            }
+        )
+        return {
+            "run_id": run.id,
+            "status": run.status,
+            "task_id": task_id,
+            "execution_id": artifacts.get("ai_execution_id"),
+            "runtime": links,
+            "acceptance": artifacts.get("acceptance"),
+            "canonical_status": derive.map_domain_status(run.status).value,
+            "available_actions": derive.projection_actions(run.status),
+            "milestones": [
+                {"code": code, "status": "pending"} for code in derive.MILESTONE_CODES
+            ],
+        }
+
+    @staticmethod
+    def status_response_payload(run: ResumeDeriveRun) -> dict[str, Any]:
+        from app.modules.ai_runtime.adapters import resume_derive as derive
+        from app.modules.ai_runtime.adapters.runtime_links import (
+            milestone_projection,
+            runtime_links_for_task,
+        )
+
+        evidence = derive.build_partial_settlement_evidence(
+            domain_status=run.status,
+            component_status=run.component_status,
+        )
+        artifacts = run.artifacts or {}
+        task_id = artifacts.get("ai_task_id")
+        base = {
+            "id": run.id,
+            "user_id": run.user_id,
+            "job_id": run.job_id,
+            "root_resume_id": run.root_resume_id,
+            "root_version": run.root_version,
+            "target_page_count": run.target_page_count,
+            "template_id": run.template_id,
+            "derived_resume_id": run.derived_resume_id,
+            "status": run.status,
+            "phase": run.phase,
+            "calibrate_round": run.calibrate_round,
+            "progress_pct": evidence.progress_percent or run.progress_pct,
+            "error_code": run.error_code,
+            "error_message": run.error_message,
+            "artifacts": artifacts,
+            "component_status": run.component_status or {},
+            "analysis_id": run.analysis_id,
+            "root_hash": run.root_hash,
+            "jd_hash": run.jd_hash,
+            "cancel_requested_at": run.cancel_requested_at,
+            "created_at": run.created_at,
+            "updated_at": run.updated_at,
+            "finished_at": run.finished_at,
+            "canonical_status": evidence.canonical_status.value,
+            "available_actions": derive.projection_actions(run.status),
+            "milestones": milestone_projection(
+                codes=derive.MILESTONE_CODES,
+                delivered=evidence.delivered_milestones,
+                failed=evidence.failed_milestones,
+            ),
+            "settlement": {
+                "chargeable_milestone_codes": list(evidence.chargeable_milestone_codes),
+                "delivered_milestones": list(evidence.delivered_milestones),
+                "failed_milestones": list(evidence.failed_milestones),
+                "pending_milestones": list(evidence.pending_milestones),
+            },
+            "task_id": task_id,
+            "acceptance": artifacts.get("acceptance"),
+        }
+        if task_id:
+            base["runtime"] = runtime_links_for_task(task_id)
+        else:
+            base["runtime"] = {
+                "task_id": None,
+                "status_url": f"/api/v1/v2/resumes/derive-runs/{run.id}",
+                "events_url": None,
+            }
+        return base
+
     async def get_run(self, run_id: UUID, *, user_id: UUID) -> ResumeDeriveRun:
         run = await self.runs.get(run_id, user_id=user_id)
         if run is None:
@@ -179,15 +455,16 @@ class ResumeDeriveService:
 
     async def cancel_run(self, run_id: UUID, *, user_id: UUID) -> ResumeDeriveRun:
         run = await self.get_run(run_id, user_id=user_id)
-        if run.status not in ("pending", "running"):
+        if run.status not in ("pending", "queued", "running", "canceling"):
             raise DeriveError(409, "NOT_CANCELABLE", f"Run status is {run.status}.")
         updated = await self.runs.update_fields(
             run_id,
             user_id=user_id,
-            status="canceled",
+            status="cancelled",
+            cancel_requested_at=datetime.now(timezone.utc),
             finished_at=datetime.now(timezone.utc),
         )
-        derive_runs_total.labels(status="canceled").inc()
+        derive_runs_total.labels(status="cancelled").inc()
         assert updated is not None
         await self.session.commit()
         return updated

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +76,8 @@ class InterviewAdapter:
         from app.modules.jobs.service import JobService
 
         create_data: dict[str, Any] = {"mode": mode}
+        if entities.get("resume_id"):
+            create_data["branch_id"] = entities["resume_id"]
         if mode == "full":
             create_data["max_questions"] = 10
 
@@ -104,7 +106,7 @@ class InterviewAdapter:
                 self.user_id, InterviewSessionCreate(**create_data)
             )
             session_id = created.id if hasattr(created, "id") else created["id"]
-            await svc.start(session_id, self.user_id)
+            started = await svc.start(session_id, self.user_id)
         except ValueError as exc:
             code = exc.args[0] if exc.args else "validation_error"
             if code == "INSUFFICIENT_ERROR_POOL":
@@ -126,6 +128,18 @@ class InterviewAdapter:
         target = f"{create_data.get('company')} · {create_data.get('position')}"
         mode_cn = "完整面试" if mode == "full" else "快速 Drill"
         m.interview_adapter_total.labels(action="start", outcome="ok").inc()
+        plan_status = started.get("plan_status") if isinstance(started, dict) else None
+        if plan_status == "failed":
+            return ok(
+                f"已创建面试会话，目标：{target}（{mode_cn}），但定制面试计划生成失败。"
+                "你可以明确回复“降级继续面试”，或稍后重新开始；目前不会把通用题当作定制计划。",
+                {
+                    "session_id": str(session_id),
+                    "state": "plan_failed",
+                    "plan_status": "failed",
+                    "awaiting_degrade_confirmation": True,
+                },
+            )
         return ok(
             f"面试准备就绪！目标：{target}（{mode_cn}）。"
             "我会逐题发送，你通过文字作答。准备好了吗？回复「开始」启动面试。",
@@ -133,6 +147,7 @@ class InterviewAdapter:
                 "session_id": str(session_id),
                 "state": "in_interview",
                 "interview_round": 0,
+                "plan_status": plan_status,
                 "awaiting_begin": True,
             },
         )
@@ -143,6 +158,9 @@ class InterviewAdapter:
 
         svc = InterviewSessionService(self.session)
         try:
+            interview = await svc.get(session_id, self.user_id)
+            if interview.status == "pending":
+                await svc.start(session_id, self.user_id)
             state = await svc.resume(session_id, self.user_id)
             q = _extract_question(state)
             if not q:
@@ -198,18 +216,42 @@ class InterviewAdapter:
             return fail("恢复面试失败，请稍后重试。", "internal_error")
 
     async def pause(self, session_id: UUID | None, round_no: int | None) -> ToolResult:
-        # Keep session in_progress; only clear conversation in_interview flag upstream
+        from app.modules.interviews.repository import InterviewSessionRepository
+
+        if session_id is None:
+            active = await has_active_session(self.session, self.user_id)
+            if active is None:
+                return fail("没有进行中的面试可暂停。", "not_found")
+            session_id = active.id
+        repo = InterviewSessionRepository(self.session)
+        interview = await repo.get(session_id, self.user_id)
+        if interview is None:
+            return fail("面试会话不存在。", "not_found")
+        if interview.status not in {"pending", "in_progress"}:
+            return fail("当前面试状态不能暂停。", "invalid_state")
+        changed = await repo.update_status(
+            session_id,
+            "pending",
+            expected_statuses={"pending", "in_progress"},
+        )
+        if not changed:
+            return fail("面试状态已变化，未重复暂停。", "state_conflict")
         r = round_no or 0
         m.interview_adapter_total.labels(action="pause", outcome="ok").inc()
         return ok(
             f"面试已暂停。当前进度：{r}/5 轮。"
             "你可以稍后回复「继续面试」从中断处继续，或回复「结束面试」查看当前结果。",
-            {"session_id": str(session_id) if session_id else None, "paused": True},
+            {
+                "session_id": str(session_id),
+                "paused": True,
+                "status": "pending",
+            },
         )
 
     async def end(self, session_id: UUID | None, round_no: int | None) -> ToolResult:
-        from app.modules.interviews.repository import InterviewSessionRepository
         from datetime import UTC, datetime
+
+        from app.modules.interviews.repository import InterviewSessionRepository
 
         if session_id is None:
             active = await has_active_session(self.session, self.user_id)
@@ -226,14 +268,28 @@ class InterviewAdapter:
         rounds = round_no or 0
         now = datetime.now(UTC)
         if rounds >= 3:
-            await repo.update_status(session_id, "completed", ended_at=now)
+            changed = await repo.update_status(
+                session_id,
+                "completed",
+                ended_at=now,
+                expected_statuses={"pending", "in_progress"},
+            )
+            if not changed:
+                return fail("面试状态已变化，未重复结束。", "state_conflict")
             m.interview_adapter_total.labels(action="end", outcome="ok").inc()
             return ok(
                 f"面试已结束（完成 {rounds} 轮）。已生成部分结果，完整报告请在 InterCraft 查看。",
                 {"session_id": str(session_id), "status": "completed"},
             )
 
-        await repo.update_status(session_id, "expired", ended_at=now)
+        changed = await repo.update_status(
+            session_id,
+            "expired",
+            ended_at=now,
+            expected_statuses={"pending", "in_progress"},
+        )
+        if not changed:
+            return fail("面试状态已变化，未重复结束。", "state_conflict")
         m.interview_adapter_total.labels(action="end", outcome="ok").inc()
         return ok(
             f"面试已结束（仅完成 {rounds} 轮，不足 3 轮不生成报告）。"

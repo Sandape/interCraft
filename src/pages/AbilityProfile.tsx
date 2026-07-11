@@ -1,6 +1,6 @@
 /** AbilityProfile — dashboard page with radar chart and ability list. */
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Share2, Download, Loader2, Target } from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -67,15 +67,16 @@ export default function AbilityProfile() {
   }
 
   return (
-    <div className="px-8 py-6 max-w-7xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-6">
+    <div className="px-4 py-5 sm:px-6 lg:px-8 lg:py-6 max-w-7xl mx-auto">
+      <div className="flex flex-col items-stretch gap-4 mb-6 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">能力画像</h1>
           <p className="text-sm text-ink-3 mt-1">6 维度能力雷达图，追踪成长趋势</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
           <Button
             variant="secondary"
+            className="w-full sm:w-auto"
             leftIcon={<Share2 className="h-3.5 w-3.5" />}
             onClick={() => setShowShare(true)}
             disabled={isEmpty}
@@ -84,6 +85,7 @@ export default function AbilityProfile() {
           </Button>
           <Button
             variant="primary"
+            className="w-full sm:w-auto"
             leftIcon={<Download className="h-3.5 w-3.5" />}
             onClick={handleExport}
             loading={exportPdf.isPending}
@@ -98,8 +100,60 @@ export default function AbilityProfile() {
         <div className="mb-4 text-sm text-red-600 dark:text-red-400">{exportError}</div>
       )}
 
+      {/* REQ-061 T097 — verified score vs AI insight are independent */}
+      <div className="mb-4 grid gap-3 md:grid-cols-2">
+        <Card className="p-4" data-testid="verified-score-panel">
+          <h3 className="text-sm font-semibold text-ink-1">已验证评分</h3>
+          <p className="mt-1 text-xs text-ink-3">
+            来自面试/自评等确定性结果，不依赖 AI 洞察任务状态。
+          </p>
+          <p className="mt-2 text-sm text-ink-2">
+            状态：{(data as { data?: { verified_score_status?: string } } | undefined)?.data?.verified_score_status || (isEmpty ? '暂无' : 'ready')}
+          </p>
+        </Card>
+        <Card className="p-4" data-testid="ai-insight-panel">
+          <h3 className="text-sm font-semibold text-ink-1">AI 洞察</h3>
+          {(() => {
+            const insight = (data as { data?: { ai_insight?: {
+              status?: string
+              task_id?: string
+              message?: string
+              available_actions?: string[]
+            } } } | undefined)?.data?.ai_insight
+            if (!insight) {
+              return <p className="mt-1 text-xs text-ink-3">暂无 AI 洞察任务。</p>
+            }
+            return (
+              <div className="mt-2 space-y-2 text-sm">
+                <p>状态：{insight.status}</p>
+                {insight.message && <p className="text-amber-800">{insight.message}</p>}
+                {insight.task_id && (
+                  <Link
+                    to={`/ai-tasks/${encodeURIComponent(insight.task_id)}`}
+                    className="text-brand-600 underline"
+                    data-testid="ai-insight-task-link"
+                  >
+                    查看洞察任务
+                  </Link>
+                )}
+                {(insight.available_actions ?? []).includes('system_failure_retry') && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    data-testid="ai-insight-retry"
+                    onClick={() => navigate(`/ai-tasks/${encodeURIComponent(insight.task_id || '')}`)}
+                  >
+                    重试洞察
+                  </Button>
+                )}
+              </div>
+            )
+          })()}
+        </Card>
+      </div>
+
       {isEmpty ? (
-        <Card className="p-12 text-center">
+        <Card className="p-6 text-center sm:p-12">
           <Target className="h-12 w-12 text-ink-muted mx-auto mb-4" />
           <h3 className="text-base font-medium text-ink-1 mb-2">暂无能力数据</h3>
           <p className="text-sm text-ink-3 mb-4">

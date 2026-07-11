@@ -187,3 +187,9 @@ EVIDENCE_REF_REQUIRED / etc.) still apply.
   are tracked separately. `badcases/models.py` re-exports via lazy
   import so the public surface is importable even when the source
   files are absent.
+
+## REQ-061 运营面
+
+- Canonical Bad Case facade：`/api/v1/admin-console/ai/badcases*`
+- 与任务检查反向链接：`?task_id=` 可从运营任务详情跳转
+- 隐私：默认脱敏；揭示需 reason/TTL + 审计

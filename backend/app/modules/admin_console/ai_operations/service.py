@@ -214,7 +214,26 @@ def seed_demo_ai_tasks() -> list[_AITaskRowSeed]:
 
 
 def get_kpis() -> KPIBundleResponse:
-    """Return the 4-tile workspace KPI bundle (FR-016 + AC-16.1)."""
+    """Return the 4-tile workspace KPI bundle (FR-016 + AC-16.1).
+
+    REQ-061 T170: when seed fallbacks are disabled, return explicit
+    unavailable/freshness-zero envelope instead of demo seed.
+    """
+    from app.modules.admin_console.production_fallbacks import seed_fallbacks_disabled
+
+    if seed_fallbacks_disabled():
+        return KPIBundleResponse(
+            kpis=KPIBundle(
+                total_volume=0,
+                success_rate=0.0,
+                p95_latency_ms=0.0,
+                total_cost_usd=0.0,
+                freshness_at="unavailable",
+                is_estimate=True,
+            ),
+            freshness_at="unavailable",
+        )
+
     rows = seed_demo_ai_tasks()
     call_count = sum(r.call_count for r in rows)
     success_count = sum(r.success_count for r in rows)

@@ -90,7 +90,7 @@ async def _insert_completed_session_with_report(
             """INSERT INTO interview_sessions
                (id, user_id, position, company, mode, status, thread_id,
                 started_at, ended_at)
-               VALUES (:id, :uid, 'Backend', 'ACME', 'text', 'completed',
+               VALUES (:id, :uid, 'Backend', 'ACME', 'full', 'completed',
                        :tid, now() - interval '30 minutes', now())"""
         ),
         {"id": session_id, "uid": user_id, "tid": str(session_id)},
@@ -121,22 +121,30 @@ async def _insert_completed_session_with_report(
     return session_id
 
 
-async def _fetch_dimensions(db_session, user_id: UUID) -> dict[str, tuple[float, str]]:
-    """Read dimensions as the owning user (RLS-scoped)."""
+async def _fetch_dimensions(
+    db_session, user_id: UUID
+) -> dict[str, tuple[float, str, float | None]]:
+    """Read dimensions as the owning user (RLS-scoped).
+
+    Returns {key: (actual_score, source, self_assessed_score)}.
+    """
     await db_session.execute(
         text("SELECT set_config('app.user_id', :uid, true)"),
         {"uid": str(user_id)},
     )
     result = await db_session.execute(
         text(
-            """SELECT dimension_key, actual_score, source
+            """SELECT dimension_key, actual_score, source, self_assessed_score
                FROM ability_dimensions
                WHERE user_id = :uid
                ORDER BY dimension_key"""
         ),
         {"uid": user_id},
     )
-    return {row[0]: (float(row[1]), row[2]) for row in result.fetchall()}
+    return {
+        row[0]: (float(row[1]), row[2], float(row[3]) if row[3] is not None else None)
+        for row in result.fetchall()
+    }
 
 
 @pytest.mark.asyncio
@@ -180,6 +188,41 @@ async def test_sync_upserts_interview_dimensions_with_interview_source(client, d
 
 
 @pytest.mark.asyncio
+async def test_sync_preserves_self_assessed_score(client, db_session):
+    """Dual-track: interview UPSERT must not wipe self_assessed_score."""
+    from app.core.db import _session_cm
+    from app.modules.interviews.service import InterviewSessionService
+
+    suffix = uuid.uuid4().hex[:8]
+    headers, user_id = await _seed_via_register(client, suffix)
+
+    patch = await client.patch(
+        "/api/v1/ability-dimensions/tech_depth",
+        headers=headers,
+        json={"self_assessed_score": 8.5},
+    )
+    assert patch.status_code == 200, patch.text
+
+    session_id = await _insert_completed_session_with_report(
+        db_session, user_id, {"tech_depth": 6.0}
+    )
+
+    async with _session_cm() as sync_session:
+        await sync_session.execute(
+            text("SELECT set_config('app.user_id', :uid, true)"),
+            {"uid": str(user_id)},
+        )
+        svc = InterviewSessionService(sync_session)
+        await svc._sync_ability_dimensions(session_id, user_id)
+        await sync_session.commit()
+
+    dims = await _fetch_dimensions(db_session, user_id)
+    assert dims["tech_depth"][0] == pytest.approx(6.0, abs=0.01)
+    assert dims["tech_depth"][1] == "interview"
+    assert dims["tech_depth"][2] == pytest.approx(8.5, abs=0.01)
+
+
+@pytest.mark.asyncio
 async def test_sync_is_noop_when_no_report_exists(client, db_session):
     """Defensive: if no interview_report row exists, sync must not raise."""
     from app.core.db import _session_cm
@@ -197,7 +240,7 @@ async def test_sync_is_noop_when_no_report_exists(client, db_session):
         text(
             """INSERT INTO interview_sessions
                (id, user_id, position, company, mode, status, thread_id)
-               VALUES (:id, :uid, 'Backend', 'ACME', 'text', 'completed', :tid)"""
+               VALUES (:id, :uid, 'Backend', 'ACME', 'full', 'completed', :tid)"""
         ),
         {"id": session_id, "uid": user_id, "tid": str(session_id)},
     )
@@ -217,3 +260,4 @@ async def test_sync_is_noop_when_no_report_exists(client, db_session):
     for dim_key in _DIMENSION_KEYS:
         assert dims[dim_key][0] == 0.0
         assert dims[dim_key][1] == "manual"
+        assert dims[dim_key][2] is None

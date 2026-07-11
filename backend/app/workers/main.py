@@ -4,7 +4,6 @@ Run: `uv run arq app.workers.main.WorkerSettings`
 """
 from __future__ import annotations
 
-import os
 from typing import Any, ClassVar
 
 from arq.connections import RedisSettings
@@ -17,21 +16,50 @@ from arq.cron import cron
 from app.core.config import get_settings as _get_app_settings
 from app.core.logging import bind_request_context
 from app.core.metrics import arq_jobs_failed_total
-from app.observability.tracing import TraceContext, bind_trace_context, extract_trace_context
 from app.modules.locks.service import LockService
 from app.modules.versions.auto_snapshot import auto_snapshot_branch
+from app.observability.tracing import (
+    TraceContext,
+    bind_trace_context,
+    extract_trace_context,
+)
 from app.workers.tasks.ability_diagnose import ability_diagnose
+from app.workers.tasks.agent_command_outbox_drain import agent_command_outbox_drain
+from app.workers.tasks.agent_task_recovery import (
+    recover_agent_task,
+    scan_agent_task_recovery,
+)
+from app.workers.tasks.agents_outbound_drain import agents_outbound_drain
 from app.workers.tasks.cleanup_expired_exports import cleanup_expired_exports
 from app.workers.tasks.compute_embedding import compute_embedding_task
 from app.workers.tasks.create_next_audit_partition import create_next_audit_partition
 from app.workers.tasks.daily_reconcile import daily_reconcile
-from app.workers.tasks.interview_research import execute_research_task, scan_interview_research
+from app.workers.tasks.interview_research import (
+    execute_research_task,
+    scan_interview_research,
+)
 from app.workers.tasks.monthly_quota_reset import monthly_quota_reset
 from app.workers.tasks.physical_cleanup import physical_cleanup
 from app.workers.tasks.purge_expired_accounts import purge_expired_accounts
 from app.workers.tasks.reset_monthly_quota_cron import reset_monthly_quota_cron
-from app.workers.tasks.agents_outbound_drain import agents_outbound_drain
+from app.workers.tasks.resume_analysis import execute_resume_analysis
 from app.workers.tasks.resume_derive import execute_resume_derive
+
+# REQ-061: ARQ composition root — workers assemble ExecutionContext via
+# ``create_worker_execution_context`` rather than importing FastAPI deps.
+from app.modules.ai_runtime.composition import (  # noqa: F401
+    create_worker_execution_context,
+)
+from app.workers.tasks.ai_projection_delivery import deliver_ai_projections
+from app.workers.tasks.ai_data_deletion import run_ai_data_deletion
+from app.workers.tasks.ai_task_dispatch import dispatch_ai_task_intent
+from app.workers.tasks.ai_task_recovery import recover_ai_task, scan_ai_task_recovery
+from app.workers.tasks.ai_daily_point_grant import ai_daily_point_grant
+from app.workers.tasks.ai_point_expiry import ai_point_expiry
+from app.workers.tasks.ai_daily_reconciliation import ai_daily_reconciliation
+from app.workers.tasks.ai_cost_guard import ai_cost_guard
+from app.workers.tasks.ai_evaluation import ai_evaluation
+from app.workers.tasks.ai_release_guard import ai_release_guard
 
 REDIS_URL = _get_app_settings().redis_url
 
@@ -96,11 +124,28 @@ class WorkerSettings:
         # messages whose ilink_pool long-poll task is degraded / cancelled
         # and would otherwise sit pending forever.
         agents_outbound_drain,
+        agent_command_outbox_drain,
+        recover_agent_task,
+        scan_agent_task_recovery,
         # REQ-053: scan + execute interview research tasks.
         scan_interview_research,
         execute_research_task,
         # REQ-055: one-click resume derive.
         execute_resume_derive,
+        execute_resume_analysis,
+        # REQ-061: AI runtime projections, recovery, metering schedules.
+        deliver_ai_projections,
+        run_ai_data_deletion,
+        dispatch_ai_task_intent,
+        scan_ai_task_recovery,
+        recover_ai_task,
+        ai_daily_point_grant,
+        ai_point_expiry,
+        ai_daily_reconciliation,
+        ai_cost_guard,
+        # REQ-061 US11: online eval + gray release guard.
+        ai_evaluation,
+        ai_release_guard,
     ]
     redis_settings: ClassVar = RedisSettings.from_dsn(REDIS_URL)
     cron_jobs: ClassVar = [
@@ -113,8 +158,26 @@ class WorkerSettings:
         cron(create_next_audit_partition, name="create_next_audit_partition", month=1, day=1, hour=0, minute=0),
         cron(reset_monthly_quota_cron, name="reset_monthly_quota_cron", month=1, day=1, hour=0, minute=0),
         cron(agents_outbound_drain, name="agents_outbound_drain", second={0, 30}),
+        cron(agent_command_outbox_drain, name="agent_command_outbox_drain", second={5, 15, 25, 35, 45, 55}),
+        cron(
+            scan_agent_task_recovery,
+            name="scan_agent_task_recovery",
+            second={15, 45},
+        ),
         # REQ-053: scan every 10 minutes for interviews ~5h away.
         cron(scan_interview_research, name="scan_interview_research", minute={0, 10, 20, 30, 40, 50}),
+        # REQ-061 recovery + projections + Shanghai point grant/expiry.
+        cron(scan_ai_task_recovery, name="scan_ai_task_recovery", second={20, 50}),
+        cron(deliver_ai_projections, name="deliver_ai_projections", second={10, 40}),
+        cron(ai_daily_point_grant, name="ai_daily_point_grant", hour=16, minute=5),  # ~00:05 CST
+        cron(ai_point_expiry, name="ai_point_expiry", hour=16, minute=10),
+        # Preliminary prior-day reconciliation before next Shanghai noon (~04:00 CST).
+        cron(ai_daily_reconciliation, name="ai_daily_reconciliation", hour=20, minute=0),
+        # Budget / abnormal-consumption scan every hour.
+        cron(ai_cost_guard, name="ai_cost_guard", minute=15),
+        # REQ-061 US11: online eval hourly; gray-stage guard every 10 min.
+        cron(ai_evaluation, name="ai_evaluation", minute=25),
+        cron(ai_release_guard, name="ai_release_guard", minute={0, 10, 20, 30, 40, 50}),
     ]
     keep_result: ClassVar = 60
     max_tries: ClassVar = 3

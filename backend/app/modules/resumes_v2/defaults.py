@@ -15,6 +15,32 @@ from __future__ import annotations
 from typing import Any
 
 
+NEUTRAL_MARKDOWN_SKELETON = """# 姓名
+
+> 求职方向 · 城市 · 联系方式
+
+## 个人简介
+
+请用 2–3 句话概括你的经验、优势与目标岗位。
+
+## 工作经历
+
+### 公司 · 职位
+
+- 用结果和数据描述你的关键贡献。
+
+## 项目经历
+
+### 项目名称
+
+- 说明背景、行动和结果。
+
+## 教育经历
+
+### 学校 · 专业
+"""
+
+
 def default_resume_data_v2() -> dict[str, Any]:
     """Return an empty-but-valid ResumeDataV2 document (matching the frontend Zod schema)."""
     return {
@@ -141,4 +167,25 @@ def apply_template(data: dict[str, Any], template: str) -> dict[str, Any]:
     effective = template if template in valid else "onyx"
     metadata = data.setdefault("metadata", {})
     metadata["template"] = effective
+    return data
+
+
+def apply_creation_preferences(
+    data: dict[str, Any],
+    *,
+    theme_id: str,
+    from_sample: bool,
+) -> dict[str, Any]:
+    """Apply create-flow choices without changing the legacy template contract."""
+    valid_themes = {
+        "muji-default-autumn",
+        "muji-minimal-color",
+        "muji-flat-atmospheric",
+    }
+    markdown = data.setdefault("metadata", {}).setdefault("markdown", {})
+    markdown["themeId"] = (
+        theme_id if theme_id in valid_themes else "muji-default-autumn"
+    )
+    if not from_sample:
+        markdown["sourceMarkdown"] = NEUTRAL_MARKDOWN_SKELETON
     return data

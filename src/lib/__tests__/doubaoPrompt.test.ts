@@ -26,6 +26,7 @@ const job: Job = {
   employment_type: 'full_time',
   salary_range_text: '30k-50k',
   headcount: 2,
+  interview_time: null,
   created_at: '2026-07-07T00:00:00Z',
   updated_at: '2026-07-07T00:00:00Z',
 }

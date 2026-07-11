@@ -3,11 +3,12 @@
 Uses pydantic-settings BaseSettings. Values map directly to environment
 variables (case-insensitive). See `.env.example` for the full list.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +50,23 @@ class Settings(BaseSettings):
 
     # ---- Redis ----
     redis_url: str = "redis://localhost:6379/0"
+
+    # ---- REQ-060: WeChat Agent production consumer ----
+    # Fail closed: local/API-only processes never start long polling unless the
+    # deployment explicitly opts in with WECHAT_AGENT_CONSUMER_ENABLED=true.
+    wechat_agent_consumer_enabled: bool = False
+    wechat_agent_lease_ttl_seconds: int = Field(default=30, ge=10, le=300)
+    wechat_agent_lease_renew_seconds: int = Field(default=10, ge=1, le=120)
+    wechat_agent_message_claim_seconds: int = Field(default=120, ge=5, le=3600)
+    wechat_agent_max_attempts: int = Field(default=5, ge=1, le=20)
+    agent_llm_timeout_seconds: int = Field(default=45, ge=5, le=300)
+    agent_tool_timeout_seconds: int = Field(default=30, ge=1, le=600)
+    wechat_agent_api_timeout_seconds: int = Field(default=20, ge=2, le=120)
+    agent_db_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    agent_max_tool_turns: int = Field(default=8, ge=1, le=16)
+    agent_tool_model: str = "deepseek-chat"
+    # Non-WeChat dev ingress (CLI always available locally; HTTP gated separately).
+    agent_dev_ingress_enabled: bool = False
 
     # ---- Security ----
     jwt_secret: str = "dev-only-dummy-32bytes-xxxxxxxxxxxxxxxxxxxxxx"
@@ -232,6 +250,32 @@ class Settings(BaseSettings):
         if u not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             return "INFO"
         return u
+
+    @field_validator("wechat_agent_consumer_enabled", mode="before")
+    @classmethod
+    def _fail_closed_wechat_consumer_flag(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+        return False
+
+    @model_validator(mode="after")
+    def _validate_wechat_lease_window(self) -> "Settings":
+        if self.wechat_agent_lease_renew_seconds >= self.wechat_agent_lease_ttl_seconds:
+            raise ValueError(
+                "WECHAT_AGENT_LEASE_RENEW_SECONDS must be shorter than "
+                "WECHAT_AGENT_LEASE_TTL_SECONDS"
+            )
+        if self.app_env.strip().lower() == "production" and self.master_key.startswith(
+            "ZGV2LW9ubHk"
+        ):
+            raise ValueError("production requires a non-development MASTER_KEY")
+        return self
 
     @field_validator("otel_trace_sample_ratio")
     @classmethod

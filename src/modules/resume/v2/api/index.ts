@@ -23,6 +23,7 @@
 
 import { request } from "@/api/client";
 import type { ResumeDataV2, TemplateId } from "../schema/data";
+import type { MujiThemeId } from "@/modules/resume/renderer/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -81,6 +82,7 @@ export interface ResumeV2Create {
   name: string;
   slug: string;
   template?: TemplateId;
+  theme_id?: MujiThemeId;
   from_sample?: boolean;
 }
 

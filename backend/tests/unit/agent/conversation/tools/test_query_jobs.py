@@ -10,7 +10,6 @@ from uuid import uuid4
 import pytest
 
 from app.modules.agent.conversation.tools import query_jobs
-from app.modules.agent.conversation.time_parser import SHANGHAI
 
 
 def _job(**kw):

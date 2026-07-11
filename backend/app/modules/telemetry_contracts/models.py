@@ -19,7 +19,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import DateTime, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,37 +27,153 @@ from app.core.db import Base
 
 
 class Badcase(Base):
-    """Stub: full table definition ships in 033 US8 (T058)."""
+    """Production Bad Case row (migration 0024 + 0060 extensions).
+
+    Aligned with ``badcases`` DDL: stable ``badcase_id``, privacy/redaction,
+    optimistic ``version``, closure evidence refs, SLA/owner fields.
+    """
 
     __tablename__ = "badcases"
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
-    source: Mapped[str] = mapped_column(String(64))
-    type: Mapped[str] = mapped_column(String(64))
-    severity: Mapped[str] = mapped_column(String(32))
-    status: Mapped[str] = mapped_column(String(32), default="OPEN")
-    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
-    failure_reason: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    badcase_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    type: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False, default="MEDIUM")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="OPEN")
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    reviewer: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    privacy_class: Mapped[str] = mapped_column(String(32), nullable=False, default="UNKNOWN")
+    redaction_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="NOT_REQUIRED"
+    )
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    closure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # REQ-061 US10 extensions (migration 0060)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    category: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    capabilities: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    point_treatment_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unknown"
+    )
+    sla_status: Mapped[str] = mapped_column(String(32), nullable=False, default="within_sla")
+    sla_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_visible_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    root_cause_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reproduction_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data_completeness: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="partial"
+    )
+    merged_into_badcase_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    recurrence_of_badcase_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    closure_evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
     )
 
 
 class BadcaseReviewAction(Base):
-    """Stub: append-only audit log row."""
+    """Append-only review/audit action (migration 0024 + 0060)."""
 
     __tablename__ = "badcase_review_actions"
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    badcase_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
-    actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
-    action: Mapped[str] = mapped_column(String(64))
-    notes: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    badcase_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(64), nullable=False, default="BADCASE_REVIEWER")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # REQ-061 US10 extensions
+    actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    from_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    expected_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    resulting_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    evidence_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+
+class BadcaseImpactLink(Base):
+    """Versioned affected-scope link (REQ-061 US10 / T131)."""
+
+    __tablename__ = "badcase_impact_links"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    badcase_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    impact_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    confidence: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    evidence_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    update_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+    last_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+
+class BadcaseContentAuthorization(Base):
+    """Per-owner content consent; merge must not union across users."""
+
+    __tablename__ = "badcase_content_authorizations"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    badcase_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    permitted_content_classes: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
+    permitted_fields: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    privacy_class: Mapped[str] = mapped_column(String(32), nullable=False, default="restricted")
+    snapshot_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+
+class BadcaseClosureEvidence(Base):
+    """One-to-one closure gate projection for P0/P1 (and recommended for all)."""
+
+    __tablename__ = "badcase_closure_evidence"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    badcase_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    fix_or_policy_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    regression_case_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    passing_evaluation_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    point_treatment_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    user_notification_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    complete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
 
 
 class AIInvocationRecord(Base):

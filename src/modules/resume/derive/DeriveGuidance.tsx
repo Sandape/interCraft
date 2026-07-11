@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { Modal } from "@/components/ui/Modal";
+import { DEFAULT_V3_THEME_ID, listV3Themes } from "@/modules/resume/themes";
+import type { MujiThemeId } from "@/modules/resume/renderer/types";
 
 export interface DeriveGuidanceContinueOpts {
   action: string;
@@ -16,40 +18,41 @@ interface Props {
 }
 
 export function DeriveGuidance({ open, runId, onClose, onContinue }: Props) {
-  const [templateId, setTemplateId] = useState("pikachu");
+  const [templateId, setTemplateId] = useState<MujiThemeId>(DEFAULT_V3_THEME_ID);
   const [pages, setPages] = useState<1 | 2 | 3>(1);
 
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      data-testid="derive-guidance"
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="页数校准引导"
+      footer={<Button variant="secondary" onClick={onClose}>关闭</Button>}
     >
-      <Card className="w-full max-w-lg space-y-4 p-6">
-        <h2 className="text-lg font-semibold">页数校准引导</h2>
+      <div className="space-y-4" data-testid="derive-guidance">
         <p className="text-sm text-muted-foreground">
           当前页数与目标不一致。可选择以下方式继续调整{runId ? "（将重新排队派生任务）" : ""}。
         </p>
 
         <div className="space-y-3">
           <div className="rounded border p-3 space-y-2">
-            <p className="text-sm font-medium">切换模板</p>
+            <p className="text-sm font-medium">切换简历主题</p>
             <select
               className="w-full rounded border px-2 py-1 text-sm"
               value={templateId}
-              onChange={(e) => setTemplateId(e.target.value)}
+              onChange={(e) => setTemplateId(e.target.value as MujiThemeId)}
             >
-              <option value="pikachu">Pikachu</option>
-              <option value="onyx">Onyx</option>
-              <option value="bronzor">Bronzor</option>
+              {listV3Themes().map((theme) => (
+                <option key={theme.id} value={theme.id}>{theme.name}</option>
+              ))}
             </select>
             <Button
               size="sm"
               variant="secondary"
               onClick={() => onContinue({ action: "switch_template", template_id: templateId })}
             >
-              应用模板并继续
+              应用主题并继续
             </Button>
           </div>
 
@@ -104,12 +107,7 @@ export function DeriveGuidance({ open, runId, onClose, onContinue }: Props) {
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <Button variant="secondary" onClick={onClose}>
-            关闭
-          </Button>
-        </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }

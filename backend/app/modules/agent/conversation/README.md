@@ -39,6 +39,7 @@ Delete / Offer → Web guide (no execute).
 ```bash
 cd backend
 uv run python -m app.modules.agent.cli parse-intent "帮我记一个腾讯的后端岗" --json
+uv run python -m app.modules.agent.cli chat <user_id> --text "查询我的岗位" --json
 uv run python -m app.modules.agent.cli simulate-chat <user_id>
 ```
 

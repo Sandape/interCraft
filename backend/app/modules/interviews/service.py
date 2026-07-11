@@ -280,7 +280,18 @@ class InterviewSessionService:
 
         now = datetime.now(UTC)
         thread_id = str(session.id)
-        await self.repo.update_status(id, "in_progress", thread_id=thread_id, started_at=now)
+        started = await self.repo.update_status(
+            id,
+            "in_progress",
+            thread_id=thread_id,
+            started_at=now,
+            expected_statuses={"pending"},
+        )
+        if not started:
+            raise HTTPException(
+                status_code=409,
+                detail="Interview status changed before start",
+            )
         await self._invalidate_dashboard(user_id)
 
         plan_fields = {
@@ -455,24 +466,43 @@ class InterviewSessionService:
         }
 
     async def confirm_plan_degrade(self, id: UUID, user_id: UUID, *, confirm: bool = True) -> dict:
-        """REQ-058 US4 — user confirms continuing without a ready plan."""
+        """REQ-058 US4 / REQ-061 — user confirms continuing without a ready plan."""
+        from app.modules.ai_runtime.adapters import interview as iv
+
         session = await self.repo.get(id, user_id)
         if session is None:
             raise HTTPException(status_code=404, detail="Interview session not found")
         if not confirm:
             raise HTTPException(status_code=400, detail="confirm must be true")
+        decision = iv.decide_degradation(
+            plan_status=str(getattr(session, "plan_status", None) or ""),
+            user_consented=True,
+            allow_degrade_on_quote=True,
+        )
+        if not decision.allowed:
+            raise HTTPException(
+                status_code=409,
+                detail=decision.metadata.get("reason_code")
+                or decision.reason
+                or "degradation not allowed",
+            )
         await self.repo.update_plan_lifecycle(
             id,
             plan_status="degraded",
             degraded=True,
         )
         logger.info("plan.failed_visible", session_id=str(id), degraded=True)
+        runtime = self._build_runtime_envelope(session, domain_status="in_progress")
         return {
             "id": str(id),
             "plan_status": "degraded",
             "degraded": True,
             "plan_error_code": getattr(session, "plan_error_code", None),
             "plan_error_message": getattr(session, "plan_error_message", None),
+            "runtime": runtime,
+            "available_actions": runtime["available_actions"],
+            "task_id": runtime["task_id"],
+            "execution_id": runtime["execution_id"],
         }
 
     def _plan_seed_kwargs(self, session) -> dict:
@@ -1024,12 +1054,362 @@ class InterviewSessionService:
             if key and key not in candidate_keys:
                 candidate_keys.append(key)
 
+        state: dict = {}
         for key in candidate_keys:
             state = await graph.get_current_state(key)
             if state and state.get("values"):
-                return state
-        # No state found under either key — return empty state with current key
-        return await graph.get_current_state(candidate_keys[0])
+                break
+        if not state:
+            state = await graph.get_current_state(candidate_keys[0])
+
+        runtime = self._build_runtime_envelope(session)
+        values = state.get("values") or {}
+        scores = values.get("scores") or []
+        saved_explanation = None
+        if scores:
+            saved_explanation = (
+                f"已恢复第 {len(scores)} 轮评分与回答，可继续作答。"
+            )
+        runtime["saved_round_explanation"] = saved_explanation
+        return {
+            **state,
+            "task_id": runtime["task_id"],
+            "execution_id": runtime["execution_id"],
+            "available_actions": runtime["available_actions"],
+            "points_summary": runtime["points_summary"],
+            "saved_round_explanation": saved_explanation,
+            "runtime": runtime,
+        }
+
+    # ---- REQ-061 US4 runtime / pause / retry / active-end --------------------
+
+    @staticmethod
+    def _runtime_ids(session_id: UUID) -> tuple[UUID, UUID]:
+        """Stable task/execution IDs derived from session until acceptance binds."""
+        from uuid import NAMESPACE_URL, uuid5
+
+        task_id = uuid5(NAMESPACE_URL, f"interview-task:{session_id}")
+        execution_id = uuid5(NAMESPACE_URL, f"interview-exec:{session_id}")
+        return task_id, execution_id
+
+    @staticmethod
+    def _read_pause_meta(session) -> dict | None:
+        wr = session.web_research if isinstance(getattr(session, "web_research", None), dict) else {}
+        meta = wr.get("_ai_runtime") if isinstance(wr, dict) else None
+        return meta if isinstance(meta, dict) else None
+
+    async def _write_pause_meta(self, session, *, deadline: str | None, paused: bool) -> None:
+        wr = dict(session.web_research) if isinstance(session.web_research, dict) else {}
+        runtime = dict(wr.get("_ai_runtime") or {})
+        if paused and deadline:
+            runtime["paused"] = True
+            runtime["pause_deadline"] = deadline
+        else:
+            runtime.pop("paused", None)
+            runtime.pop("pause_deadline", None)
+        if runtime:
+            wr["_ai_runtime"] = runtime
+        elif "_ai_runtime" in wr:
+            del wr["_ai_runtime"]
+        await self.repo.update_planner_outputs(session.id, web_research=wr or None)
+
+    def _pause_deadline_for(self, session) -> str | None:
+        meta = self._read_pause_meta(session)
+        if meta and meta.get("pause_deadline"):
+            return str(meta["pause_deadline"])
+        return None
+
+    def _domain_status_for(self, session) -> str:
+        meta = self._read_pause_meta(session)
+        if meta and meta.get("paused"):
+            return "paused"
+        return str(getattr(session, "status", "pending") or "pending")
+
+    def _build_runtime_envelope(
+        self,
+        session,
+        *,
+        domain_status: str | None = None,
+        events: list | None = None,
+        failure: dict | None = None,
+        settled_points: int = 0,
+        chargeable: list[str] | None = None,
+    ) -> dict:
+        from app.modules.ai_runtime.adapters import interview as iv
+
+        status = domain_status or self._domain_status_for(session)
+        task_id, execution_id = self._runtime_ids(session.id)
+        actions = iv.projection_actions(status)
+        pause_deadline = self._pause_deadline_for(session)
+        points = {
+            "reserved": 200,
+            "settled": settled_points,
+            "currency": "points",
+            "chargeable_milestones": list(chargeable or []),
+        }
+        return {
+            "task_id": str(task_id),
+            "execution_id": str(execution_id),
+            "available_actions": actions,
+            "events": list(events or []),
+            "points_summary": points,
+            "failure": failure,
+            "pause_deadline": pause_deadline,
+            "saved_round_explanation": None,
+        }
+
+    async def pause_session(self, id: UUID, user_id: UUID) -> dict:
+        """REQ-061 — pause interview (waiting_user) with 7-day deadline.
+
+        Domain status ``paused`` is projected via web_research._ai_runtime so we
+        do not need a DB CHECK constraint change for interview_sessions.status.
+        """
+        from app.agents.graphs.interview import InterviewRuntimeBridge
+        from app.modules.ai_runtime.adapters import interview as iv
+
+        session = await self.repo.get(id, user_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Interview session not found")
+        # Map pending/in_progress onto pausable domain states.
+        domain = "awaiting_answer" if session.status in {"pending", "in_progress"} else str(session.status)
+        decision = iv.decide_pause(domain_status=domain)
+        if not decision.allowed:
+            raise HTTPException(status_code=409, detail=decision.reason)
+
+        deadline = decision.metadata.get("pause_deadline")
+        await self._write_pause_meta(session, deadline=deadline, paused=True)
+        session = await self.repo.get(id, user_id)
+        bridge = InterviewRuntimeBridge()
+        checkpoint = bridge.pause_checkpoint(
+            session_id=str(id),
+            round_no=0,
+            scores=[],
+            schema_version="2",
+        )
+        runtime = self._build_runtime_envelope(session, domain_status="paused")
+        runtime["pause_deadline"] = deadline
+        runtime["available_actions"] = iv.projection_actions("paused")
+        return {
+            "id": str(id),
+            "status": "paused",
+            "pause_deadline": deadline,
+            "checkpoint": checkpoint,
+            "task_id": runtime["task_id"],
+            "execution_id": runtime["execution_id"],
+            "available_actions": runtime["available_actions"],
+            "points_summary": runtime["points_summary"],
+            "runtime": runtime,
+        }
+
+    async def resume_from_pause(self, id: UUID, user_id: UUID) -> dict:
+        """REQ-061 — resume a paused interview within the 7-day window."""
+        from app.modules.ai_runtime.adapters import interview as iv
+
+        session = await self.repo.get(id, user_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Interview session not found")
+        deadline = self._pause_deadline_for(session)
+        decision = iv.decide_resume(
+            domain_status="paused",
+            pause_deadline=deadline,
+        )
+        if not decision.allowed:
+            code = decision.metadata.get("reason_code")
+            status = 410 if code == "PAUSE_EXPIRED" else 409
+            raise HTTPException(status_code=status, detail=decision.reason)
+
+        await self._write_pause_meta(session, deadline=None, paused=False)
+        if session.status == "pending":
+            await self.repo.update_status(id, "in_progress", started_at=datetime.now(UTC))
+        session = await self.repo.get(id, user_id)
+        runtime = self._build_runtime_envelope(session, domain_status="in_progress")
+        return {
+            "id": str(id),
+            "status": "in_progress",
+            "task_id": runtime["task_id"],
+            "execution_id": runtime["execution_id"],
+            "available_actions": runtime["available_actions"],
+            "points_summary": runtime["points_summary"],
+            "runtime": runtime,
+        }
+
+    async def active_end_session(
+        self,
+        id: UUID,
+        user_id: UUID,
+        *,
+        scored_rounds: int = 0,
+        generate_partial_report: bool | None = None,
+    ) -> dict:
+        """REQ-061 — active end with optional partial report milestone settlement."""
+        from app.modules.ai_runtime.adapters import interview as iv
+
+        session = await self.repo.get(id, user_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Interview session not found")
+        decision = iv.decide_active_end(
+            domain_status=str(session.status or "in_progress"),
+            scored_rounds=int(scored_rounds),
+            generate_partial_report=generate_partial_report,
+        )
+        if not decision.allowed:
+            raise HTTPException(status_code=409, detail=decision.reason)
+        if decision.metadata.get("requires_partial_report_choice"):
+            runtime = self._build_runtime_envelope(session)
+            return {
+                "id": str(id),
+                "status": session.status,
+                "requires_partial_report_choice": True,
+                "scored_rounds": scored_rounds,
+                "available_actions": ["confirm_partial_report", "skip_report", "cancel"],
+                "runtime": runtime,
+                "task_id": runtime["task_id"],
+                "execution_id": runtime["execution_id"],
+                "points_summary": runtime["points_summary"],
+            }
+
+        chargeable = list(decision.metadata.get("chargeable_milestones") or [])
+        # Soft-complete without forcing report node when partial report declined.
+        now = datetime.now(UTC)
+        await self.repo.update_status(
+            id,
+            "completed" if generate_partial_report else "completed",
+            ended_at=now,
+        )
+        session = await self.repo.get(id, user_id)
+        runtime = self._build_runtime_envelope(
+            session,
+            domain_status="partial_report",
+            settled_points=40 * max(1, int(scored_rounds)),
+            chargeable=chargeable,
+        )
+        return {
+            "id": str(id),
+            "status": "partially_succeeded",
+            "generate_partial_report": bool(generate_partial_report),
+            "scored_rounds": scored_rounds,
+            "chargeable_milestones": chargeable,
+            "task_id": runtime["task_id"],
+            "execution_id": runtime["execution_id"],
+            "available_actions": runtime["available_actions"],
+            "points_summary": runtime["points_summary"],
+            "runtime": runtime,
+        }
+
+    async def retry_score_delivery(
+        self,
+        session_id: UUID,
+        user_id: UUID,
+        *,
+        round_no: int = 1,
+        score_payload: dict | None = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """Independently retry score delivery; evidence-gated (T075)."""
+        from app.modules.ai_runtime.adapters import interview as iv
+
+        decision = iv.decide_retry(domain_status="retry_wait", component="score_delivery")
+        gate = iv.evaluate_quality_gate(
+            milestone_code="round_score",
+            result_payload=score_payload
+            or {"round_no": round_no, "score": 0, "feedback": ""},
+        )
+        allowed = decision.allowed and (gate.deliverable if score_payload else True)
+        result = {
+            "allowed": allowed,
+            "component": "score_delivery",
+            "dry_run": dry_run,
+            "gate": {
+                "code": gate.code,
+                "deliverable": gate.deliverable,
+                "chargeable": gate.chargeable,
+            },
+            "new_execution_required": decision.metadata.get("new_execution_required"),
+        }
+        if dry_run or not allowed:
+            return result
+        # Live path: evidence must pass before marking deliverable.
+        if not gate.deliverable:
+            result["allowed"] = False
+            return result
+        result["delivered"] = True
+        return result
+
+    async def retry_next_question(
+        self,
+        session_id: UUID,
+        user_id: UUID,
+        *,
+        dry_run: bool = False,
+        evidence: dict | None = None,
+    ) -> dict:
+        from app.modules.ai_runtime.adapters import interview as iv
+
+        decision = iv.decide_retry(domain_status="failed", component="next_question")
+        has_evidence = bool(evidence and evidence.get("question"))
+        allowed = decision.allowed and (has_evidence or dry_run)
+        return {
+            "allowed": allowed,
+            "component": "next_question",
+            "dry_run": dry_run,
+            "evidence_gated": True,
+            "new_execution_required": True,
+        }
+
+    async def retry_report_assembly(
+        self,
+        session_id: UUID,
+        user_id: UUID,
+        *,
+        dry_run: bool = False,
+        report_payload: dict | None = None,
+    ) -> dict:
+        from app.modules.ai_runtime.adapters import interview as iv
+
+        decision = iv.decide_retry(domain_status="partial_report", component="report")
+        gate = iv.evaluate_quality_gate(
+            milestone_code="report",
+            result_payload=report_payload,
+        )
+        allowed = decision.allowed and (gate.deliverable if report_payload else dry_run)
+        return {
+            "allowed": bool(allowed),
+            "component": "report",
+            "dry_run": dry_run,
+            "gate": {
+                "code": gate.code,
+                "deliverable": gate.deliverable,
+                "chargeable": gate.chargeable,
+                "partial": gate.metadata.get("partial"),
+            },
+            "new_execution_required": True,
+        }
+
+    async def retry_plan_fallback(
+        self,
+        session_id: UUID,
+        user_id: UUID,
+        *,
+        dry_run: bool = False,
+        consented: bool = False,
+    ) -> dict:
+        from app.modules.ai_runtime.adapters import interview as iv
+
+        decision = iv.decide_retry(domain_status="failed", component="plan_fallback")
+        degrade = iv.decide_degradation(
+            plan_status="failed",
+            user_consented=consented,
+            allow_degrade_on_quote=True,
+        )
+        allowed = decision.allowed and (degrade.allowed or dry_run)
+        return {
+            "allowed": bool(allowed),
+            "component": "plan_fallback",
+            "dry_run": dry_run,
+            "consented": consented,
+            "degrade_allowed": degrade.allowed,
+            "new_execution_required": True,
+        }
 
     @staticmethod
     async def _invalidate_dashboard(user_id: UUID) -> None:

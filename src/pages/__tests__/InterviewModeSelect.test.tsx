@@ -146,6 +146,22 @@ describe('InterviewModeSelect', () => {
     expect(screen.queryByTestId('setup-company-input')).not.toBeInTheDocument()
   })
 
+  it('links the empty resume state to the canonical create flow', async () => {
+    mocks.resumes = []
+
+    renderModeSelect()
+
+    expect(await screen.findByRole('link', { name: '去创建' })).toHaveAttribute('href', '/resume?new=true')
+  })
+
+  it('prefers resume_id while keeping branch_id as a legacy alias', async () => {
+    mocks.resumes = [resume, { ...resume, id: 'resume-2', name: '定向简历' }]
+
+    renderModeSelect('/interview/mode?job_id=job-1&resume_id=resume-2')
+
+    expect(await screen.findByTestId('interview-resume-picker')).toHaveValue('resume-2')
+  })
+
   it('requests jobs within the backend-supported page limit', async () => {
     renderModeSelect()
 
@@ -159,6 +175,8 @@ describe('InterviewModeSelect', () => {
     expect(await screen.findByTestId('interview-launch-workbench')).toBeVisible()
     expect(screen.getByTestId('interview-job-jd')).toHaveTextContent('Original JD')
     expect(screen.getByTestId('interview-resume-picker')).toHaveValue('resume-1')
+    expect(screen.getByText('全职')).toBeInTheDocument()
+    expect(screen.getByText('招聘人数')).toBeInTheDocument()
     expect(screen.queryByTestId('setup-position-input')).not.toBeInTheDocument()
     expect(screen.queryByTestId('setup-company-input')).not.toBeInTheDocument()
 

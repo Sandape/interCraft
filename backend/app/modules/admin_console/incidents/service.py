@@ -563,7 +563,21 @@ def list_incidents() -> IncidentListResponse:
     Sort: ``(severity desc, last_seen_at desc)`` per FR-021 AC-21.2.
     Includes the confirmed / candidate split (EC-1) and per-list
     freshness envelope (FR-028).
+
+    REQ-061 T170: when seed fallbacks are disabled, return empty
+    unavailable freshness instead of demo seed.
     """
+    from app.modules.admin_console.production_fallbacks import seed_fallbacks_disabled
+
+    if seed_fallbacks_disabled():
+        return IncidentListResponse(
+            incidents=[],
+            total=0,
+            confirmed_count=0,
+            candidate_count=0,
+            freshness_at="unavailable",
+        )
+
     incidents = seed_demo_incidents()
     # Sort by severity priority desc, then last_seen_at desc.
     incidents.sort(

@@ -499,3 +499,10 @@
 5. **5-agent wiring 不能假设所有 LLM 客户端都有 `bind_tools`** — production `LLMClient` 仅含 `invoke`。一律用 `if hasattr(client, "bind_tools"): ...` 守卫 — 这是结构性声明，不是 silent fallback。
 6. **不要 mock spy `MarkComplete.func`** — async `@tool` 暴露 `.coroutine`；spy 必须 patch 真正的字段否则 spy 永远不被调用（无法 validate deny 路径）。
 7. **不要跨团队改文件** — 仅改 worktree 范围内（5 个 wiring 文件 + 1 个 utils/node_error.py + 1 个新 tools/approval.py + 1 个新测试）；其他团队（038 / 023 / 040 / 044）仅可 import。
+
+## 260711 REQ-061 - FORCE RLS 下计量写入必须显式 bind tenant
+
+**问题**: `ai_point_*` 表启用 FORCE RLS 后，服务层/测试用 `_session_cm()` 或不完整的 auth override（只 override `get_current_user_id` 而 `db_session_user_dep` 仍走 `get_current_user_id_optional`）会导致 `app.user_id` 为空，INSERT 直接 `InsufficientPrivilegeError: violates row-level security policy`；`commit` 后 SET LOCAL 丢失，后续读写再次失败。
+**修复**: `PointMeteringRepository.bind_tenant(user_id)` 在所有 tenant 读写前调用；`grant`/`get_or_create_account` 用 `begin_nested` + `IntegrityError` 处理并发单飞；acceptance 在 reserve 前 `ensure_daily_entitlement`。
+**适用场景**: 任何 FORCE RLS 租户表的 worker、CLI、integration test、contract auth override。
+**避免**: 假设「override 了 get_current_user_id 就等于 RLS 已绑定」；假设 `session.commit()` 后 GUC 仍在。

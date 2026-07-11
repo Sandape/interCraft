@@ -4,7 +4,7 @@ This file is the always-loaded routing layer for AI coding agents. Keep it short
 and point agents to the canonical source for the current task.
 
 <!-- SPECKIT START -->
-Current SpecKit plan: `specs/057-dashboard-home-optimize/plan.md`.
+Current SpecKit plan: `specs/061-ai-agent-production/plan.md`.
 <!-- SPECKIT END -->
 
 ## Canonical Navigation

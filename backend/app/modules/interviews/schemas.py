@@ -1,8 +1,8 @@
-"""Interview session schemas (Phase 2 + Phase 4 + REQ-048)."""
+"""Interview session schemas (Phase 2 + Phase 4 + REQ-048 + REQ-061)."""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -26,9 +26,49 @@ class InterviewSessionCreate(BaseModel):
     use_variants: bool = False
     # 019 — Job→Interview linking (optional)
     job_id: UUID | None = None
+    # REQ-061 — optional quote/degrade flags for runtime acceptance binding
+    allow_degrade: bool = False
+    service_tier: Literal["standard", "quality"] = "standard"
 
 
 PlanStatus = Literal["pending", "ready", "failed", "degraded"]
+
+
+class InterviewRuntimeEvent(BaseModel):
+    """Ordered server event for reconnect / WS sync (REQ-061 T074)."""
+
+    type: str
+    sequence: int
+    session_id: str | None = None
+    round_no: int | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class InterviewPointsSummary(BaseModel):
+    reserved: int = 0
+    settled: int = 0
+    currency: str = "points"
+    chargeable_milestones: list[str] = Field(default_factory=list)
+
+
+class SafeFailureDetail(BaseModel):
+    code: str
+    message: str
+    safe: bool = True
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class InterviewRuntimeEnvelope(BaseModel):
+    """Canonical runtime projection attached to interview HTTP responses."""
+
+    task_id: UUID | None = None
+    execution_id: UUID | None = None
+    available_actions: list[str] = Field(default_factory=list)
+    events: list[InterviewRuntimeEvent] = Field(default_factory=list)
+    points_summary: InterviewPointsSummary | None = None
+    failure: SafeFailureDetail | None = None
+    pause_deadline: datetime | str | None = None
+    saved_round_explanation: str | None = None
 
 
 class InterviewSessionStartOut(BaseModel):
@@ -43,6 +83,13 @@ class InterviewSessionStartOut(BaseModel):
     plan_error_code: str | None = None
     plan_error_message: str | None = None
     degraded: bool = False
+    # REQ-061
+    task_id: UUID | None = None
+    execution_id: UUID | None = None
+    available_actions: list[str] = Field(default_factory=list)
+    points_summary: InterviewPointsSummary | None = None
+    failure: SafeFailureDetail | None = None
+    runtime: InterviewRuntimeEnvelope | None = None
 
 
 class InterviewSessionOut(BaseModel):
@@ -73,8 +120,29 @@ class InterviewSessionOut(BaseModel):
     overall_score: float | None
     created_at: datetime
     updated_at: datetime
+    # REQ-061 runtime projection (optional; omitted for legacy rows)
+    task_id: UUID | None = None
+    execution_id: UUID | None = None
+    available_actions: list[str] = Field(default_factory=list)
+    points_summary: InterviewPointsSummary | None = None
+    failure: SafeFailureDetail | None = None
+    pause_deadline: datetime | str | None = None
+    runtime: InterviewRuntimeEnvelope | None = None
 
     model_config = {"from_attributes": True}
+
+
+class InterviewActiveEndIn(BaseModel):
+    scored_rounds: int = Field(default=0, ge=0)
+    generate_partial_report: bool | None = None
+
+
+class InterviewRetryComponentIn(BaseModel):
+    component: Literal["score_delivery", "next_question", "report", "plan_fallback"]
+    round_no: int | None = None
+    evidence: dict[str, Any] | None = None
+    dry_run: bool = False
+    consented: bool = False
 
 
 class InterviewPlanDegradeIn(BaseModel):
@@ -109,8 +177,13 @@ class InterviewSessionResumeOut(BaseModel):
 
 
 __all__ = [
+    "InterviewActiveEndIn",
     "InterviewMode",
     "InterviewPlanDegradeIn",
+    "InterviewPointsSummary",
+    "InterviewRetryComponentIn",
+    "InterviewRuntimeEnvelope",
+    "InterviewRuntimeEvent",
     "InterviewSessionCreate",
     "InterviewSessionCreateOut",
     "InterviewSessionListOut",
@@ -118,4 +191,5 @@ __all__ = [
     "InterviewSessionResumeOut",
     "InterviewSessionStartOut",
     "PlanStatus",
+    "SafeFailureDetail",
 ]

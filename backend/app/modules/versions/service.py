@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import copy
 import difflib
+from datetime import UTC, datetime
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +23,72 @@ from app.modules.versions.schemas import (
     VersionDiff,
 )
 from app.modules.versions.snapshot import build_snapshot, restore_version
+
+
+class VersionConflictError(Exception):
+    """Optimistic concurrency failure for resume/AI mutation paths."""
+
+    def __init__(
+        self,
+        message: str = "Resume version conflict",
+        *,
+        code: str = "VERSION_CONFLICT",
+        current_version: int | None = None,
+        expected_version: int | None = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.current_version = current_version
+        self.expected_version = expected_version
+        super().__init__(message)
+
+
+def assert_optimistic_version(
+    *,
+    current_version: int,
+    expected_version: int,
+    code: str = "VERSION_CONFLICT",
+    message: str = "Resume changed; refresh and retry.",
+) -> None:
+    """Raise when client-held version no longer matches the authoritative row."""
+    if int(current_version) != int(expected_version):
+        raise VersionConflictError(
+            message,
+            code=code,
+            current_version=int(current_version),
+            expected_version=int(expected_version),
+        )
+
+
+def build_ai_mutation_evidence(
+    *,
+    operation: Literal["preview", "apply", "undo"],
+    resume_id: str | UUID,
+    base_version: int,
+    result_version: int | None = None,
+    suggestion_ids: list[str] | None = None,
+    change_set_id: str | None = None,
+    preview_digest: str | None = None,
+    fact_gate_passed: bool = True,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Durable evidence record for suggestion preview/apply/undo (REQ-061 T064)."""
+    payload: dict[str, Any] = {
+        "operation": operation,
+        "resume_id": str(resume_id),
+        "base_version": int(base_version),
+        "result_version": int(result_version) if result_version is not None else None,
+        "suggestion_ids": list(suggestion_ids or []),
+        "change_set_id": change_set_id,
+        "preview_digest": preview_digest,
+        "fact_gate_passed": bool(fact_gate_passed),
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "author_type": "ai",
+        "trigger": "ai",
+    }
+    if extra:
+        payload["extra"] = dict(extra)
+    return payload
 
 
 class VersionService:
@@ -366,4 +434,9 @@ def diff_blocks(
     return out
 
 
-__all__ = ["VersionService"]
+__all__ = [
+    "VersionConflictError",
+    "VersionService",
+    "assert_optimistic_version",
+    "build_ai_mutation_evidence",
+]

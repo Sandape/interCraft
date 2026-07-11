@@ -309,7 +309,7 @@ class DashboardService:
     def _onboarding(has_resume: bool, has_job: bool, has_interview: bool) -> OnboardingProgressOut | None:
         steps = [
             OnboardingStepOut(id="resume", done=has_resume, href="/resume"),
-            OnboardingStepOut(id="job", done=has_job, href="/jobs"),
+            OnboardingStepOut(id="job", done=has_job, href="/jobs?new=true"),
             OnboardingStepOut(id="interview", done=has_interview, href="/interview/mode"),
         ]
         show = not all(s.done for s in steps)
@@ -447,7 +447,12 @@ class DashboardService:
         if derived_id:
             actions.append(CtaOut(label="打开派生简历", href=f"/resume/{derived_id}"))
         else:
-            actions.append(CtaOut(label="去派生简历", href="/resume"))
+            actions.append(
+                CtaOut(
+                    label="去派生简历",
+                    href=f"/resume?derive=true&job_id={interview.job_id}",
+                )
+            )
         return PrepPackOut(job_id=interview.job_id, derived_resume_id=derived_id, actions=actions)
 
     @staticmethod

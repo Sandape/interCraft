@@ -70,7 +70,8 @@ class InterviewSessionRepository:
         ended_at: datetime | None = None,
         duration_sec: int | None = None,
         overall_score: float | None = None,
-    ) -> None:
+        expected_statuses: set[str] | None = None,
+    ) -> bool:
         values = {"status": status, "updated_at": datetime.now(UTC)}
         if thread_id is not None:
             values["thread_id"] = thread_id
@@ -83,10 +84,14 @@ class InterviewSessionRepository:
         if overall_score is not None:
             values["overall_score"] = overall_score
 
-        await self.session.execute(
-            update(InterviewSession).where(InterviewSession.id == id).values(**values)
-        )
+        statement = update(InterviewSession).where(InterviewSession.id == id)
+        if expected_statuses is not None:
+            statement = statement.where(
+                InterviewSession.status.in_(sorted(expected_statuses))
+            )
+        changed = await self.session.execute(statement.values(**values))
         await self.session.flush()
+        return changed.rowcount == 1
 
     async def update_planner_outputs(
         self,

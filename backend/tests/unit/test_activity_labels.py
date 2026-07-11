@@ -39,3 +39,12 @@ def test_never_uses_raw_type_for_known():
     ):
         title, _, _ = render_activity(t, {})
         assert title != t
+
+
+def test_completed_interview_activity_opens_report_not_live_session():
+    _, _, href = render_activity(
+        "interview_completed",
+        {"session_id": "session-1", "company": "A", "position": "B"},
+    )
+
+    assert href == "/interview/session-1/report"

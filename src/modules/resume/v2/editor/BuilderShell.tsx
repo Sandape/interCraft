@@ -12,7 +12,7 @@
 // exposes panel-toggle state for the Header.
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Copy } from "lucide-react";
+import { Copy, Sparkles } from "lucide-react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { ResumeDataV2 } from "../schema/data";
 import { Header } from "./Header";
@@ -37,6 +37,7 @@ import { DialogHost } from "./dialogs/DialogHost";
 import { MarkdownResumeEditor } from "./MarkdownResumeEditor";
 import { DEFAULT_MARKDOWN_SETTINGS } from "../../renderer/types";
 import { ExportMenu } from "./controls/ExportMenu";
+import { AIWorkspace } from "../../ai";
 
 const STORAGE_KEY = "v2.panel-sizes";
 const DEFAULT_SIZES: [number, number, number] = [22, 56, 22];
@@ -51,6 +52,8 @@ export interface BuilderShellProps {
   ownerUsername?: string;
   isPublic?: boolean;
   passwordSet?: boolean;
+  resumeKind?: string;
+  jobId?: string | null;
 }
 
 function readSizes(): [number, number, number] {
@@ -107,6 +110,8 @@ export function BuilderShell({
   ownerUsername,
   isPublic = false,
   passwordSet = false,
+  resumeKind = "standard",
+  jobId = null,
 }: BuilderShellProps) {
   const isMobile = useIsMobile();
   const [sizes, setSizes] = useState<[number, number, number]>(() => readSizes());
@@ -115,6 +120,7 @@ export function BuilderShell({
   const [zoom, setZoom] = useState(1);
   const [stacking, setStacking] = useState<"horizontal" | "vertical">("vertical");
   const [duplicating, setDuplicating] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   // v2 batch 2: right panel switched from a 12-accordion SettingsPanel
   // container (v1 contract) to a tab-switched group of 6 dedicated panels
   // (Typography/Design/Styles/Page/Layout/Analysis). The 6 panels live
@@ -283,7 +289,7 @@ export function BuilderShell({
 
   return (
     <div
-      className="flex h-screen w-full flex-col bg-surface-muted"
+      className="relative flex h-screen w-full flex-col bg-surface-muted"
       data-testid="v2-editor"
       data-builder-shell="true"
       data-markdown-cutover="true"
@@ -303,6 +309,15 @@ export function BuilderShell({
           {(data as { basics?: { name?: string } }).basics?.name || resumeId}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="open-ai-workspace"
+            onClick={() => setAiOpen(true)}
+            className="flex h-8 items-center gap-1.5 border border-[#9a5938] bg-[#fffaf4] px-3 text-xs font-medium text-[#7f4328] transition-colors hover:bg-[#f4e9dd]"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            AI 指导
+          </button>
           <button
             type="button"
             data-testid="header-duplicate"
@@ -357,6 +372,14 @@ export function BuilderShell({
       {/* REQ-034 US1: mount the dialog dispatcher once near the root. It
           renders nothing when no dialog is open (returns null). */}
       <DialogHost />
+      {aiOpen && (
+        <AIWorkspace
+          resumeId={resumeId}
+          resumeKind={resumeKind}
+          jobId={jobId}
+          onClose={() => setAiOpen(false)}
+        />
+      )}
     </div>
   );
 }

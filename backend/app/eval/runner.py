@@ -600,7 +600,23 @@ class EvalRunner:
             return await self._invoke_score_llm_node(state, stub)
         if node == "interview.report":
             return await self._invoke_report_node(state, stub)
-        # Future: error_coach.evaluate, resume_optimize.generate, etc.
+
+        # REQ-061 US11 (T143): dispatch registered stub capabilities.
+        # Interview live paths above are unchanged; stubs never call graphs.
+        from app.eval.capability_registry import get_capability_registry
+
+        registry = get_capability_registry()
+        handler = registry.get_handler(node)
+        if handler is not None:
+            return await handler(state, llm_response=case.llm_response)
+        entry = registry.get_by_node(node)
+        if entry is not None and entry.stub:
+            return {
+                "node": node,
+                "stub": True,
+                "echo_state_keys": sorted(state.keys()),
+                "status": "ok",
+            }
         raise ValueError(f"unsupported_node:{node}")
 
     async def _invoke_score_llm_node(

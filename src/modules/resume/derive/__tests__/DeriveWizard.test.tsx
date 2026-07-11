@@ -5,6 +5,7 @@ import { DeriveWizard } from "../DeriveWizard";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
+  startDerive: vi.fn(),
   jobs: [] as Array<{
     id: string;
     company: string;
@@ -32,7 +33,7 @@ vi.mock("@/hooks/queries/useJobs", () => ({
 }));
 
 vi.mock("../api", () => ({
-  startDerive: vi.fn(),
+  startDerive: mocks.startDerive,
 }));
 
 function renderWizard(open = true) {
@@ -51,6 +52,7 @@ function renderWizard(open = true) {
 describe("DeriveWizard", () => {
   beforeEach(() => {
     mocks.navigate.mockReset();
+    mocks.startDerive.mockReset();
     mocks.jobs = [
       {
         id: "job-no-jd",
@@ -83,5 +85,38 @@ describe("DeriveWizard", () => {
   it("renders nothing when closed", () => {
     renderWizard(false);
     expect(screen.queryByTestId("derive-wizard")).not.toBeInTheDocument();
+  });
+
+  it("uses the editor's three themes and sends the selected theme", async () => {
+    mocks.jobs = [
+      {
+        id: "job-with-jd",
+        company: "Theme Corp",
+        position: "Designer",
+        requirements_md: "A complete JD",
+      },
+    ];
+    mocks.startDerive.mockResolvedValue({ run_id: "run-1", status: "pending" });
+    renderWizard();
+
+    fireEvent.change(screen.getByTestId("derive-job-select"), {
+      target: { value: "job-with-jd" },
+    });
+    const themeSelect = screen.getByTestId("derive-theme-select");
+    expect(themeSelect).toHaveTextContent("默认（秋风同款）");
+    expect(themeSelect).toHaveTextContent("极简色");
+    expect(themeSelect).toHaveTextContent("平面大气主题");
+    expect(themeSelect).not.toHaveTextContent("Pikachu");
+
+    fireEvent.change(themeSelect, { target: { value: "muji-flat-atmospheric" } });
+    fireEvent.click(screen.getByTestId("derive-start-btn"));
+
+    await waitFor(() => {
+      expect(mocks.startDerive).toHaveBeenCalledWith({
+        job_id: "job-with-jd",
+        target_page_count: 1,
+        template_id: "muji-flat-atmospheric",
+      });
+    });
   });
 });

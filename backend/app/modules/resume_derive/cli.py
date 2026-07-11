@@ -96,7 +96,9 @@ def run_cmd(
                 return 2
 
             if not async_mode:
-                result = await execute_resume_derive({}, run_id=str(run.id))
+                result = await execute_resume_derive(
+                    {}, run_id=str(run.id), user_id=str(run.user_id)
+                )
                 payload = {"run_id": str(run.id), **result}
             else:
                 payload = {"run_id": str(run.id), "status": run.status}

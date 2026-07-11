@@ -79,5 +79,21 @@ def replay(
     cmd_replay(fixture=fixture, as_json=True)
 
 
+# REQ-061 — mount runtime / metering CLI groups when available.
+try:
+    from app.modules.ai_runtime.cli import app as ai_runtime_cli
+
+    app.add_typer(ai_runtime_cli, name="ai-runtime")
+except Exception:  # pragma: no cover
+    pass
+
+try:
+    from app.modules.ai_metering.cli import app as ai_metering_cli
+
+    app.add_typer(ai_metering_cli, name="ai-metering")
+except Exception:  # pragma: no cover
+    pass
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

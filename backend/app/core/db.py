@@ -120,8 +120,12 @@ async def _session_cm() -> AsyncGenerator[AsyncSession, None]:
                 await session.execute(
                     __import__("sqlalchemy").text("RESET app.user_id")
                 )
+                await session.commit()
             except Exception:
-                pass
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
 
 
 async def get_db_session_no_rls() -> AsyncGenerator[AsyncSession, None]:
@@ -133,21 +137,20 @@ async def get_db_session_no_rls() -> AsyncGenerator[AsyncSession, None]:
 async def get_db_session(
     user_id: UUID | None = None,
 ) -> AsyncGenerator[AsyncSession, None]:
-    """Per-request session. If `user_id` is provided, bind RLS via `SET LOCAL`."""
+    """Per-request session with an explicit transaction-local RLS identity.
+
+    Anonymous requests bind an empty identity so a pooled connection can never
+    inherit the preceding request's user. Authenticated requests bind their own
+    id for the same transaction only.
+    """
     async with _session_cm() as session:
         await session.begin()
-        if user_id is not None:
-            # Use SET (session-scoped) instead of SET LOCAL because asyncpg's
-            # ORM autobegin timing makes SET LOCAL disappear between the GUC
-            # statement and the subsequent ORM INSERT when running through
-            # ``session.add(...)`` + ``session.flush()``. SET (third arg false)
-            # binds for the duration of this connection — safe because the
-            # per-request session is closed at yield exit (NullPool + autouse
-            # cleanup in conftest.py).
-            await session.execute(
-                __import__("sqlalchemy").text("SELECT set_config('app.user_id', :u, false)"),
-                {"u": str(user_id)},
-            )
+        await session.execute(
+            __import__("sqlalchemy").text(
+                "SELECT set_config('app.user_id', :u, true)"
+            ),
+            {"u": str(user_id) if user_id is not None else ""},
+        )
         yield session
 
 

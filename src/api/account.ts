@@ -206,4 +206,10 @@ export const accountApi = {
       () => apiClient.request<NotificationCenterResponse>('GET', '/api/v1/account/notification-center'),
       () => ({ notifications: [], unread_count: 0 }),
     )(),
+
+  markNotificationRead: (notificationId: string) =>
+    withMock(
+      () => apiClient.request<void>('PATCH', `/api/v1/account/notifications/${notificationId}`, { is_read: true }),
+      () => undefined,
+    )(),
 }

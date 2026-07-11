@@ -8,6 +8,14 @@
         "playwright",
         "run-test-mcp-server"
       ]
+    },
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://appuser:123ABCMYSQL@81.71.152.210:5432/interCraft"
+      ]
     }
   }
 }

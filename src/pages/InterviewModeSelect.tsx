@@ -31,6 +31,16 @@ interface ErrorCountResponse {
 type OnlineMode = 'full' | 'quick_drill'
 type LoadingStage = 'idle' | 'creating' | 'planning' | 'starting'
 
+const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
+  unspecified: '未指定',
+  internship: '实习',
+  campus: '校招',
+  experienced: '社招',
+  contract: '合同/外包',
+  full_time: '全职',
+  part_time: '兼职',
+}
+
 async function fetchErrorCount(): Promise<number> {
   try {
     const body = await request<ErrorCountResponse>('GET', '/api/v1/interview-sessions/mode-recommendation')
@@ -53,7 +63,7 @@ export function InterviewModeSelect() {
   const setUseVariants = useInterviewModeStore((s) => s.setUseVariants)
 
   const urlJobId = searchParams.get('job_id')
-  const urlBranchId = searchParams.get('branch_id')
+  const urlResumeId = searchParams.get('resume_id') || searchParams.get('branch_id')
   const jobsQuery = useJobs({ limit: 50 })
   const resumesQuery = useResumeV2List()
   const jobs = jobsQuery.data?.data ?? []
@@ -62,7 +72,7 @@ export function InterviewModeSelect() {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedJobId, setSelectedJobId] = useState<string | null>(urlJobId)
-  const [selectedResumeId, setSelectedResumeId] = useState<string | null>(urlBranchId)
+  const [selectedResumeId, setSelectedResumeId] = useState<string | null>(urlResumeId)
   const [onlineMode, setOnlineMode] = useState<OnlineMode>('full')
   const [errorCount, setErrorCount] = useState<number | null>(null)
   const [quickDrillIds, setQuickDrillIds] = useState<string[]>([])
@@ -100,13 +110,13 @@ export function InterviewModeSelect() {
     if (!resumes.length) return
     setSelectedResumeId((current) => {
       if (current && resumes.some((resume) => resume.id === current)) return current
-      if (urlBranchId && resumes.some((resume) => resume.id === urlBranchId)) return urlBranchId
+      if (urlResumeId && resumes.some((resume) => resume.id === urlResumeId)) return urlResumeId
       if (selectedJob?.branch_id && resumes.some((resume) => resume.id === selectedJob.branch_id)) {
         return selectedJob.branch_id
       }
       return resumes[0].id
     })
-  }, [resumes, selectedJob?.branch_id, urlBranchId])
+  }, [resumes, selectedJob?.branch_id, urlResumeId])
 
   const selectedResume = useMemo(
     () => resumes.find((resume) => resume.id === selectedResumeId) ?? null,
@@ -251,7 +261,7 @@ export function InterviewModeSelect() {
         </header>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-          <aside className="min-h-[560px] rounded-md border border-line-2 bg-bg-1" data-testid="interview-job-panel">
+          <aside className="rounded-md border border-line-2 bg-bg-1 xl:min-h-[560px]" data-testid="interview-job-panel">
             <div className="border-b border-line-2 p-3">
               <div className="flex items-center gap-2 rounded-md border border-line-2 bg-bg-2 px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-ink-3" />
@@ -281,7 +291,7 @@ export function InterviewModeSelect() {
                 ))}
               </div>
             </div>
-            <div className="max-h-[640px] overflow-y-auto p-2" data-testid="interview-job-list">
+            <div className="max-h-[360px] overflow-y-auto p-2 xl:max-h-[640px]" data-testid="interview-job-list">
               {filteredJobs.map((job) => (
                 <JobOption
                   key={job.id}
@@ -296,7 +306,7 @@ export function InterviewModeSelect() {
             </div>
           </aside>
 
-          <main className="min-h-[560px] rounded-md border border-line-2 bg-bg-1 p-4" data-testid="interview-context-panel">
+          <main className="rounded-md border border-line-2 bg-bg-1 p-4 xl:min-h-[560px]" data-testid="interview-context-panel">
             {selectedJob ? (
               <ContextPanel
                 job={selectedJob}
@@ -309,7 +319,7 @@ export function InterviewModeSelect() {
             )}
           </main>
 
-          <aside className="min-h-[560px] rounded-md border border-line-2 bg-bg-1 p-4" data-testid="interview-mode-panel">
+          <aside className="rounded-md border border-line-2 bg-bg-1 p-4 xl:min-h-[560px]" data-testid="interview-mode-panel">
             <div className="space-y-5">
               <section>
                 <h2 className="text-sm font-semibold text-ink-1">面试方式</h2>
@@ -394,7 +404,7 @@ export function InterviewModeSelect() {
               {resumes.length === 0 && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" data-testid="interview-resume-empty">
                   还没有可用简历。请先创建或导入简历后再启动模拟面试。
-                  <Link to="/resume?new=v2" className="ml-1 font-medium underline">去创建</Link>
+                  <Link to="/resume?new=true" className="ml-1 font-medium underline">去创建</Link>
                 </div>
               )}
 
@@ -512,8 +522,11 @@ function ContextPanel({
         <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-ink-2 sm:grid-cols-2">
           <InfoRow label="地点" value={job.base_location || '未填写'} />
           <InfoRow label="薪资" value={job.salary_range_text || '未填写'} />
-          <InfoRow label="类型" value={job.employment_type || '未填写'} />
-          <InfoRow label="HC" value={job.headcount ? `${job.headcount}` : '未填写'} />
+          <InfoRow
+            label="类型"
+            value={job.employment_type ? (EMPLOYMENT_TYPE_LABELS[job.employment_type] || job.employment_type) : '未填写'}
+          />
+          <InfoRow label="招聘人数" value={job.headcount ? `${job.headcount}` : '未填写'} />
         </div>
         <div className="mt-4">
           <div className="mb-2 flex items-center justify-between">

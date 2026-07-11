@@ -22,9 +22,18 @@ export interface WSEvent {
   timestamp: string
   node_name: string
   payload: Record<string, any>
+  /** REQ-061 — ordered reconnect sequence (optional on legacy events). */
+  sequence?: number
 }
 
 export type InterviewTurnPhase = 'idle' | 'scoring' | 'awaiting_question' | 'generating_question'
+
+export interface InterviewPointsSummary {
+  reserved?: number
+  settled?: number
+  currency?: string
+  chargeable_milestones?: string[]
+}
 
 export interface InterviewWSState {
   connected: boolean
@@ -39,6 +48,12 @@ export interface InterviewWSState {
   events: WSEvent[]
   /** REQ-058 — score may arrive before the next question finishes generating. */
   turnPhase: InterviewTurnPhase
+  /** REQ-061 US4 */
+  taskId: string | null
+  executionId: string | null
+  availableActions: string[]
+  pointsSummary: InterviewPointsSummary | null
+  seenSequences: number[]
 }
 
 const MAX_RECONNECT_ATTEMPTS = 5
@@ -62,7 +77,7 @@ export function useInterviewWS(token: string) {
   const lastCheckpointRef = useRef<string | null>(null)
 
   const [state, setState] = useState<InterviewWSState>(() =>
-    isMockMode() ? { ...mockInitialState(), turnPhase: 'idle' as InterviewTurnPhase } : {
+    isMockMode() ? { ...mockInitialState(), turnPhase: 'idle' as InterviewTurnPhase, taskId: null, executionId: null, availableActions: [], pointsSummary: null, seenSequences: [] } : {
       connected: false,
       reconnecting: false,
       reconnectAttempt: 0,
@@ -74,6 +89,11 @@ export function useInterviewWS(token: string) {
       error: null,
       events: [],
       turnPhase: 'idle',
+      taskId: null,
+      executionId: null,
+      availableActions: [],
+      pointsSummary: null,
+      seenSequences: [],
     },
   )
 
@@ -107,12 +127,42 @@ export function useInterviewWS(token: string) {
   // Reuse the same event-dispatch reducer for both real and mock streams.
   const applyEvent = useCallback((parsed: WSEvent) => {
     setState(prev => {
+      // REQ-061 — dedupe by sequence when present.
+      if (typeof parsed.sequence === 'number' && prev.seenSequences.includes(parsed.sequence)) {
+        return prev
+      }
       const updates: Partial<InterviewWSState> = {
         events: [...prev.events, parsed],
+      }
+      if (typeof parsed.sequence === 'number') {
+        updates.seenSequences = [...prev.seenSequences, parsed.sequence]
+      }
+      if (parsed.payload?.task_id) {
+        updates.taskId = String(parsed.payload.task_id)
+      }
+      if (parsed.payload?.execution_id) {
+        updates.executionId = String(parsed.payload.execution_id)
+      }
+      if (Array.isArray(parsed.payload?.available_actions)) {
+        updates.availableActions = parsed.payload.available_actions as string[]
+      }
+      if (parsed.payload?.points_summary && typeof parsed.payload.points_summary === 'object') {
+        updates.pointsSummary = parsed.payload.points_summary as InterviewPointsSummary
       }
       const nextTurnPhase = applyTurnPhaseFromEvent(parsed, prev)
       if (nextTurnPhase !== undefined) {
         updates.turnPhase = nextTurnPhase
+      }
+      // Score-first: treat dedicated round.score as score complete.
+      if (parsed.type === 'round.score' || parsed.type === 'score.delivered') {
+        updates.turnPhase = 'awaiting_question'
+        updates.currentNode = 'score'
+      }
+      if (parsed.type === 'round.next_question') {
+        updates.turnPhase = 'idle'
+        if (parsed.payload.question_no !== undefined) {
+          updates.currentQuestion = parsed.payload.question_no
+        }
       }
       switch (parsed.type) {
         case 'node.started':
@@ -292,8 +342,23 @@ export function useInterviewWS(token: string) {
       type: 'reconnect',
       session_id: sessionId,
       last_seen_checkpoint_id: lastCheckpointId || lastCheckpointRef.current,
+      after_sequence: state.seenSequences.length
+        ? Math.max(...state.seenSequences)
+        : undefined,
     })
+  }, [send, state.seenSequences])
+
+  const pause = useCallback((sessionId: string) => {
+    send({ type: 'pause', session_id: sessionId })
   }, [send])
+
+  const resume = useCallback((sessionId: string) => {
+    send({ type: 'resume', session_id: sessionId })
+  }, [send])
+
+  const hydrateRuntime = useCallback(( partial: Partial<Pick<InterviewWSState, 'taskId' | 'executionId' | 'availableActions' | 'pointsSummary'>>) => {
+    setState(prev => ({ ...prev, ...partial }))
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -308,5 +373,8 @@ export function useInterviewWS(token: string) {
     send,
     submitAnswer,
     reconnect,
+    pause,
+    resume,
+    hydrateRuntime,
   }
 }

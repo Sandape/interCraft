@@ -22,6 +22,11 @@ from app.agents.state.error_coach_state import ErrorCoachState
 from app.observability import traced_node
 from app.services.error_coach_service import ErrorCoachService
 
+# REQ-061 T085 — adapter contract version for scored-round checkpoint refs.
+from app.modules.ai_runtime.adapters.error_coach import ADAPTER_VERSION as ERROR_COACH_ADAPTER_VERSION
+
+assert ERROR_COACH_ADAPTER_VERSION  # keep import live for adapter cutover hooks
+
 
 # ---------------------------------------------------------------------------
 # US2 AC-3.4 / AC-E2E-5: re-decorated shims with `__name__` matching the

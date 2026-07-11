@@ -1,43 +1,73 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Card } from "@/components/ui/Card";
-import { getDeriveRun, type DeriveRun } from "./api";
+import { AIMilestoneList, AITaskActions } from "@/components/ai";
+import { useAITask } from "@/hooks/queries/useAITasks";
+import type { AvailableAction, Milestone } from "@/types/ai-runtime";
+import { getDeriveRun, type DeriveMilestone, type DeriveRun } from "./api";
 
-/** REQ-056 SC-005: surface failure if still non-terminal after this window. */
+/** @deprecated Prefer server terminal/canonical_status; kept for test import stability. */
 export const DERIVE_CLIENT_TIMEOUT_MS = 30_000;
 
-const TERMINAL = new Set([
+const DOMAIN_TERMINAL = new Set([
   "succeeded",
   "needs_guidance",
   "failed",
   "canceled",
+  "cancelled",
+  "partially_succeeded",
 ]);
+
+const CANONICAL_TERMINAL = new Set([
+  "succeeded",
+  "partially_succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
+function isTerminal(run: DeriveRun): boolean {
+  if (run.canonical_status && CANONICAL_TERMINAL.has(run.canonical_status)) {
+    return true;
+  }
+  return DOMAIN_TERMINAL.has(run.status);
+}
+
+function toMilestones(items: DeriveMilestone[] | undefined): Milestone[] {
+  if (!items?.length) return [];
+  const allowed = new Set([
+    "pending",
+    "running",
+    "delivered",
+    "failed",
+    "cancelled",
+    "invalidated",
+  ]);
+  return items.map((m) => ({
+    code: m.code,
+    label: m.code,
+    status: (allowed.has(m.status) ? m.status : "pending") as Milestone["status"],
+    settle_eligible: Boolean(m.settle_eligible),
+    points_settled: 0,
+  }));
+}
 
 export function DeriveProgress() {
   const { runId } = useParams<{ runId: string }>();
   const [run, setRun] = useState<DeriveRun | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [timedOut, setTimedOut] = useState(false);
-  const startedAt = useRef(Date.now());
 
   useEffect(() => {
     if (!runId) return;
     let cancelled = false;
-    startedAt.current = Date.now();
-    setTimedOut(false);
 
     const tick = async () => {
       try {
         const data = await getDeriveRun(runId);
         if (cancelled) return;
         setRun(data);
-        if (TERMINAL.has(data.status)) {
-          setTimedOut(false);
-          return;
-        }
-        if (Date.now() - startedAt.current >= DERIVE_CLIENT_TIMEOUT_MS) {
-          setTimedOut(true);
-        }
+        setError(null);
+        if (isTerminal(data)) return;
       } catch (e: unknown) {
         if (!cancelled) {
           setError((e as { message?: string })?.message || "轮询失败");
@@ -45,22 +75,55 @@ export function DeriveProgress() {
       }
     };
 
-    tick();
-    const id = window.setInterval(tick, 1500);
-    const timeoutId = window.setTimeout(() => {
-      if (!cancelled) setTimedOut(true);
-    }, DERIVE_CLIENT_TIMEOUT_MS);
+    void tick();
+    const id = window.setInterval(() => {
+      void tick();
+    }, 1500);
 
     return () => {
       cancelled = true;
       window.clearInterval(id);
-      window.clearTimeout(timeoutId);
     };
   }, [runId]);
 
-  const done = run && TERMINAL.has(run.status);
-  const showTimeout =
-    timedOut && run && !TERMINAL.has(run.status) && !error;
+  const taskId = run?.task_id ?? run?.runtime?.task_id ?? null;
+  const { data: canonicalTask, refetch: refetchCanonical } = useAITask(taskId, {
+    enabled: Boolean(taskId),
+  });
+
+  const done = run ? isTerminal(run) : false;
+  const milestones = toMilestones(run?.milestones);
+  const actionsFromRun = (run?.available_actions ?? []) as AvailableAction[];
+  const actionsTask =
+    canonicalTask ??
+    (taskId
+      ? {
+          task_id: taskId,
+          task_version: 1,
+          available_actions: actionsFromRun,
+          status: (run?.canonical_status ?? "running") as
+            | "accepted"
+            | "queued"
+            | "running"
+            | "waiting_user"
+            | "retry_wait"
+            | "cancelling"
+            | "result_confirming"
+            | "succeeded"
+            | "partially_succeeded"
+            | "failed"
+            | "cancelled"
+            | "expired",
+          terminal: done,
+          point_summary: {
+            quoted_max: 0,
+            reserved: 0,
+            settled: 0,
+            released: 0,
+            settlement_status: "unsettled" as const,
+          },
+        }
+      : null);
 
   return (
     <div className="mx-auto max-w-xl p-6" data-testid="derive-progress">
@@ -73,31 +136,43 @@ export function DeriveProgress() {
             {error}
           </p>
         )}
-        {showTimeout && (
-          <div
-            className="space-y-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm"
-            data-testid="derive-progress-timeout"
-          >
-            <p className="font-medium text-amber-900">
-              等待超时：派生后台可能暂不可用或任务卡住。
-            </p>
-            <p className="text-amber-800">
-              你可以返回简历中心稍后重试，或刷新本页继续查看状态。
-            </p>
-            <Link
-              to="/resume"
-              className="inline-flex text-sm underline"
-              data-testid="derive-timeout-back"
-            >
-              返回简历中心
-            </Link>
-          </div>
-        )}
         {run && (
           <>
             <p className="text-sm" data-testid="derive-progress-status">
-              状态：{run.status} · 阶段：{run.phase} · 进度 {run.progress_pct}%
+              状态：{run.canonical_status ?? run.status} · 阶段：{run.phase}
+              {typeof run.progress_pct === "number" ? ` · 进度 ${run.progress_pct}%` : ""}
             </p>
+            {taskId && (
+              <Link
+                to={`/ai-tasks/${encodeURIComponent(taskId)}`}
+                className="inline-flex text-sm underline"
+                data-testid="derive-task-link"
+              >
+                打开 AI 任务
+              </Link>
+            )}
+            {milestones.length > 0 && (
+              <div data-testid="derive-milestones">
+                <AIMilestoneList milestones={milestones} />
+              </div>
+            )}
+            {run.settlement && (
+              <p className="text-xs text-muted-foreground" data-testid="derive-settlement">
+                已交付里程碑：{(run.settlement.delivered_milestones ?? []).join(", ") || "无"}
+                {" · "}
+                失败：{(run.settlement.failed_milestones ?? []).join(", ") || "无"}
+              </p>
+            )}
+            {actionsTask && (actionsTask.available_actions?.length ?? 0) > 0 && (
+              <div data-testid="derive-server-actions">
+                <AITaskActions
+                  task={actionsTask}
+                  onConflictRefresh={() => {
+                    void refetchCanonical();
+                  }}
+                />
+              </div>
+            )}
             {run.error_message && (
               <p
                 className="text-sm text-amber-700"
@@ -106,7 +181,7 @@ export function DeriveProgress() {
                 {run.error_message}
               </p>
             )}
-            {run.status === "failed" && (
+            {(run.status === "failed" || run.canonical_status === "failed") && (
               <div className="space-y-2" data-testid="derive-progress-failed">
                 <p className="text-sm text-destructive">
                   派生失败

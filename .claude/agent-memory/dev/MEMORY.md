@@ -16,3 +16,6 @@
 - [REQ-044 US3 AI Operations 2026-07-04](req_044_us3_seed_pattern.md) — 9-endpoint / 4-seed-helper AI operations workspace; cost-quality tradeoff thresholds + EC-3 cost-stale tunable; strict FR-032 privacy guard on AIQualityIssue schema
 - [REQ-044 US7 Metric Trust 2026-07-04](req_044_us7_metric_trust.md) — 10-field MetricDefinition wrapper + NOT_PROVIDED sentinel + 5-state DataStatus reuse; AC-30.4 explicit PUT/PATCH/DELETE 405 immutable guard with SNAPSHOT_IMMUTABLE error code; apiClient.request<T>({method,path,body,signal}) signature (no .get/.post shortcuts)
 - [REQ-044 CROSS Saved Views 2026-07-04](req_044_cross_saved_views.md) — US1 stub真实化 + 12th audit action `saved_view_change` + 5x role × 2 capability tokens; SavedView 12-field contract + SharedWithRole union sync; `_lock` recursion deadlock during seed_once; AuditEvent no `details` field — reason-string encodes lifecycle marker
+- [REQ-053 prompt A/B result 2026-07-09](req053_prompt_ab_result.md) — PROMPT_A wins 0.667 vs 0.0 quality; over-strict format backfires (1715 chars, 0 questions); demo user UID bypasses ai_messages FK
+- [Prompt A/B analyzer rule 2026-07-09](req053_prompt_ab_analyzer_rule.md) — in_window_rate 必须 hard rule；soft rule (chars 距离) 容易被 B 的过短输出欺骗
+- [Batch LLM eval robustness 2026-07-09](feedback_053_rerun_robustness.md) — A/B batch 脚本必须每 call 持久化 JSON；background-task 截断会清掉所有进度

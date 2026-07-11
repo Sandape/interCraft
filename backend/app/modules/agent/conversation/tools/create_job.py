@@ -7,9 +7,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.agent.conversation import metrics as m
 from app.modules.agent.conversation.reply_formatter import format_create_job_card
 from app.modules.agent.conversation.tools import ToolResult, clarify, fail, ok, pending
-from app.modules.agent.conversation import metrics as m
 
 
 async def prepare(

@@ -78,8 +78,12 @@ router.include_router(search_router, tags=["search"])
 # REQ-055 — Resume root / derive
 # MUST mount before resumes_v2 so literal paths like /v2/resumes/root and
 # /v2/resumes/derive are not swallowed by /v2/resumes/{resume_id}.
+from app.modules.resume_intelligence.api import router as resume_intelligence_router
 from app.modules.resume_derive.api import router as resume_derive_router
 
+# Intelligence must register before derive so overlapping
+# GET /v2/resumes/{id}/suggestions?analysis_id= resolves to REQ-059.
+router.include_router(resume_intelligence_router, tags=["resume-intelligence"])
 router.include_router(resume_derive_router, tags=["resume-derive"])
 
 # Feature 032 — Resume v2 (renderer + editor)
@@ -96,5 +100,15 @@ router.include_router(agent_router)
 from app.modules.research.api import router as research_router
 
 router.include_router(research_router, tags=["research"])
+
+# REQ-061 — AI Runtime control plane
+from app.modules.ai_runtime.api import router as ai_runtime_router
+
+router.include_router(ai_runtime_router)
+
+# REQ-061 — AI Metering / experience points (OpenAPI: /api/v1/ai-points/*)
+from app.modules.ai_metering.api import router as ai_metering_router
+
+router.include_router(ai_metering_router)
 
 __all__ = ["router"]

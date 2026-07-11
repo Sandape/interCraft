@@ -5,25 +5,31 @@ QR code binding, agent status, preferences, admin endpoints.
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import secrets
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from urllib.parse import quote
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import db_session_user_dep, get_current_user_id
 from app.channels.ilink_client import ILinkClient
+from app.core.config import get_settings
+from app.modules.admin_console.auth import require_admin
 from app.modules.agent.schemas import (
     AgentAdminItem,
     AgentAdminListResponse,
     AgentPreferencesResponse,
     AgentStatusResponse,
     BindingStatusResponse,
+    DevChatRequest,
+    DevChatResponse,
     PatchPreferencesRequest,
     QrcodeResponse,
     QrcodeStatusResponse,
@@ -31,11 +37,42 @@ from app.modules.agent.schemas import (
     SendMessageResponse,
     UnbindResponse,
 )
-from app.modules.agent.service import AgentService, WeChatAlreadyBoundError
+from app.modules.agent.service import AgentService, DevInboundError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+
+def require_internal_token(
+    x_internal_token: Annotated[str | None, Header(alias="X-Internal-Token")] = None,
+) -> None:
+    """Gate machine-to-machine Agent endpoints (workers / trusted callers)."""
+    expected = (get_settings().internal_api_token or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "INTERNAL_API_TOKEN_UNSET",
+                "message": "INTERNAL_API_TOKEN is not configured",
+            },
+        )
+    provided = (x_internal_token or "").strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "INTERNAL_TOKEN_INVALID",
+                "message": "Invalid or missing X-Internal-Token",
+            },
+        )
+
+
+def require_dev_ingress() -> None:
+    """Gate non-WeChat dev chat ingress outside trusted local development."""
+    settings = get_settings()
+    if settings.app_env == "production" and not settings.agent_dev_ingress_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
 
 # ── In-memory QR code session store (TTL 300s) ─────────────────────
@@ -143,13 +180,16 @@ async def get_qrcode_page(
     """Return an HTML page with QR code. Auth via query param for browser use."""
     # Manual dependency since Query() breaks Depends ordering
     from app.core.db import get_db_session as _get_db_session
+
     async for _session in _get_db_session():
         svc = AgentService(_session)
         break
 
     # Decode JWT from query param
-    from app.core.security import decode_token
     import jwt as pyjwt
+
+    from app.core.security import decode_token
+
     try:
         payload = decode_token(token, expected_type="access")
     except pyjwt.PyJWTError:
@@ -170,9 +210,9 @@ async def get_qrcode_page(
     finally:
         await client.stop()
 
-    token_short = qrcode_token[:16] if len(qrcode_token) > 16 else qrcode_token
     qrcode_image_url = _qrcode_image_endpoint(qrcode_token)
-    html = """<!DOCTYPE html>
+    html = (
+        """<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>微信扫码绑定 - InterCraft</title>
 <style>
   body { text-align: center; padding: 60px 20px; font-family: -apple-system, sans-serif; }
@@ -184,12 +224,18 @@ async def get_qrcode_page(
   @keyframes spin { to { transform: rotate(360deg); } }
 </style></head><body>
 <h2>📱 使用微信扫码绑定</h2>
-<img src=\"""" + qrcode_image_url + """\" onerror="this.alt='QR load failed'" id="qr-img">
+<img src=\""""
+        + qrcode_image_url
+        + """\" onerror="this.alt='QR load failed'" id="qr-img">
 <p class="status waiting" id="status"><span class="spinner"></span>等待扫码…</p>
 <p class="timer" id="timer">剩余 300 秒</p>
 <script>
-const Q = '""" + qrcode_token + """';
-const AUTH = '""" + token + """';
+const Q = '"""
+        + qrcode_token
+        + """';
+const AUTH = '"""
+        + token
+        + """';
 let s = 300;
 let stopped = false;
 const stEl = document.getElementById('status');
@@ -230,6 +276,7 @@ setInterval(() => {
 }, 1000);
 setTimeout(poll, 1000);
 </script></body></html>"""
+    )
     return HTMLResponse(content=html)
 
 
@@ -314,7 +361,10 @@ async def get_qrcode_status(
         try:
             data = await client.get_qrcode_status(qrcode_token)
         except Exception as exc:
-            logger.warning("ilink_qrcode_status_failed", extra={"error": str(exc)[:120]})
+            logger.warning(
+                "ilink_qrcode_status_failed",
+                extra={"error_type": type(exc).__name__},
+            )
             # If iLink is slow/unreachable, return current known state
             return QrcodeStatusResponse(status="wait")
 
@@ -328,8 +378,7 @@ async def get_qrcode_status(
             logger.info(
                 "iLink_confirmed_raw user=%s data=%s",
                 str(user_id)[:8],
-                {k: (str(v)[:60] if k != "msgs" else f"<{len(v)} msgs>")
-                 for k, v in data.items()},
+                {k: (str(v)[:60] if k != "msgs" else f"<{len(v)} msgs>") for k, v in data.items()},
             )
 
         if status == "confirmed":
@@ -430,13 +479,18 @@ async def patch_preferences(
     body: PatchPreferencesRequest,
     svc: Annotated[AgentService, Depends(_agent_svc)],
 ) -> AgentPreferencesResponse:
-    pref = await svc.pref_repo.upsert(
-        user_id,
-        display_name=body.display_name,
-        quiet_hours_start=body.quiet_hours_start,
-        quiet_hours_end=body.quiet_hours_end,
-        notification_mode=body.notification_mode,
-    )
+    data = body.model_dump(exclude_unset=True)
+    kwargs: dict[str, Any] = {}
+    if "display_name" in data:
+        kwargs["display_name"] = data["display_name"]
+    if "notification_mode" in data:
+        kwargs["notification_mode"] = data["notification_mode"]
+    # Explicit null clears DND; omitted fields leave existing values.
+    if "quiet_hours_start" in data:
+        kwargs["quiet_hours_start"] = data["quiet_hours_start"]
+    if "quiet_hours_end" in data:
+        kwargs["quiet_hours_end"] = data["quiet_hours_end"]
+    pref = await svc.pref_repo.upsert(user_id, **kwargs)
     return AgentPreferencesResponse(
         display_name=pref.display_name,
         quiet_hours_start=pref.quiet_hours_start,
@@ -451,11 +505,18 @@ async def patch_preferences(
 @router.post("/internal/send-message", response_model=SendMessageResponse)
 async def internal_send_message(
     body: SendMessageRequest,
+    _: Annotated[None, Depends(require_internal_token)],
 ) -> SendMessageResponse:
-    """Send a message to a user's WeChat. Called by ARQ workers / CLI / admin."""
+    """Send a message to a user's WeChat. Called by trusted workers / admin tools.
+
+    Requires ``X-Internal-Token`` matching ``INTERNAL_API_TOKEN``.
+    In-process callers (research worker, CLI) should prefer
+    ``enqueue_outbound_message`` directly and avoid this HTTP surface.
+    """
     from app.channels.message_handler import enqueue_outbound_message
     from app.core.db import get_db_session
 
+    message_ids: list[UUID] = []
     async for session in get_db_session(user_id=body.user_id):
         message_ids = await enqueue_outbound_message(
             body.user_id,
@@ -465,25 +526,284 @@ async def internal_send_message(
         )
         break
 
+    if not message_ids:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to enqueue outbound WeChat message",
+        )
+
     return SendMessageResponse(
-        message_id=message_ids[0] if message_ids else None,
+        message_id=message_ids[0],
         status="queued",
         segment_count=len(message_ids),
+    )
+
+
+# ── Dev ingress ─────────────────────────────────────────────────────
+
+
+@router.post("/dev/chat", response_model=DevChatResponse)
+async def dev_chat(
+    body: DevChatRequest,
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+    svc: Annotated[AgentService, Depends(_agent_svc)],
+    _: Annotated[None, Depends(require_dev_ingress)],
+) -> DevChatResponse:
+    """Send one message through the production runtime without WeChat delivery."""
+    try:
+        result = await svc.process_dev_inbound(
+            user_id,
+            body.text,
+            idempotency_key=body.idempotency_key,
+        )
+    except DevInboundError as exc:
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if exc.code == "no_binding"
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail={"error": exc.code, "message": exc.message},
+        ) from exc
+    return DevChatResponse(
+        reply=result.reply,
+        inbound_message_id=result.inbound_message_id,
+        outbound_message_id=result.outbound_message_id,
+        task_id=result.task_id,
+        correlation_id=result.correlation_id,
+        status=result.status,
+        pending_confirmation=result.pending_confirmation,
+        idempotent_replay=result.idempotent_replay,
+        runtime_links=(
+            _runtime_links_for_agent_task(result.task_id) if result.task_id else None
+        ),
     )
 
 
 # ── Admin ───────────────────────────────────────────────────────────
 
 
+class AgentTaskOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    kind: str
+    status: str
+    stage: str
+    progress_percent: int | None
+    summary: str
+    result_json: dict[str, Any] | None
+    error_category: str | None
+    created_at: datetime
+    updated_at: datetime
+    # REQ-061 T086 — optional canonical links (populated by API, not ORM).
+    runtime_links: dict[str, str] | None = None
+
+
+def _runtime_links_for_agent_task(task_id: UUID) -> dict[str, str]:
+    from app.modules.ai_runtime.adapters.wechat_agent import runtime_links_for_task
+
+    return runtime_links_for_task(str(task_id))
+
+
+class AgentTaskListOut(BaseModel):
+    items: list[AgentTaskOut]
+
+
+class ConfirmationDecisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: str = Field(pattern="^(approve|reject|cancel|edit)$")
+    version: int = Field(ge=1)
+    edited_args: dict[str, Any] | None = None
+
+
+@router.get("/tasks", response_model=AgentTaskListOut)
+async def list_agent_tasks(
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+    session: Annotated[AsyncSession, Depends(db_session_user_dep)],
+    task_status: str | None = Query(None, alias="status"),
+) -> AgentTaskListOut:
+    from app.modules.agent.repository import AgentTaskRepository
+
+    rows = await AgentTaskRepository(session).list_recent(user_id, status=task_status)
+    items = []
+    for row in rows:
+        item = AgentTaskOut.model_validate(row)
+        items.append(item.model_copy(update={"runtime_links": _runtime_links_for_agent_task(row.id)}))
+    return AgentTaskListOut(items=items)
+
+
+@router.get("/tasks/{task_id}", response_model=AgentTaskOut)
+async def get_agent_task(
+    task_id: UUID,
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+    session: Annotated[AsyncSession, Depends(db_session_user_dep)],
+) -> AgentTaskOut:
+    from app.modules.agent.repository import AgentTaskRepository
+
+    row = await AgentTaskRepository(session).get_by_id(user_id, task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return AgentTaskOut.model_validate(row).model_copy(
+        update={"runtime_links": _runtime_links_for_agent_task(row.id)}
+    )
+
+
+@router.post("/tasks/{task_id}/cancel", status_code=202)
+async def cancel_agent_task(
+    task_id: UUID,
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+    session: Annotated[AsyncSession, Depends(db_session_user_dep)],
+) -> dict[str, str]:
+    from app.modules.agent.repository import AgentTaskRepository
+
+    repository = AgentTaskRepository(session)
+    if await repository.get_by_id(user_id, task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    row = await repository.request_cancel(user_id, task_id)
+    if row is None:
+        raise HTTPException(status_code=409, detail="Task is terminal or not cancellable")
+    return {"id": str(row.id), "status": row.status}
+
+
+@router.post("/tasks/{task_id}/resume", status_code=202)
+async def resume_agent_task(
+    task_id: UUID,
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+    session: Annotated[AsyncSession, Depends(db_session_user_dep)],
+) -> dict[str, str]:
+    from app.modules.agent.repository import AgentTaskRepository
+
+    repository = AgentTaskRepository(session)
+    if await repository.get_by_id(user_id, task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    row = await repository.resume_task(user_id, task_id)
+    if row is None:
+        raise HTTPException(status_code=409, detail="Task is not recoverable or binding changed")
+    return {"id": str(row.id), "status": row.status}
+
+
+@router.post("/confirmations/{confirmation_id}/decision")
+async def decide_agent_confirmation(
+    confirmation_id: UUID,
+    body: ConfirmationDecisionIn,
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+    session: Annotated[AsyncSession, Depends(db_session_user_dep)],
+) -> dict[str, str]:
+    from pydantic import ValidationError
+
+    from app.modules.agent.models import AgentConfirmation, AgentToolExecution
+    from app.modules.agent.repository import AgentTaskRepository
+    from app.modules.agent.runtime.confirmations import ConfirmationService
+
+    confirmation = await session.scalar(
+        select(AgentConfirmation).where(
+            AgentConfirmation.id == confirmation_id,
+            AgentConfirmation.user_id == user_id,
+        )
+    )
+    if confirmation is None:
+        raise HTTPException(status_code=404, detail="Confirmation not found")
+    decisions = ConfirmationService(session, user_id=user_id)
+    if body.decision == "edit":
+        if body.edited_args is None:
+            raise HTTPException(status_code=422, detail="edited_args is required")
+        try:
+            replacement = await decisions.edit_by_id_and_reissue(
+                confirmation_id=confirmation_id,
+                expected_version=body.version,
+                edited_args=body.edited_args,
+            )
+        except ValidationError as exc:
+            invalid_fields = sorted(
+                ".".join(str(item) for item in error["loc"])
+                for error in exc.errors(include_input=False, include_url=False)
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "TOOL_ARGUMENTS_INVALID",
+                    "fields": invalid_fields,
+                },
+            ) from None
+        if replacement is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Confirmation expired, consumed, binding changed, or version changed",
+            )
+        return {
+            "id": str(replacement.confirmation.id),
+            "status": replacement.confirmation.status,
+            "supersedes": str(confirmation_id),
+        }
+
+    decided = await decisions.decide_by_id(
+        confirmation_id=confirmation_id,
+        decision=body.decision,
+        expected_version=body.version,
+    )
+    if decided is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Confirmation expired, consumed, binding changed, or version changed",
+        )
+    if body.decision == "approve":
+        queued = await AgentTaskRepository(session).queue_after_confirmation(
+            user_id, confirmation.task_id, binding_epoch=confirmation.binding_epoch
+        )
+        if queued is None:
+            raise HTTPException(status_code=409, detail="Task or binding changed")
+    else:
+        await session.execute(
+            update(AgentToolExecution)
+            .where(
+                AgentToolExecution.id == confirmation.tool_execution_id,
+                AgentToolExecution.user_id == user_id,
+                AgentToolExecution.status == "awaiting_confirmation",
+            )
+            .values(status="cancelled")
+        )
+        await AgentTaskRepository(session).request_cancel(user_id, confirmation.task_id)
+    return {"id": str(confirmation_id), "status": decided.status}
+
+
+@router.get("/consumer/status")
+async def get_consumer_status(
+    _user_id: Annotated[UUID, Depends(get_current_user_id)],
+    session: Annotated[AsyncSession, Depends(db_session_user_dep)],
+) -> dict[str, Any]:
+    from app.modules.agent.models import WeChatConsumerLease
+    from app.modules.agent.runtime.telemetry import privacy_ref
+
+    settings = get_settings()
+    if not settings.wechat_agent_consumer_enabled:
+        return {"enabled": False, "state": "disabled"}
+    lease = await session.get(WeChatConsumerLease, "wechat-agent-ilink")
+    active = bool(
+        lease
+        and lease.owner_id
+        and lease.lease_until
+        and lease.lease_until > datetime.now(timezone.utc)
+    )
+    return {
+        "enabled": True,
+        "state": "active" if active else "standby",
+        "ownerRef": privacy_ref(str(lease.owner_id), salt=settings.master_key) if active else None,
+        "fencingToken": lease.fencing_token if active else None,
+        "leaseUntil": lease.lease_until.isoformat() if active else None,
+    }
+
+
 @router.get("/admin/agents", response_model=AgentAdminListResponse)
 async def admin_list_agents(
     svc: Annotated[AgentService, Depends(_agent_svc)],
-    status: str | None = Query(None),
+    _admin: Annotated[bool, Depends(require_admin)],
+    agent_status: str | None = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
 ) -> AgentAdminListResponse:
-    """List all agents (admin only)."""
-    agents = await svc.agent_repo.list_by_status(status or "active", limit=size)
+    """List all agents (admin only — requires ``users.is_admin``)."""
+    agents = await svc.agent_repo.list_by_status(agent_status or "active", limit=size)
     items = [
         AgentAdminItem(
             user_id=a.user_id,

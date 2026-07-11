@@ -18,6 +18,12 @@ from app.modules.admin_console.incidents import service
 from app.modules.admin_console.incidents.api import (
     badcases_router,
     incidents_router,
+    operational_badcases_router,
 )
 
-__all__ = ["badcases_router", "incidents_router", "service"]
+__all__ = [
+    "badcases_router",
+    "incidents_router",
+    "operational_badcases_router",
+    "service",
+]

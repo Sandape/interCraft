@@ -1,16 +1,16 @@
 /**
- * React Query hooks for the incidents workspace (REQ-044 US4).
+ * React Query hooks for the incidents workspace (REQ-044 US4 / REQ-061 US10).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminIncidentsApi } from '@/api/admin-incidents'
+import {
+  productionBadcasesApi,
+  type BadcaseListFilters,
+} from '@/admin/api/badcases-production'
 import type {
   CommentCreateRequest,
   StatusChangeRequest,
 } from '@/types/admin-incidents'
-
-// ---------------------------------------------------------------------------
-// Query keys (centralized so mutations can invalidate cleanly)
-// ---------------------------------------------------------------------------
 
 export const incidentKeys = {
   all: ['admin-console', 'incidents'] as const,
@@ -24,12 +24,10 @@ export const incidentKeys = {
 export const badcaseKeys = {
   all: ['admin-console', 'badcases'] as const,
   list: () => [...badcaseKeys.all, 'list'] as const,
+  productionList: (filters: BadcaseListFilters = {}) =>
+    [...badcaseKeys.all, 'production-list', filters] as const,
   detail: (id: string) => [...badcaseKeys.all, 'detail', id] as const,
 }
-
-// ---------------------------------------------------------------------------
-// Incident queries
-// ---------------------------------------------------------------------------
 
 export function useIncidents() {
   return useQuery({
@@ -79,10 +77,6 @@ export function useIncidentAuditTrail(incidentId: string | null) {
   })
 }
 
-// ---------------------------------------------------------------------------
-// Incident mutations
-// ---------------------------------------------------------------------------
-
 export function useAddIncidentComment(incidentId: string) {
   const qc = useQueryClient()
   return useMutation({
@@ -107,15 +101,21 @@ export function useChangeIncidentStatus(incidentId: string) {
   })
 }
 
-// ---------------------------------------------------------------------------
-// Badcase queries
-// ---------------------------------------------------------------------------
-
 export function useBadcases() {
   return useQuery({
     queryKey: badcaseKeys.list(),
     queryFn: ({ signal }) => adminIncidentsApi.listBadcases(signal),
     staleTime: 60_000,
+  })
+}
+
+/** REQ-061 US10 canonical persistent Bad Case list. */
+export function useProductionBadcases(filters: BadcaseListFilters = {}) {
+  return useQuery({
+    queryKey: badcaseKeys.productionList(filters),
+    queryFn: ({ signal }) => productionBadcasesApi.list(filters, signal),
+    staleTime: 30_000,
+    retry: 1,
   })
 }
 
@@ -136,6 +136,7 @@ export function useEscalateBadcase() {
       adminIncidentsApi.escalateBadcase(badcaseId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: badcaseKeys.list() })
+      void qc.invalidateQueries({ queryKey: badcaseKeys.all })
     },
   })
 }

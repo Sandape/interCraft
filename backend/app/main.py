@@ -1,9 +1,11 @@
 """FastAPI app factory + lifespan."""
+
 from __future__ import annotations
 
 import platform
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,12 +13,13 @@ from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app import __version__
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.db import db_ping, dispose_engine
 from app.core.exceptions import install_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import InternalIPMiddleware, MetricsMiddleware, RequestIDMiddleware
 from app.core.redis import close_redis, redis_ping
+from app.modules.agent.runtime.telemetry import emit_event, record_metric
 from app.observability.tracing import TracingConfig, init_tracing, shutdown_tracing
 
 # psycopg (langgraph-checkpoint-postgres) requires SelectorEventLoop on Windows.
@@ -28,6 +31,38 @@ if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 log = get_logger("app")
+
+
+async def start_wechat_consumer(
+    settings: Settings,
+    *,
+    lease_manager: object | None = None,
+) -> object | None:
+    """Acquire the global lease before starting the existing iLink pool."""
+    if not settings.wechat_agent_consumer_enabled:
+        emit_event(log, "wechat.consumer.status", state="disabled", enabled=False)
+        record_metric("wechat_consumer_state", value=1, state="disabled")
+        return None
+
+    from app.channels.consumer_lease import (
+        ConsumerLeaseManager,
+        ConsumerLeaseSupervisor,
+    )
+    from app.channels.ilink_pool import get_connection_pool
+
+    manager = lease_manager or ConsumerLeaseManager(
+        ttl_seconds=settings.wechat_agent_lease_ttl_seconds
+    )
+    owner_id = uuid4()
+    pool = get_connection_pool()
+    supervisor = ConsumerLeaseSupervisor(
+        manager=manager,  # type: ignore[arg-type]
+        owner_id=owner_id,
+        renew_seconds=settings.wechat_agent_lease_renew_seconds,
+        pool=pool,
+    )
+    await supervisor.start()
+    return supervisor
 
 
 @asynccontextmanager
@@ -58,14 +93,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await checkpointer_preheat()
 
-    # 052: Start the iLink connection pool — recover all active WeChat long-poll
-    # connections from the database and spawn per-user asyncio poll tasks.
-    from app.channels.ilink_pool import get_connection_pool, shutdown_connection_pool
-
-    try:
-        await get_connection_pool().startup()
-    except Exception:
-        log.exception("pool.startup_failed")
+    # REQ-060: local/API development stays consumer-free by default. A
+    # consumer-capable production instance must opt in explicitly.
+    wechat_consumer = await start_wechat_consumer(settings)
 
     try:
         yield
@@ -73,12 +103,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from app.agents.checkpointer import close_checkpointer
 
         await close_checkpointer()
-        try:
-            await shutdown_connection_pool()
-        except Exception:
-            log.exception("pool.shutdown_failed")
+        if wechat_consumer is not None:
+            try:
+                await wechat_consumer.stop()  # type: ignore[attr-defined]
+            except Exception:
+                log.exception("pool.shutdown_failed")
         try:
             from app.channels.message_handler import shutdown_llm_client
+
             await shutdown_llm_client()
         except Exception:
             log.exception("llm_client.shutdown_failed")
@@ -90,6 +122,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # REQ-061: FastAPI composition root imports factories but does not run
+    # migrations or claim leases here. Callers assemble ExecutionContext via
+    # ``app.modules.ai_runtime.composition.create_api_execution_context``.
+    from app.modules.ai_runtime import composition as _ai_runtime_composition  # noqa: F401
+
     app = FastAPI(
         title="InterCraft API",
         version=__version__,
@@ -107,7 +144,12 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+        expose_headers=[
+            "X-Request-ID",
+            "X-RateLimit-Limit",
+            "X-RateLimit-Remaining",
+            "X-RateLimit-Reset",
+        ],
     )
 
     app.add_middleware(MetricsMiddleware)
@@ -159,7 +201,9 @@ def create_app() -> FastAPI:
 
     @app.get("/metrics")
     async def metrics() -> JSONResponse:
-        return JSONResponse(content=generate_latest().decode("utf-8"), media_type=CONTENT_TYPE_LATEST)
+        return JSONResponse(
+            content=generate_latest().decode("utf-8"), media_type=CONTENT_TYPE_LATEST
+        )
 
     # Versioned router
     from app.api.v1 import router as v1_router
@@ -275,6 +319,7 @@ def create_app() -> FastAPI:
     from app.modules.admin_console.incidents import (
         badcases_router,
         incidents_router,
+        operational_badcases_router,
     )
 
     app.include_router(
@@ -286,6 +331,24 @@ def create_app() -> FastAPI:
         badcases_router,
         prefix=f"{settings.api_v1_prefix}/admin-console/badcases",
         tags=["admin-console"],
+    )
+    # REQ-061 US10 canonical Bad Case management facade (OpenAPI
+    # /api/v1/admin-console/ai/badcases*). Legacy admin/domain routes above
+    # remain during the compatibility window.
+    app.include_router(
+        operational_badcases_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/ai",
+        tags=["admin-console-ai"],
+    )
+    # REQ-061 US12 operational task inspection (search/detail/timeline/
+    # attempts/evidence-replay). Same /admin-console/ai prefix; 044
+    # /admin-console/observability tag/trace routes stay untouched.
+    from app.modules.admin_console.observability import router as ai_inspection_router
+
+    app.include_router(
+        ai_inspection_router,
+        prefix=f"{settings.api_v1_prefix}/admin-console/ai",
+        tags=["admin-console-ai"],
     )
 
     # 044 US6: governance / audit / export / retention workspace

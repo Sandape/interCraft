@@ -28,8 +28,11 @@ export interface JobStats {
 }
 
 export interface JobTimelineEntry {
-  from_status: string
-  to_status: string
+  from_status?: string
+  to_status?: string
+  /** Compatibility with the current backend status-history payload. */
+  from?: string
+  to?: string
   note?: string
   changed_at: string
 }

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from app.agents.exceptions import CheckpointerUnavailableError
+from app.agents.checkpointer_controls import checkpointer_control_status
 from app.observability.tracing import record_req035_capture_event
 
 if TYPE_CHECKING:
@@ -185,6 +186,7 @@ async def preheat() -> None:
             "checkpointer.preheat ok",
             elapsed_ms=elapsed,
             pool_config=_POOL_CONFIG,
+            controls=checkpointer_control_status(),
         )
     except Exception:
         elapsed = int((time.time() - ts) * 1000)

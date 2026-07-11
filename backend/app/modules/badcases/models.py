@@ -1,28 +1,29 @@
-"""REQ-033 US8 — badcase SQLAlchemy ORM models shim (T058).
+"""REQ-033 / REQ-061 Bad Case ORM surface.
 
-The actual ORM classes live in
-``app.modules.telemetry_contracts.models`` because the FOUNDATION phase
-(T020) consolidated all 033 tables into one module to keep the
-persistence layer co-located. This shim re-exports the badcase models
-under the ``app.modules.badcases`` namespace so callers that import
-``from app.modules.badcases.models import Badcase, BadcaseReviewAction``
-work without surprising the model layout.
-
-Schema source of truth: ``migrations/versions/0024_033_eval_pm_dashboard.py``.
-Tables:
-
-- ``badcases`` — main record. RLS: per-user (FORCE ROW LEVEL SECURITY).
-- ``badcase_review_actions`` — append-only audit log. RLS: per-user via
-  EXISTS sub-select against ``badcases`` (see migration 0024).
+Re-exports production ORM classes from ``telemetry_contracts.models``
+(aligned with migrations 0024 + 0060) so callers can import from
+``app.modules.badcases.models``.
 """
 from __future__ import annotations
 
 from app.modules.telemetry_contracts.models import (
     Badcase as _Badcase,
+    BadcaseClosureEvidence as _BadcaseClosureEvidence,
+    BadcaseContentAuthorization as _BadcaseContentAuthorization,
+    BadcaseImpactLink as _BadcaseImpactLink,
     BadcaseReviewAction as _BadcaseReviewAction,
 )
 
 Badcase = _Badcase
 BadcaseReviewAction = _BadcaseReviewAction
+BadcaseImpactLink = _BadcaseImpactLink
+BadcaseContentAuthorization = _BadcaseContentAuthorization
+BadcaseClosureEvidence = _BadcaseClosureEvidence
 
-__all__ = ["Badcase", "BadcaseReviewAction"]
+__all__ = [
+    "Badcase",
+    "BadcaseClosureEvidence",
+    "BadcaseContentAuthorization",
+    "BadcaseImpactLink",
+    "BadcaseReviewAction",
+]

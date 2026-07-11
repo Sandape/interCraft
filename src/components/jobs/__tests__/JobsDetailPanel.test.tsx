@@ -71,10 +71,10 @@ describe('JobsDetailPanel — CTAs (019)', () => {
     expect(screen.queryByTestId('job-detail-bound-branch')).not.toBeInTheDocument()
   })
 
-  it('resume CTA navigates to /resume?new=true&source_job_id={id}', () => {
+  it('resume CTA opens the derive flow with the current job', () => {
     wrap(<JobsDetailPanel job={baseJob} />)
     fireEvent.click(screen.getByTestId('job-detail-resume-cta'))
-    expect(mockNavigate).toHaveBeenCalledWith('/resume?new=true&source_job_id=job-1')
+    expect(mockNavigate).toHaveBeenCalledWith('/resume?derive=true&job_id=job-1')
   })
 
   it('interview CTA is disabled and shows hint when branch not bound', () => {

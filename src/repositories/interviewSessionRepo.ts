@@ -64,6 +64,21 @@ export interface InterviewSession {
   plan_error_code?: string | null
   plan_error_message?: string | null
   degraded?: boolean
+  // REQ-061 US4 — canonical runtime projection
+  task_id?: string | null
+  execution_id?: string | null
+  available_actions?: string[]
+  points_summary?: {
+    reserved?: number
+    settled?: number
+    currency?: string
+    chargeable_milestones?: string[]
+  } | null
+  failure?: { code: string; message: string; safe?: boolean } | null
+  pause_deadline?: string | null
+  saved_round_explanation?: string | null
+  chargeable_milestones?: string[]
+  milestones?: Array<{ code: string; status: string; settle_eligible?: boolean }>
 }
 
 export interface InterviewReport {
@@ -85,6 +100,14 @@ export interface InterviewReport {
   generated_at: string
   interview_plan: InterviewPlan | null
   web_research: InterviewWebResearch | null
+  // REQ-061 — partial/full report milestones + task links
+  task_id?: string | null
+  execution_id?: string | null
+  available_actions?: string[]
+  points_summary?: InterviewSession['points_summary']
+  milestones?: Array<{ code: string; status: string; settle_eligible?: boolean }>
+  failure?: { code: string; message: string; safe?: boolean } | null
+  report_status?: 'full' | 'partial' | 'failed' | string | null
 }
 
 export interface PaginatedResponse<T> {
@@ -163,6 +186,40 @@ export const interviewSessionRepo = {
 
   async resume(id: string): Promise<{ data: any }> {
     return request('GET', `${BASE}/${id}/resume`)
+  },
+
+  async pause(id: string): Promise<{
+    status: string
+    pause_deadline?: string | null
+    available_actions?: string[]
+    task_id?: string | null
+    execution_id?: string | null
+    points_summary?: InterviewSession['points_summary']
+  }> {
+    return request('POST', `${BASE}/${id}/pause`)
+  },
+
+  async resumeFromPause(id: string): Promise<{
+    status: string
+    available_actions?: string[]
+    task_id?: string | null
+    execution_id?: string | null
+    points_summary?: InterviewSession['points_summary']
+  }> {
+    return request('POST', `${BASE}/${id}/resume-from-pause`)
+  },
+
+  async activeEnd(
+    id: string,
+    body?: { confirm_partial_report?: boolean; skip_report?: boolean },
+  ): Promise<{
+    status: string
+    available_actions?: string[]
+    task_id?: string | null
+    chargeable_milestones?: string[]
+    points_summary?: InterviewSession['points_summary']
+  }> {
+    return request('POST', `${BASE}/${id}/active-end`, body ?? {})
   },
 
   async delete(id: string): Promise<void> {

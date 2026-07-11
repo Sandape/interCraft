@@ -24,6 +24,7 @@ import logging
 import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import quote
+from uuid import UUID
 
 import httpx
 
@@ -32,9 +33,17 @@ from .ilink_utils import channel_version, make_headers
 logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
-_GETUPDATES_TIMEOUT = 45.0   # getupdates: server holds up to 35s
+_GETUPDATES_TIMEOUT = 45.0  # getupdates: server holds up to 35s
 _QRCODE_STATUS_TIMEOUT = 40.0  # get_qrcode_status: long-polls ~30s
-_DEFAULT_TIMEOUT = 15.0      # quick calls: qrcode, sendmessage
+_DEFAULT_TIMEOUT = 15.0  # quick calls: qrcode, sendmessage
+
+
+class ILinkProviderError(RuntimeError):
+    """Provider returned a definite non-success code without retaining body text."""
+
+    def __init__(self, code: int | str) -> None:
+        super().__init__("iLink provider rejected the request")
+        self.code = str(code)[:40]
 
 
 class ILinkClient:
@@ -133,7 +142,9 @@ class ILinkClient:
             return json.loads(text)
 
     async def _get(
-        self, path: str, params: Dict[str, Any] | None = None,
+        self,
+        path: str,
+        params: Dict[str, Any] | None = None,
         timeout: float | None = None,
     ) -> Any:
         assert self._client is not None, "ILinkClient not started"
@@ -255,6 +266,8 @@ class ILinkClient:
         to_user_id: str,
         text: str,
         context_token: str = "",
+        *,
+        client_id: UUID | str | None = None,
     ) -> Dict[str, Any]:
         """Send a plain text message to a WeChat user.
 
@@ -266,18 +279,24 @@ class ILinkClient:
         msg: Dict[str, Any] = {
             "from_user_id": "",
             "to_user_id": to_user_id,
-            "client_id": str(uuid.uuid4()),
-            "message_type": 2,      # BOT → USER
-            "message_state": 2,     # FINISH
+            "client_id": str(client_id or uuid.uuid4()),
+            "message_type": 2,  # BOT → USER
+            "message_state": 2,  # FINISH
             "item_list": [{"type": 1, "text_item": {"text": text}}],
         }
         if context_token:
             msg["context_token"] = context_token
 
-        return await self._post(
+        response = await self._post(
             "ilink/bot/sendmessage",
             {"msg": msg, "base_info": {"channel_version": channel_version()}},
         )
+        if not isinstance(response, dict):
+            raise ILinkProviderError("invalid_response")
+        provider_code = response.get("ret")
+        if provider_code is not None and provider_code != 0:
+            raise ILinkProviderError(provider_code)
+        return response
 
     # ------------------------------------------------------------------
     # Media helpers

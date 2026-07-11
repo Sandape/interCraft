@@ -47,9 +47,6 @@ async def test_pause_and_end():
     uid = uuid4()
     sid = uuid4()
     adapter = InterviewAdapter(session, uid)
-    pause = await adapter.pause(sid, 2)
-    assert "暂停" in pause["reply_text"]
-
     with patch(
         "app.modules.interviews.repository.InterviewSessionRepository"
     ) as R:
@@ -57,6 +54,9 @@ async def test_pause_and_end():
             return_value=SimpleNamespace(id=sid, status="in_progress")
         )
         R.return_value.update_status = AsyncMock()
+        pause = await adapter.pause(sid, 2)
+        assert "暂停" in pause["reply_text"]
+
         end = await adapter.end(sid, 2)
     assert end["ok"]
     assert "结束" in end["reply_text"]

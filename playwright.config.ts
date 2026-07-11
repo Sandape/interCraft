@@ -26,7 +26,7 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL for `page.goto('/login')` and friends. */
-    baseURL: 'http://localhost:5173',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
 
     /* Collect trace, video, and screenshot for every test (preserved for evidence) */
     trace: 'on',

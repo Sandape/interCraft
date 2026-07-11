@@ -95,6 +95,9 @@
       "Bash(awk '{print $1}')"
     ]
   },
+  "enabledMcpjsonServers": [
+    "playwright-test"
+  ],
   "hooks": {
     "PreToolUse": [
       {
@@ -129,5 +132,6 @@
         ]
       }
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true
 }

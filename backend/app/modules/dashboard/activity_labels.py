@@ -64,7 +64,9 @@ def render_activity(
         # Writers sometimes use title/content instead of company/position.
         if not detail:
             detail = str(payload.get("title") or payload.get("content") or "")
-        return "完成模拟面试", detail, _session_href(payload)
+        sid = payload.get("session_id")
+        href = f"/interview/{sid}/report" if sid else "/interview"
+        return "完成模拟面试", detail, href
     if at == ActivityType.BRANCH_CREATED:
         name = payload.get("branch_name") or payload.get("name") or ""
         return "简历更新", str(name), None

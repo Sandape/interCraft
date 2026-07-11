@@ -1,49 +1,30 @@
 /**
- * AIOperations — REQ-044 US3 / FR-016~FR-020.
+ * AIOperations — REQ-044 US3 panels + REQ-061 US9 production surface (T121).
  *
- * AI Operations workspace:
- *
- *   - 4 KPI tiles (FR-016)
- *   - Volume-by-Feature bar chart (FR-016/AC-16.2)
- *   - Failure categories pie/legend (FR-016/AC-16.3)
- *   - Latency bands p50/p95/p99 table (FR-016/AC-16.4)
- *   - Token usage stacked bar (FR-016/AC-16.5)
- *   - Cost summary card with stale flag (FR-016/AC-16.6 + EC-3)
- *   - Version selector (4 dimensions, FR-017/AC-17.1 + EC-2) and
- *     feature_area filter (FR-017/AC-17.2)
- *   - "Comparing X vs Y" label surfaced when a selection is made
- *     (FR-017/AC-17.4 + FR-017/AC-17.5)
- *   - Cost-quality alert banner (FR-019/AC-19.1/19.2)
- *   - Quality issue drawer (FR-018/AC-18.1/18.2); alert click jumps
- *     into the drawer (FR-019/AC-19.3)
- *   - Eval + badcase summary card (FR-020/AC-20.1/20.2/20.3)
- *   - Cohort picker shared with Product Analytics (FR-017/AC-17.3)
- *
- * Edge Cases handled:
- *
- *   - EC-1: zero AI tasks → "0 AI tasks" banner + freshness warning
- *   - EC-2: version unknown → explicit warning under each version
- *     dimension (NOT silent fold into baseline)
- *   - EC-3: cost reconciliation stale → "cost estimate outdated"
- *     warning above the cost card
- *
- * [CROSS-TEAM-DEBT] Phase 2 batch 3 will replace the seed-driven
- * panels with real AIInvocationRecord + REQ-026 eval + REQ-033
- * badcases aggregations.
+ * Production block: stability / quality / latency / points / costs /
+ * unknowns / freshness / budgets / abnormal consumption + cost drilldown.
+ * Legacy seed panels remain below for compatibility until T170 cuts them.
  */
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
+  defaultMetricsFilters,
   useCostQualityFlag,
   useCostSummary,
   useEvalBadcaseSummary,
   useFailureCategories,
   useKpis,
   useLatencyBands,
+  useProductionAnomalies,
+  useProductionBudgets,
+  useProductionMetrics,
+  useProductionReconciliations,
   useQualityIssues,
+  useTaskCostDrilldown,
   useTokenUsage,
   useVersionSelector,
   useVolumeByFeature,
+  type MetricsFilters,
 } from '@/admin/hooks/queries/useAIOperations'
 import { useCohorts } from '@/admin/hooks/queries/useProductAnalytics'
 import { KPITiles } from '@/admin/components/ai-operations/KPITiles'
@@ -56,14 +37,33 @@ import { VersionSelector } from '@/admin/components/ai-operations/VersionSelecto
 import { QualityIssueDrawer } from '@/admin/components/ai-operations/QualityIssueDrawer'
 import { CostQualityAlert } from '@/admin/components/ai-operations/CostQualityAlert'
 import { EvalBadcaseSummaryCard } from '@/admin/components/ai-operations/EvalBadcaseSummary'
+import { AICostDrilldown } from '@/admin/components/ai-operations/AICostDrilldown'
+import { PointCostTimeline } from '@/admin/components/ai-operations/PointCostTimeline'
 import { CohortPicker } from '@/admin/components/product-analytics/CohortPicker'
 import type { AIQualityIssue } from '@/types/admin-ai-operations'
+
+function metricNumber(value: unknown, fallback = 'unknown'): string {
+  if (value === null || value === undefined) return fallback
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value === 'string' && value.length > 0) return value
+  return fallback
+}
 
 export function AIOperations() {
   const navigate = useNavigate()
   const [selectedCohortId, setSelectedCohortId] = useState<string | null>(null)
   const [openIssue, setOpenIssue] = useState<AIQualityIssue | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [filters, setFilters] = useState<MetricsFilters>(defaultMetricsFilters)
+  const [draftFilters, setDraftFilters] = useState<MetricsFilters>(filters)
+  const [drillTaskId, setDrillTaskId] = useState<string | null>(null)
+  const [drillOpen, setDrillOpen] = useState(false)
+
+  const metricsQuery = useProductionMetrics(filters)
+  const budgetsQuery = useProductionBudgets()
+  const reconciliationsQuery = useProductionReconciliations()
+  const anomaliesQuery = useProductionAnomalies()
+  const drilldownQuery = useTaskCostDrilldown(drillTaskId)
 
   const kpisQuery = useKpis()
   const volumeQuery = useVolumeByFeature()
@@ -77,7 +77,6 @@ export function AIOperations() {
   const evalBadcaseSummaryQuery = useEvalBadcaseSummary()
   const cohortsQuery = useCohorts()
 
-  // AC-17.4 + AC-17.5 — refresh / comparison
   const [versionSelection, setVersionSelection] = useState<
     Record<string, string>
   >({})
@@ -91,13 +90,11 @@ export function AIOperations() {
     setFeatureAreaFilter(areas)
   }
 
-  // AC-19.3 — alert opens the drawer
   const handleAlertOpenIssue = (issue: AIQualityIssue) => {
     setOpenIssue(issue)
     setDrawerOpen(true)
   }
 
-  // AC-20.3 — "View in Logs" jumps to logs-and-traces (US5 placeholder)
   const handleViewInLogs = () => {
     navigate(
       `/admin-console/logs-and-traces${selectedCohortId ? `?cohort=${selectedCohortId}` : ''}`,
@@ -122,18 +119,301 @@ export function AIOperations() {
   const isComparing =
     Object.values(versionSelection).some(Boolean) || featureAreaFilter.length > 0
 
+  const metrics = metricsQuery.data
+  const dq = metrics?.data_quality
+
+  const applyFilters = () => {
+    setFilters({ ...draftFilters })
+  }
+
+  const openDrilldown = () => {
+    const taskId =
+      draftFilters.capability || filters.capability
+        ? `task-${(draftFilters.capability || filters.capability || 'demo').replace(/\W+/g, '-')}`
+        : '00000000-0000-7000-8000-000000000061'
+    setDrillTaskId(taskId)
+    setDrillOpen(true)
+  }
+
   return (
     <div className="ac-page ac-ao-page" data-testid="ai-operations">
       <div className="ac-page__header">
         <h1 className="ac-page__title">AI 运营</h1>
         <span className="ac-page__hint">
-          质量 · 成本 · 时延 · 版本 · 评测 · Badcase
+          真实质量 · 成本 · 时延 · 积分 · 预算 · 异常消耗
         </span>
+        <Link
+          to="/admin-console/model-policies"
+          data-testid="ai-operations-model-policies-link"
+          style={{ marginLeft: 12, fontSize: 12 }}
+        >
+          模型策略
+        </Link>
       </div>
 
       <div className="ac-ao-page__layout">
         <main className="ac-ao-page__main">
-          {/* FR-019: cost-quality banner */}
+          {/* REQ-061 US9 production filters + metrics */}
+          <section
+            className="ac-ao-page__panel"
+            data-testid="ai-operations-production"
+          >
+            <h2 className="ac-ao-page__section-title">生产联合指标</h2>
+            <form
+              className="ac-ao-page__filters"
+              data-testid="ai-operations-filters"
+              onSubmit={(e) => {
+                e.preventDefault()
+                applyFilters()
+              }}
+            >
+              <label>
+                capability
+                <input
+                  data-testid="filter-capability"
+                  value={draftFilters.capability ?? ''}
+                  onChange={(e) =>
+                    setDraftFilters((f) => ({
+                      ...f,
+                      capability: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                service_tier
+                <select
+                  data-testid="filter-service-tier"
+                  value={draftFilters.serviceTier ?? ''}
+                  onChange={(e) =>
+                    setDraftFilters((f) => ({
+                      ...f,
+                      serviceTier: e.target.value as MetricsFilters['serviceTier'],
+                    }))
+                  }
+                >
+                  <option value="">all</option>
+                  <option value="standard">standard</option>
+                  <option value="quality">quality</option>
+                </select>
+              </label>
+              <label>
+                policy_version
+                <input
+                  data-testid="filter-policy-version"
+                  value={draftFilters.policyVersion ?? ''}
+                  onChange={(e) =>
+                    setDraftFilters((f) => ({
+                      ...f,
+                      policyVersion: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                release_batch
+                <input
+                  data-testid="filter-release-batch"
+                  value={draftFilters.releaseBatch ?? ''}
+                  onChange={(e) =>
+                    setDraftFilters((f) => ({
+                      ...f,
+                      releaseBatch: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <button type="submit" data-testid="filter-apply">
+                应用筛选
+              </button>
+              <button
+                type="button"
+                data-testid="open-cost-drilldown"
+                onClick={openDrilldown}
+              >
+                打开费用下钻
+              </button>
+            </form>
+
+            {metricsQuery.isLoading && (
+              <div data-testid="production-metrics-loading">加载中…</div>
+            )}
+            {metricsQuery.isError && (
+              <div data-testid="production-metrics-error" role="alert">
+                生产指标不可用
+              </div>
+            )}
+
+            {metrics && dq && (
+              <>
+                <div
+                  className="ac-ao-page__dq"
+                  data-testid="production-data-quality"
+                  data-seed-or-mock={dq.seed_or_mock_count}
+                  data-unknown-count={dq.unknown_count}
+                >
+                  <span>fresh_at={dq.fresh_at}</span>
+                  {' · '}
+                  <span>coverage={dq.coverage_percent}%</span>
+                  {' · '}
+                  <span data-testid="production-unknown-count">
+                    unknowns={dq.unknown_count}
+                  </span>
+                  {' · '}
+                  <span data-testid="production-seed-count">
+                    seed_or_mock={dq.seed_or_mock_count}
+                  </span>
+                </div>
+
+                <div
+                  className="ac-ao-page__row"
+                  data-testid="production-metric-tiles"
+                >
+                  <div data-testid="metric-stability">
+                    <h3>稳定性</h3>
+                    <p>
+                      success_rate=
+                      {metricNumber(metrics.stability.success_rate)}
+                    </p>
+                  </div>
+                  <div data-testid="metric-quality">
+                    <h3>质量</h3>
+                    <p>
+                      badcase_rate=
+                      {metricNumber(metrics.quality.badcase_rate)}
+                    </p>
+                  </div>
+                  <div data-testid="metric-latency">
+                    <h3>时延</h3>
+                    <p>
+                      p95=
+                      {metricNumber(metrics.latency.p95_ms)}
+                      ms
+                    </p>
+                  </div>
+                  <div data-testid="metric-points">
+                    <h3>积分</h3>
+                    <p>
+                      settled=
+                      {metricNumber(metrics.points.settled_total)}
+                    </p>
+                  </div>
+                  <div data-testid="metric-cost">
+                    <h3>成本</h3>
+                    <p>
+                      rmb=
+                      {metricNumber(metrics.cost.rmb_total)}
+                    </p>
+                  </div>
+                  <div data-testid="metric-revenue">
+                    <h3>收入（beta=0）</h3>
+                    <p data-testid="beta-revenue-amount">
+                      {metrics.revenue_rmb.amount} {metrics.revenue_rmb.currency}
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+
+          <div className="ac-ao-page__row">
+            <section
+              className="ac-ao-page__panel"
+              data-testid="ai-operations-budgets"
+            >
+              <h2 className="ac-ao-page__section-title">预算</h2>
+              {(budgetsQuery.data?.items ?? []).length === 0 ? (
+                <p data-testid="budgets-empty">暂无预算行</p>
+              ) : (
+                <ul>
+                  {(budgetsQuery.data?.items ?? []).map((b) => (
+                    <li key={b.budget_id} data-testid={`budget-${b.budget_id}`}>
+                      {b.scope_type}/{b.scope_ref} · {b.utilization_percent}% ·
+                      level={b.level}
+                      {b.warning_reached ? ' · warning' : ''}
+                      {b.hard_limit_reached ? ' · hard' : ''}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section
+              className="ac-ao-page__panel"
+              data-testid="ai-operations-anomalies"
+            >
+              <h2 className="ac-ao-page__section-title">异常消耗</h2>
+              <p data-testid="anomaly-protected-ops">
+                受保护操作：
+                {(anomaliesQuery.data?.protected_operations ?? []).join(', ') ||
+                  'query, cancel, appeal'}
+              </p>
+              {(anomaliesQuery.data?.items ?? []).length === 0 ? (
+                <p data-testid="anomalies-empty">当前无触发异常防护</p>
+              ) : (
+                <ul>
+                  {(anomaliesQuery.data?.items ?? []).map((item, idx) => (
+                    <li key={idx} data-testid={`anomaly-${idx}`}>
+                      {JSON.stringify(item)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+
+          <section
+            className="ac-ao-page__panel"
+            data-testid="ai-operations-reconciliations"
+          >
+            <h2 className="ac-ao-page__section-title">对账</h2>
+            {(reconciliationsQuery.data?.items ?? []).length === 0 ? (
+              <p data-testid="reconciliations-empty">暂无对账运行</p>
+            ) : (
+              <ul>
+                {(reconciliationsQuery.data?.items ?? []).map((r, idx) => (
+                  <li key={`${r.run_type}-${idx}`}>
+                    {r.run_type} · {r.status} · issues={r.issue_count}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {drillOpen && (
+            <section
+              className="ac-ao-page__panel"
+              data-testid="ai-operations-drilldown-panel"
+            >
+              <h2 className="ac-ao-page__section-title">
+                point → milestone → attempt → cost
+              </h2>
+              <PointCostTimeline
+                milestones={
+                  (drilldownQuery.data?.milestones ?? []) as Array<{
+                    milestone?: string
+                    points?: number | null
+                    cost_rmb?: string | null
+                  }>
+                }
+                pointSettled={drilldownQuery.data?.point_settled}
+              />
+              <AICostDrilldown
+                open={drillOpen}
+                drilldown={drilldownQuery.data ?? null}
+                isLoading={drilldownQuery.isLoading}
+                errorMessage={
+                  drilldownQuery.isError ? '费用下钻不可用' : null
+                }
+                onClose={() => {
+                  setDrillOpen(false)
+                  setDrillTaskId(null)
+                }}
+              />
+            </section>
+          )}
+
+          {/* Legacy REQ-044 panels */}
           {costQualityFlagQuery.data && highestSeverityIssue && (
             <CostQualityAlert
               flag={costQualityFlagQuery.data}
@@ -142,18 +422,16 @@ export function AIOperations() {
             />
           )}
 
-          {/* FR-016: 4 KPI tiles */}
           {kpisQuery.data && (
             <section
               className="ac-ao-page__kpis"
               data-testid="ai-operations-kpis-section"
             >
-              <h2 className="ac-ao-page__section-title">核心指标</h2>
+              <h2 className="ac-ao-page__section-title">核心指标（兼容）</h2>
               <KPITiles kpis={kpisQuery.data.kpis} />
             </section>
           )}
 
-          {/* FR-017: version selector */}
           {versionSelectorData && (
             <section
               className="ac-ao-page__version-selector"
@@ -177,7 +455,6 @@ export function AIOperations() {
             </section>
           )}
 
-          {/* FR-016 volume + failure */}
           <div className="ac-ao-page__row">
             {volumeQuery.data && (
               <section
@@ -199,9 +476,7 @@ export function AIOperations() {
                 className="ac-ao-page__panel"
                 data-testid="ai-operations-failure-section"
               >
-                <h2 className="ac-ao-page__section-title">
-                  失败分类
-                </h2>
+                <h2 className="ac-ao-page__section-title">失败分类</h2>
                 <FailureCategoriesPie
                   rows={failureQuery.data.breakdown}
                   versionSelector={versionSelectorData}
@@ -210,7 +485,6 @@ export function AIOperations() {
             )}
           </div>
 
-          {/* FR-016 latency + tokens */}
           <div className="ac-ao-page__row">
             {latencyQuery.data && (
               <section
@@ -239,7 +513,6 @@ export function AIOperations() {
             )}
           </div>
 
-          {/* FR-016 cost + FR-020 eval/badcase */}
           <div className="ac-ao-page__row">
             {costSummaryQuery.data && (
               <section
@@ -264,7 +537,6 @@ export function AIOperations() {
             )}
           </div>
 
-          {/* FR-018 quality issues list + drawer trigger */}
           {qualityIssuesQuery.data && (
             <section
               className="ac-ao-page__panel"

@@ -9,12 +9,14 @@ import {
   Briefcase,
   ChevronsLeft,
   ChevronsRight,
-  Sparkles,
+  Layers3,
   BookOpen,
   HelpCircle,
   Search,
   BarChart3,
   Shield,
+  Bot,
+  ListTodo,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useResumeV2List } from '@/hooks/queries/useResumeV2List'
@@ -30,13 +32,23 @@ interface SidebarItem {
 
 const secondaryNav: SidebarItem[] = [
   { to: '/jobs', label: '求职追踪', icon: <Briefcase className="h-4 w-4" /> },
+  { to: '/ai-tasks', label: 'AI 任务', icon: <ListTodo className="h-4 w-4" /> },
+  { to: '/agent', label: 'Agent 助手', icon: <Bot className="h-4 w-4" /> },
   { to: '/error-book', label: '错题本', icon: <BookOpen className="h-4 w-4" /> },
   { to: '/pm-dashboard', label: 'PM 看板', icon: <BarChart3 className="h-4 w-4" /> },
   { to: '/settings', label: '设置', icon: <Settings className="h-4 w-4" /> },
   { to: '/help', label: '帮助中心', icon: <HelpCircle className="h-4 w-4" /> },
 ]
 
-export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+export function Sidebar({
+  collapsed,
+  onToggle,
+  onOpenSearch,
+}: {
+  collapsed: boolean
+  onToggle: () => void
+  onOpenSearch?: () => void
+}) {
   // 036 Phase A.2 — single 简历中心 entry; v1 branch tree retired.
   // Count badge reflects the v2 resume list length.
   const { data: v2Resumes = [] } = useResumeV2List()
@@ -60,13 +72,13 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
       {/* Logo */}
       <div className="h-14 flex items-center px-3.5 border-b border-surface-border dark:border-dark-surface-border flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="h-7 w-7 rounded-md bg-gradient-to-br from-brand-900 to-brand-600 dark:from-brand-500 dark:to-brand-300 flex items-center justify-center flex-shrink-0 shadow-notion-sm">
-            <Sparkles className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
+          <div className="h-7 w-7 rounded-md bg-brand-900 dark:bg-brand-200 flex items-center justify-center flex-shrink-0">
+            <Layers3 className="h-3.5 w-3.5 text-white dark:text-brand-950" strokeWidth={1.8} />
           </div>
           {!collapsed && (
             <div className="min-w-0">
               <div className="text-sm font-semibold text-ink-1 leading-tight">InterCraft</div>
-              <div className="text-2xs text-ink-3 leading-tight">面试工坊</div>
+              <div className="text-2xs text-ink-3 leading-tight">求职工作台</div>
             </div>
           )}
         </div>
@@ -75,18 +87,20 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
       {/* 主导航 */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
         {/* 搜索框 */}
-        {!collapsed && (
-          <div className="px-1">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-muted pointer-events-none" />
-              <input
-                type="search"
-                placeholder="搜索…"
-                className="w-full h-7 pl-7 pr-2 text-xs rounded bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border-0 focus:outline-none focus:ring-2 focus:ring-brand-500/30 transition-shadow"
-              />
-            </div>
-          </div>
-        )}
+        <div className="px-1">
+          <button
+            type="button"
+            onClick={onOpenSearch}
+            aria-label="搜索"
+            className={cn(
+              'flex h-9 w-full items-center rounded bg-surface-muted text-xs text-ink-3 transition-colors hover:text-ink-1 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:bg-dark-surface-muted',
+              collapsed ? 'justify-center px-0' : 'gap-2 px-2.5',
+            )}
+          >
+            <Search className="h-3.5 w-3.5 flex-shrink-0" />
+            {!collapsed && <span>搜索…</span>}
+          </button>
+        </div>
 
         {/* 主功能区 */}
         <div>
@@ -101,9 +115,11 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                 key={item.to}
                 to={item.to}
                 end={item.exact}
+                aria-label={collapsed ? item.label : undefined}
+                title={collapsed ? item.label : undefined}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-2 px-2 h-7 rounded text-sm transition-colors',
+                    'flex items-center gap-2 px-2 h-9 rounded text-sm transition-colors',
                     isActive
                       ? 'bg-brand-50 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 font-medium'
                       : 'text-ink-2 dark:text-dark-ink-secondary hover:bg-surface-muted dark:hover:bg-dark-surface-muted hover:text-ink-1 dark:hover:text-dark-ink-primary',
@@ -136,9 +152,11 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
               <NavLink
                 key={item.to}
                 to={item.to}
+                aria-label={collapsed ? item.label : undefined}
+                title={collapsed ? item.label : undefined}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-2 px-2 h-7 rounded text-sm transition-colors',
+                    'flex items-center gap-2 px-2 h-9 rounded text-sm transition-colors',
                     isActive
                       ? 'bg-brand-50 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 font-medium'
                       : 'text-ink-2 dark:text-dark-ink-secondary hover:bg-surface-muted dark:hover:bg-dark-surface-muted hover:text-ink-1 dark:hover:text-dark-ink-primary',
@@ -153,9 +171,11 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
             {isAdmin && (
               <NavLink
                 to="/admin-console/command-center"
+                aria-label={collapsed ? '管理后台' : undefined}
+                title={collapsed ? '管理后台' : undefined}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-2 px-2 h-7 rounded text-sm transition-colors',
+                    'flex items-center gap-2 px-2 h-9 rounded text-sm transition-colors',
                     isActive
                       ? 'bg-brand-50 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 font-medium'
                       : 'text-ink-2 dark:text-dark-ink-secondary hover:bg-surface-muted dark:hover:bg-dark-surface-muted hover:text-ink-1 dark:hover:text-dark-ink-primary',
@@ -175,7 +195,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
         <button
           onClick={onToggle}
           className={cn(
-            'w-full flex items-center h-7 rounded text-xs text-ink-3',
+            'w-full flex items-center h-9 rounded text-xs text-ink-3',
             'hover:bg-surface-muted hover:text-ink-1 dark:hover:bg-dark-surface-muted dark:hover:text-dark-ink-primary',
             'transition-colors',
             collapsed ? 'justify-center px-0' : 'gap-2 px-2',

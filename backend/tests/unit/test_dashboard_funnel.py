@@ -31,3 +31,11 @@ def test_funnel_empty():
     segs = aggregate_funnel([], now=datetime.now(timezone.utc))
     assert len(segs) == 3
     assert all(s["count"] == 0 for s in segs)
+
+
+def test_funnel_segments_keep_their_filter_context_in_links():
+    segs = {s["key"]: s for s in aggregate_funnel([], now=datetime.now(timezone.utc))}
+
+    assert segs["applying"]["href"] == "/jobs?status=applied"
+    assert segs["interviewing"]["href"] == "/jobs?view=interviewing"
+    assert segs["awaiting_feedback"]["href"] == "/jobs?view=awaiting_feedback"

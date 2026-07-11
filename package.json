@@ -12,6 +12,8 @@
     "test:coverage": "vitest run --coverage",
     "e2e": "playwright test",
     "gen:api": "node scripts/gen-api.mjs",
+    "gen:ai-contracts": "node scripts/generate-ai-contracts.mjs",
+    "check:ai-contracts": "node scripts/generate-ai-contracts.mjs --check",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },

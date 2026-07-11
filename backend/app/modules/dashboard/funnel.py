@@ -57,14 +57,14 @@ def aggregate_funnel(
             "label_zh": "面试中",
             "count": interviewing,
             "filter_statuses": sorted(INTERVIEWING_STATUSES),
-            "href": "/jobs",
+            "href": "/jobs?view=interviewing",
         },
         {
             "key": AWAITING_FEEDBACK,
             "label_zh": "待反馈",
             "count": awaiting,
             "filter_statuses": [],
-            "href": "/jobs",
+            "href": "/jobs?view=awaiting_feedback",
         },
     ]
 

@@ -21,8 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 import httpx
@@ -30,12 +29,11 @@ import httpx
 from app.channels.circuit_breaker import BreakerState, CircuitBreaker
 from app.channels.ilink_client import ILinkClient
 from app.channels.message_handler import (
-    ParsedMessage,
-    is_duplicate,
     parse_inbound_message,
     persist_inbound_message,
     process_outbound_queue,
 )
+from app.core.config import get_settings
 from app.core.db import get_session_context
 from app.modules.agent.service import decrypt_token
 
@@ -64,6 +62,23 @@ class ILinkConnectionPool:
         self._user_locks: Dict[str, asyncio.Lock] = {}
         self._shared_client: Optional[httpx.AsyncClient] = None
         self._started = False
+        self._consumer_key: str | None = None
+        self._consumer_owner_id: UUID | None = None
+        self._consumer_fencing_token: int | None = None
+
+    def configure_consumer_fence(
+        self,
+        *,
+        consumer_key: str,
+        owner_id: UUID,
+        fencing_token: int,
+    ) -> None:
+        """Bind poll/cursor commits to the active process lease."""
+        if self._started:
+            raise RuntimeError("consumer fence must be configured before pool startup")
+        self._consumer_key = consumer_key
+        self._consumer_owner_id = owner_id
+        self._consumer_fencing_token = fencing_token
 
     def _lock_for(self, user_id_str: str) -> asyncio.Lock:
         lock = self._user_locks.get(user_id_str)
@@ -96,34 +111,21 @@ class ILinkConnectionPool:
             trust_env=False,
         )
 
-        # Load all active credentials from DB. We set row_security = off
-        # on this dedicated connection so we can scan across all users.
-        # This is safe because the session is short-lived and never
-        # exposed to any request handler.
-        #
-        # Previously this used get_active_credentials() (SECURITY DEFINER),
-        # but that function is owned by appuser — the same role that
-        # connects — and relforcerowsecurity=true blocked even the owner
-        # from bypassing RLS (migration 0038 removed FORCE on this table,
-        # so SET row_security = off now works for the table owner).
+        # Discover only user_id + cursor via the locked-down SECURITY
+        # DEFINER function. Secret-bearing credential rows remain FORCE-RLS.
         try:
             from app.core.db import get_db_session_no_rls
 
             async for session in get_db_session_no_rls():
                 from sqlalchemy import text as sa_text
 
-                await session.execute(sa_text("SET LOCAL row_security = off"))
-                # Load all active credentials in one query. Each active
-                # credential means a user who previously bound their
-                # WeChat — we resume their long-poll task.
                 result = await session.execute(
                     sa_text(
-                        "SELECT user_id, cursor FROM wechat_credentials "
-                        "WHERE status = 'active' AND bot_token_encrypted IS NOT NULL"
+                        "SELECT user_id, cursor FROM wechat_consumer_registrations "
+                        "WHERE active = true ORDER BY updated_at"
                     )
                 )
                 rows = result.fetchall()
-                await session.commit()
                 logger.info("pool_startup_loaded", extra={"active_creds": len(rows)})
 
                 for row in rows:
@@ -285,7 +287,7 @@ class ILinkConnectionPool:
             name=f"ilink-poll-{user_id[:8]}",
         )
         self._tasks[user_id] = task
-        logger.info("pool_task_spawned", extra={"user_id": user_id, "cursor": cursor[:20] if cursor else ""})
+        logger.info("pool_task_spawned", extra={"has_cursor": bool(cursor)})
 
     async def _poll_loop(
         self,
@@ -303,6 +305,7 @@ class ILinkConnectionPool:
         base_url = "https://ilinkai.weixin.qq.com"
         to_user_id = ""  # WeChat user ID to send replies to (from_user_id of last inbound msg)
         context_token = ""
+        credential_id: UUID | None = None
 
         try:
             async with get_session_context(user_id=uid) as session:
@@ -317,6 +320,7 @@ class ILinkConnectionPool:
                     logger.error("pool_no_credential", extra={"user_id": user_id})
                     return
                 bot_token = decrypt_token(cred.bot_token_encrypted)
+                credential_id = cred.id
                 base_url = cred.base_url or base_url
                 context_token = cred.context_token or ""
 
@@ -359,19 +363,18 @@ class ILinkConnectionPool:
 
                 try:
                     data = await client.getupdates(cursor)
-                    # DEBUG: log every poll response shape so we can see what iLink returns
                     logger.info(
-                        "pool_poll_resp user=%s ret=%s errcode=%s msgs=%d cursor=%s",
-                        user_id[:8],
-                        data.get("ret"),
-                        data.get("errcode"),
-                        len(data.get("msgs") or []),
-                        (data.get("get_updates_buf") or "")[:20],
+                        "pool_poll_response",
+                        extra={
+                            "ret": data.get("ret"),
+                            "errcode": data.get("errcode"),
+                            "message_count": len(data.get("msgs") or []),
+                        },
                     )
                 except Exception as exc:
                     logger.warning(
                         "pool_poll_error",
-                        extra={"user_id": user_id, "error": str(exc)[:120]},
+                        extra={"error_type": type(exc).__name__},
                     )
                     breaker.record_failure()
                     # Exponential backoff
@@ -394,7 +397,7 @@ class ILinkConnectionPool:
                 if data.get("errcode") == -14 or data.get("ret") == -14:
                     logger.warning(
                         "ilink_session_expired",
-                        extra={"user_id": user_id},
+                                extra={"stage": "dispatch"},
                     )
                     await _handle_session_expired(uid)
                     # Do NOT continue — task is stopping.
@@ -402,16 +405,58 @@ class ILinkConnectionPool:
 
                 ret = data.get("ret", -1)
                 new_cursor = data.get("get_updates_buf") or ""
+                msgs = data.get("msgs") or []
+
+                # REQ-060: the complete provider response (including skipped
+                # or malformed items) and cursor advance share one fenced DB
+                # transaction. Redis is advisory only and never acknowledges
+                # an inbound message.
+                if (
+                    credential_id is None
+                    or self._consumer_key is None
+                    or self._consumer_owner_id is None
+                    or self._consumer_fencing_token is None
+                ):
+                    logger.error("pool_consumer_fence_missing")
+                    break
+                try:
+                    from app.channels.durable_inbox import persist_poll_batch
+
+                    persisted_poll = await persist_poll_batch(
+                        user_id=uid,
+                        credential_id=credential_id,
+                        previous_cursor=cursor,
+                        new_cursor=new_cursor,
+                        raw_messages=msgs,
+                        consumer_key=self._consumer_key,
+                        owner_id=self._consumer_owner_id,
+                        fencing_token=self._consumer_fencing_token,
+                    )
+                except Exception:
+                    logger.exception(
+                        "pool_poll_persist_failed",
+                        extra={"credential_state": "expired"},
+                    )
+                    breaker.record_failure()
+                    continue
+
                 if new_cursor:
                     cursor = new_cursor
-                    # Persist cursor to DB
-                    await _update_cursor(uid, cursor)
-
-                msgs = data.get("msgs") or []
+                processable_items = {
+                    key: (inbox_id, binding_epoch)
+                    for key, inbox_id, binding_epoch in persisted_poll.processable_items
+                }
 
                 # Process inbound messages
                 latest_context_token = context_token
                 for msg in msgs:
+                    from app.channels.durable_inbox import message_dedupe_key
+
+                    inbox_dedupe_key = message_dedupe_key(credential_id, msg)
+                    inbox_item = processable_items.pop(inbox_dedupe_key, None)
+                    if inbox_item is None:
+                        continue
+                    inbox_id, binding_epoch = inbox_item
                     parsed = parse_inbound_message(msg)
                     if parsed is None:
                         logger.info(
@@ -436,25 +481,43 @@ class ILinkConnectionPool:
                         latest_context_token = parsed.context_token
                         await _update_context_token(uid, parsed.context_token)
 
-                    # Dedup
-                    dedup_key = parsed.context_token or parsed.msg_id
-                    if dedup_key and await is_duplicate(user_id, parsed.context_token, parsed.msg_id):
-                        logger.debug("pool_dedup_skip", extra={"user_id": user_id, "key": dedup_key[:40]})
-                        continue
-
                     # Persist inbound message
                     try:
                         async with get_session_context(user_id=uid) as session:
-                            await persist_inbound_message(uid, parsed, session=session)
+                            inbound_message_id = await persist_inbound_message(
+                                uid,
+                                parsed,
+                                session=session,
+                                dedupe_key=inbox_dedupe_key,
+                                binding_epoch=binding_epoch,
+                            )
+                            parsed.persisted_message_id = inbound_message_id
+                            parsed.inbox_id = inbox_id
+                            parsed.binding_epoch = binding_epoch
                     except Exception:
-                        logger.exception("pool_persist_inbound_failed", extra={"user_id": user_id})
+                        logger.exception("pool_persist_inbound_failed")
+                        continue
+
+                    from uuid import uuid4
+
+                    from app.channels.durable_inbox import claim_inbox_item
+
+                    inbox_claim_owner = uuid4()
+                    claimed = await claim_inbox_item(
+                        user_id=uid,
+                        inbox_id=inbox_id,
+                        binding_epoch=binding_epoch,
+                        owner_id=inbox_claim_owner,
+                        claim_seconds=get_settings().wechat_agent_message_claim_seconds,
+                    )
+                    if not claimed:
+                        continue
+                    parsed.inbox_claim_owner = inbox_claim_owner
 
                     # Log receipt
                     logger.info(
                         "pool_msg_received",
                         extra={
-                            "user_id": user_id,
-                            "from": parsed.from_user_id[:30],
                             "type": parsed.message_type,
                             "len": len(parsed.text),
                         },
@@ -476,12 +539,9 @@ class ILinkConnectionPool:
                     send_target = parsed.from_user_id or to_user_id
                     if parsed.text and send_target and parsed.context_token:
                         try:
-                            from app.modules.agent.service import AgentService
                             from app.channels.message_handler import (
                                 enqueue_outbound_message,
                             )
-                            from uuid import uuid4
-
                             # Phase 1: immediate "thinking..." placeholder.
                             # Uses a stable client_id so the next poll cycle
                             # (within 35s) can pick it up and send it.
@@ -494,13 +554,12 @@ class ILinkConnectionPool:
                                     client_id=thinking_client_id,
                                     context_token=parsed.context_token,
                                     in_reply_to_msg_id=parsed.msg_id,
+                                    trace_id=getattr(parsed, "trace_id", None),
                                 )
-                                await s.commit()
                             logger.info(
                                 "pool_thinking_enqueued",
                                 extra={
-                                    "user_id": user_id,
-                                    "thinking_client_id": str(thinking_client_id),
+                                    "message_id": str(thinking_client_id),
                                 },
                             )
 
@@ -519,9 +578,21 @@ class ILinkConnectionPool:
                                 )
                             )
                         except Exception:
+                            try:
+                                from app.channels.durable_inbox import finish_inbox_item
+
+                                await finish_inbox_item(
+                                    user_id=uid,
+                                    inbox_id=parsed.inbox_id,
+                                    owner_id=parsed.inbox_claim_owner,
+                                    succeeded=False,
+                                    error_category="dispatch_enqueue_failed",
+                                )
+                            except Exception:
+                                logger.exception("pool_dispatch_retry_schedule_failed")
                             logger.exception(
                                 "pool_dispatch_failed",
-                                extra={"user_id": user_id},
+                        extra={"stage": "poll_persist"},
                             )
 
                 if latest_context_token != context_token:
@@ -531,7 +602,7 @@ class ILinkConnectionPool:
                 if to_user_id:
                     logger.info(
                         "pool_drain_calling",
-                        extra={"user_id": user_id, "to_user_id": to_user_id, "context_token": bool(context_token)},
+                        extra={"has_target": True, "has_context": bool(context_token)},
                     )
                     try:
                         sent = await process_outbound_queue(
@@ -542,9 +613,9 @@ class ILinkConnectionPool:
                             session_factory=lambda: get_session_context(user_id=uid),
                         )
                         if sent > 0:
-                            logger.info("pool_outbound_sent", extra={"user_id": user_id, "count": sent})
+                            logger.info("pool_outbound_sent", extra={"count": sent})
                     except Exception:
-                        logger.exception("pool_outbound_process_failed", extra={"user_id": user_id})
+                        logger.exception("pool_outbound_process_failed")
 
                 # Update heartbeat
                 await _update_heartbeat(uid)
@@ -632,9 +703,6 @@ async def _handle_session_expired(user_id: UUID) -> None:
             await agent_repo.update_status(user_id, "degraded")
 
             # Audit log entry — append-only
-            from app.modules.agent.models import AgentStatusHistory
-            from uuid import uuid4
-            from datetime import datetime, timezone
             hist_repo = AgentStatusHistoryRepository(session)
             await hist_repo.record(
                 user_id,
@@ -689,10 +757,12 @@ async def _dispatch_agent_reply(  # noqa: F811 — module-level helper
         parsed: The ParsedMessage we just received.
         client_id: The per-message client_id used when the reply is enqueued.
     """
-    from uuid import UUID
+    from uuid import UUID, uuid4
+
+    from app.channels.durable_inbox import finish_inbox_item
+    from app.channels.message_handler import enqueue_outbound_message
     from app.core.db import get_session_context
     from app.modules.agent.service import AgentService
-    from app.channels.message_handler import enqueue_outbound_message
 
     uid = UUID(user_id_str)
     # REQ-054: serialize per-user so confirmation / interview state is consistent.
@@ -701,17 +771,49 @@ async def _dispatch_agent_reply(  # noqa: F811 — module-level helper
     async with lock:
         try:
             logger.info(
-                f"agent_dispatch_starting user_id={user_id_str} from_user_id={getattr(parsed, 'from_user_id', None)!r} to={to_user_id!r} text_len={len(parsed.text or '')}",
+                "agent_dispatch_starting",
+                extra={"content_length": len(parsed.text or "")},
             )
+
+            async def send_interim(text: str) -> None:
+                """Push interim WeChat notice (e.g. scoring) before final reply."""
+                if not text or not str(text).strip():
+                    return
+                async with get_session_context(user_id=uid) as interim_sess:
+                    await enqueue_outbound_message(
+                        uid,
+                        str(text),
+                        session=interim_sess,
+                        client_id=uuid4(),
+                        context_token=parsed.context_token,
+                        in_reply_to_msg_id=parsed.msg_id,
+                        priority="high",
+                        task_id=getattr(parsed, "task_id", None),
+                        trace_id=getattr(parsed, "trace_id", None),
+                    )
+                logger.info(
+                    "agent_interim_enqueued",
+                    extra={"reply_length": len(str(text))},
+                )
+
             # Call the Agent (this is the slow LLM call, up to 30s).
             async with get_session_context(user_id=uid) as svc_sess:
                 svc = AgentService(svc_sess)
-                reply_text = await svc.process_inbound_reply(parsed)
+                reply_text = await svc.process_inbound_reply(
+                    parsed, send_interim=send_interim
+                )
 
             if not reply_text:
                 logger.warning(
                     "agent_reply_empty",
-                    extra={"user_id": user_id_str, "in_reply_to": str(parsed.msg_id)},
+                    extra={"message_id": str(parsed.persisted_message_id)},
+                )
+                await finish_inbox_item(
+                    user_id=uid,
+                    inbox_id=parsed.inbox_id,
+                    owner_id=parsed.inbox_claim_owner,
+                    succeeded=False,
+                    error_category="empty_agent_reply",
                 )
                 return
 
@@ -725,20 +827,39 @@ async def _dispatch_agent_reply(  # noqa: F811 — module-level helper
                     client_id=client_id,
                     context_token=parsed.context_token,
                     in_reply_to_msg_id=parsed.msg_id,
+                    task_id=getattr(parsed, "task_id", None),
+                    trace_id=getattr(parsed, "trace_id", None),
                 )
-                await s.commit()
+            await finish_inbox_item(
+                user_id=uid,
+                inbox_id=parsed.inbox_id,
+                owner_id=parsed.inbox_claim_owner,
+                succeeded=True,
+            )
             logger.info(
                 "agent_reply_enqueued",
                 extra={
-                    "user_id": user_id_str,
-                    "reply_len": len(reply_text),
-                    "client_id": str(client_id),
+                    "reply_length": len(reply_text),
+                    "message_id": str(client_id),
                 },
             )
         except Exception:
+            try:
+                if getattr(parsed, "inbox_id", None) and getattr(
+                    parsed, "inbox_claim_owner", None
+                ):
+                    await finish_inbox_item(
+                        user_id=uid,
+                        inbox_id=parsed.inbox_id,
+                        owner_id=parsed.inbox_claim_owner,
+                        succeeded=False,
+                        error_category="agent_dispatch_failed",
+                    )
+            except Exception:
+                logger.exception("agent_dispatch_retry_schedule_failed")
             logger.exception(
                 "agent_dispatch_task_failed",
-                extra={"user_id": user_id_str, "in_reply_to": str(parsed.msg_id)},
+                extra={"message_id": str(getattr(parsed, "persisted_message_id", ""))},
             )
 
 # Singleton accessor

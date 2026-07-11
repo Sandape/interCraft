@@ -195,5 +195,38 @@ __all__ = [
     "LangSmithSyncError",
     "LangSmithSyncResult",
     "SyncMode",
+    "project_runtime_event",
     "sync_report_to_langsmith",
 ]
+
+
+def project_runtime_event(
+    *,
+    source_event_id: str,
+    root_task_id: str,
+    sequence: int,
+    representation: str = "metadata",
+    task_id: str | None = None,
+    execution_id: str | None = None,
+    attempt_id: str | None = None,
+    policy_allows_restricted: bool = False,
+) -> dict[str, Any]:
+    """REQ-061 T160 — policy-authorized LangSmith projection helper."""
+    from app.modules.ai_runtime.projections.langsmith import (
+        build_deep_links,
+        project_event_representation,
+    )
+
+    links = build_deep_links(
+        task_id=task_id or root_task_id,
+        execution_id=execution_id,
+        attempt_id=attempt_id,
+    )
+    return project_event_representation(
+        source_event_id=source_event_id,
+        root_task_id=root_task_id,
+        sequence=sequence,
+        representation=representation,  # type: ignore[arg-type]
+        links=links,
+        policy_allows_restricted=policy_allows_restricted,
+    )

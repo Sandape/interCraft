@@ -1,20 +1,51 @@
-"""LangGraph resume_derive pipeline (REQ-055)."""
+"""REQ-059 real-AI LangGraph plus deterministic fixture adapter."""
 from __future__ import annotations
 
 from typing import Any
 
+from langgraph.graph import END, StateGraph
+
 from app.agents.nodes.resume_derive.calibrate_pages import calibrate_pages
-from app.agents.nodes.resume_derive.draft_derived import draft_derived, select_materials
-from app.agents.nodes.resume_derive.parse_jd import parse_jd
+from app.agents.nodes.resume_derive.draft_derived import (
+    draft_derived,
+    draft_derived_ai,
+    select_materials,
+)
+from app.agents.nodes.resume_derive.map_evidence import map_evidence_ai
+from app.agents.nodes.resume_derive.parse_jd import parse_jd, parse_jd_ai
 from app.agents.state.resume_derive_state import ResumeDeriveState
 
 
-def run_resume_derive(state: ResumeDeriveState) -> ResumeDeriveState:
-    """Execute derive pipeline synchronously (used by ARQ worker / CLI).
+def _build_real_graph():
+    graph = StateGraph(ResumeDeriveState)
+    graph.add_node("parse_jd", parse_jd_ai)
+    graph.add_node("map_evidence", map_evidence_ai)
+    graph.add_node("select_materials", select_materials)
+    graph.add_node("draft_derived", draft_derived_ai)
+    graph.add_node("calibrate_pages", calibrate_pages)
+    graph.set_entry_point("parse_jd")
+    graph.add_edge("parse_jd", "map_evidence")
+    graph.add_edge("map_evidence", "select_materials")
+    graph.add_edge("select_materials", "draft_derived")
+    graph.add_edge("draft_derived", "calibrate_pages")
+    graph.add_edge("calibrate_pages", END)
+    return graph.compile()
 
-    Uses a linear node chain rather than requiring a compiled StateGraph
-    so unit tests can run without checkpointer wiring. Production worker
-    may wrap this in LangGraph later.
+
+_REAL_GRAPH = _build_real_graph()
+
+
+async def run_resume_derive_async(state: ResumeDeriveState) -> ResumeDeriveState:
+    """Production path: every semantic node calls the centralized provider."""
+    result = await _REAL_GRAPH.ainvoke(dict(state))
+    return result  # type: ignore[return-value]
+
+
+def run_resume_derive(state: ResumeDeriveState) -> ResumeDeriveState:
+    """Deterministic fixture adapter retained for isolated legacy unit tests.
+
+    The worker never calls this adapter, so its output cannot be exposed as a
+    real AI result.
     """
     out: dict[str, Any] = dict(state)
     out.update(parse_jd(out))  # type: ignore[arg-type]
@@ -25,20 +56,4 @@ def run_resume_derive(state: ResumeDeriveState) -> ResumeDeriveState:
 
 
 def build_resume_derive_graph():
-    """Optional LangGraph compile for observability parity with other agents."""
-    try:
-        from langgraph.graph import END, StateGraph
-
-        g = StateGraph(ResumeDeriveState)
-        g.add_node("parse_jd", parse_jd)
-        g.add_node("select_materials", select_materials)
-        g.add_node("draft_derived", draft_derived)
-        g.add_node("calibrate_pages", calibrate_pages)
-        g.set_entry_point("parse_jd")
-        g.add_edge("parse_jd", "select_materials")
-        g.add_edge("select_materials", "draft_derived")
-        g.add_edge("draft_derived", "calibrate_pages")
-        g.add_edge("calibrate_pages", END)
-        return g.compile()
-    except Exception:
-        return None
+    return _REAL_GRAPH

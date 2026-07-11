@@ -1,40 +1,38 @@
 /**
- * BadcaseDrawer — REQ-044 US4 / FR-023 + AC-23.3.
+ * BadcaseDrawer — REQ-044 US4 + REQ-061 US10 production detail.
  *
- * 4-tab drawer for a single badcase:
- *
- *   1. Overview   — 10 FR-023 fields + audit trail summary
- *   2. Privacy    — privacy class + redaction policy explanation
- *   3. AI Task    — deep-link to the related AI task (US3 surface)
- *   4. Comments   — comment thread (shared with incident surface)
- *
- * Plus an "Escalate to Incident" button (AC-23.4) when the current
- * role holds BADCASE_CHANGE.
+ * Tabs: overview | impacts | actions | privacy
+ * Typed commands POST to canonical facade with Idempotency-Key.
  */
-import { useState } from 'react'
-import type { Badcase, BadcasePrivacyClass } from '@/types/admin-incidents'
+import { useEffect, useState } from 'react'
+import type { Badcase } from '@/types/admin-incidents'
+import {
+  productionBadcasesApi,
+  type BadcaseImpact,
+  type ImpactConfidence,
+  type OperationalBadcaseSummary,
+} from '@/admin/api/badcases-production'
+import type { BadcaseListItem } from './BadcaseList'
 import { useEscalateBadcase } from '@/admin/hooks/queries/useIncidents'
-import { CommentList } from './CommentList'
 
-type Tab = 'overview' | 'privacy' | 'ai-task' | 'comments'
+type Tab = 'overview' | 'impacts' | 'actions' | 'privacy'
 
 interface BadcaseDrawerProps {
-  badcase: Badcase | null
+  item: BadcaseListItem | null
   onClose: () => void
   canEscalate: boolean
+  canManage?: boolean
 }
 
-const PRIVACY_DESCRIPTION: Record<BadcasePrivacyClass, string> = {
-  public:
-    'No sensitive content — safe to surface in PM views and exported snapshots.',
-  internal:
-    'Internal-only fields. Maintainer developers can reveal with a reason + audit.',
-  restricted:
-    'Maintainer-only. Reveal requires INCIDENT_CHANGE + reason + audit. Default UI redacts raw fields.',
-}
+const CONFIDENCES: ImpactConfidence[] = [
+  'confirmed',
+  'possible',
+  'excluded',
+  'unknown',
+]
 
-function formatTime(ts: string): string {
-  if (ts === 'unknown') return 'stale'
+function formatTime(ts: string | null | undefined): string {
+  if (!ts || ts === 'unknown') return 'stale'
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return ts
   return d.toLocaleString(undefined, {
@@ -45,40 +43,107 @@ function formatTime(ts: string): string {
   })
 }
 
-export function BadcaseDrawer({ badcase, onClose, canEscalate }: BadcaseDrawerProps) {
+export function BadcaseDrawer({
+  item,
+  onClose,
+  canEscalate,
+  canManage = false,
+}: BadcaseDrawerProps) {
   const [tab, setTab] = useState<Tab>('overview')
+  const [detail, setDetail] = useState<Record<string, unknown> | null>(null)
+  const [impacts, setImpacts] = useState<BadcaseImpact[]>([])
+  const [impactFilter, setImpactFilter] = useState<ImpactConfidence | 'all'>('all')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const escalate = useEscalateBadcase()
 
-  if (!badcase) return null
+  const isOperational = item?.kind === 'operational'
+  const legacy = item?.kind === 'legacy' ? item.value : null
+  const summary = item?.kind === 'operational' ? item.value : null
+  const badcaseId = legacy?.id ?? summary?.badcase_id ?? null
+
+  useEffect(() => {
+    if (!isOperational || !badcaseId) {
+      setDetail(null)
+      setImpacts([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const [d, i] = await Promise.all([
+          productionBadcasesApi.get(badcaseId),
+          productionBadcasesApi.impacts(badcaseId),
+        ])
+        if (!cancelled) {
+          setDetail(d)
+          setImpacts(i.items)
+        }
+      } catch {
+        if (!cancelled) {
+          setDetail(null)
+          setImpacts([])
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isOperational, badcaseId])
+
+  if (!item || !badcaseId) return null
 
   const onEscalate = async () => {
-    await escalate.mutateAsync(badcase.id)
+    await escalate.mutateAsync(badcaseId)
   }
+
+  const runAction = async (command: Record<string, unknown>) => {
+    if (!summary || !canManage) return
+    setBusy(true)
+    setActionError(null)
+    try {
+      await productionBadcasesApi.action(
+        badcaseId,
+        {
+          ...command,
+          action_type: String(command.action_type),
+          expected_version: summary.version,
+          reason: String(command.reason ?? 'operator action'),
+        },
+        `ui-${badcaseId}-${Date.now()}`,
+      )
+      const refreshed = await productionBadcasesApi.get(badcaseId)
+      setDetail(refreshed)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'action failed'
+      setActionError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const filteredImpacts =
+    impactFilter === 'all'
+      ? impacts
+      : impacts.filter((i) => i.confidence === impactFilter)
+
+  const title =
+    legacy?.classification ?? summary?.category ?? badcaseId
 
   return (
     <aside
       className="bc-drawer"
       data-testid="badcase-drawer"
-      data-badcase-id={badcase.id}
+      data-badcase-id={badcaseId}
       role="dialog"
-      aria-label={`Badcase ${badcase.id}`}
+      aria-label={`Badcase ${badcaseId}`}
     >
       <header className="bc-drawer__header">
         <div className="bc-drawer__title-row">
-          <span
-            className={`bc-drawer__eval-verdict bc-drawer__eval-verdict--${badcase.status}`}
-            data-testid="drawer-eval-verdict"
-          >
-            {badcase.evalVerdict}
-          </span>
-          <span
-            className={`bc-drawer__privacy bc-drawer__privacy--${badcase.privacyClass}`}
-            data-testid="drawer-privacy-class"
-            data-privacy-class={badcase.privacyClass}
-          >
-            {badcase.privacyClass}
-          </span>
-          <span className="bc-drawer__id">{badcase.id}</span>
+          <span className="bc-drawer__id">{badcaseId}</span>
+          {summary ? (
+            <span data-testid="drawer-severity">{summary.severity}</span>
+          ) : null}
           <button
             type="button"
             className="bc-drawer__close"
@@ -89,215 +154,198 @@ export function BadcaseDrawer({ badcase, onClose, canEscalate }: BadcaseDrawerPr
             ×
           </button>
         </div>
-        <h2 className="bc-drawer__title">{badcase.classification}</h2>
-        <nav
-          className="bc-drawer__tabs"
-          role="tablist"
-          aria-label="Badcase detail tabs"
-        >
-          <button
-            type="button"
-            role="tab"
-            className={`bc-drawer__tab ${tab === 'overview' ? 'is-active' : ''}`}
-            data-testid="tab-overview"
-            aria-selected={tab === 'overview'}
-            onClick={() => setTab('overview')}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`bc-drawer__tab ${tab === 'privacy' ? 'is-active' : ''}`}
-            data-testid="tab-privacy"
-            aria-selected={tab === 'privacy'}
-            onClick={() => setTab('privacy')}
-          >
-            Privacy
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`bc-drawer__tab ${tab === 'ai-task' ? 'is-active' : ''}`}
-            data-testid="tab-ai-task"
-            aria-selected={tab === 'ai-task'}
-            onClick={() => setTab('ai-task')}
-          >
-            AI Task
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`bc-drawer__tab ${tab === 'comments' ? 'is-active' : ''}`}
-            data-testid="tab-comments"
-            aria-selected={tab === 'comments'}
-            onClick={() => setTab('comments')}
-          >
-            Comments
-          </button>
+        <h2 className="bc-drawer__title">{title}</h2>
+        <nav className="bc-drawer__tabs" role="tablist" aria-label="Badcase detail tabs">
+          {(
+            [
+              ['overview', '概览'],
+              ['impacts', '影响范围'],
+              ['actions', '审核动作'],
+              ['privacy', '隐私'],
+            ] as Array<[Tab, string]>
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              data-testid={`badcase-tab-${id}`}
+              className={tab === id ? 'bc-drawer__tab bc-drawer__tab--active' : 'bc-drawer__tab'}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
         </nav>
       </header>
 
       <div className="bc-drawer__body">
         {tab === 'overview' ? (
-          <section
-            className="bc-drawer__panel"
-            data-testid="bc-panel-overview"
-          >
-            <dl className="bc-drawer__defs">
-              <div className="bc-drawer__def">
-                <dt>Status</dt>
-                <dd data-testid="bc-overview-status">{badcase.status}</dd>
-              </div>
-              <div className="bc-drawer__def">
+          <section data-testid="badcase-tab-panel-overview">
+            {legacy ? (
+              <dl>
+                <dt>状态</dt>
+                <dd>{legacy.status}</dd>
                 <dt>Owner</dt>
-                <dd data-testid="bc-overview-owner">{badcase.owner}</dd>
-              </div>
-              <div className="bc-drawer__def">
-                <dt>Affected feature area</dt>
-                <dd data-testid="bc-overview-feature">
-                  {badcase.affectedFeatureArea}
-                </dd>
-              </div>
-              <div className="bc-drawer__def">
-                <dt>Affected user</dt>
-                <dd data-testid="bc-overview-user">
-                  {badcase.affectedUserId}
-                </dd>
-              </div>
-              <div className="bc-drawer__def">
-                <dt>First seen</dt>
-                <dd data-testid="bc-overview-first-seen">
-                  {formatTime(badcase.firstSeenAt)}
-                </dd>
-              </div>
-              <div className="bc-drawer__def">
-                <dt>Incident</dt>
-                <dd data-testid="bc-overview-incident">
-                  {badcase.incidentId ?? '—'}
-                </dd>
-              </div>
-              <div className="bc-drawer__def">
-                <dt>Resolution</dt>
-                <dd data-testid="bc-overview-resolution">
-                  {badcase.resolution || '—'}
-                </dd>
-              </div>
-            </dl>
-            {badcase.description ? (
-              <p
-                className="bc-drawer__description"
-                data-testid="bc-overview-description"
-              >
-                {badcase.description}
-              </p>
+                <dd>{legacy.owner}</dd>
+                <dt>首次发现</dt>
+                <dd>{formatTime(legacy.firstSeenAt)}</dd>
+              </dl>
+            ) : summary ? (
+              <dl>
+                <dt>状态</dt>
+                <dd data-testid="overview-status">{summary.status}</dd>
+                <dt>严重度</dt>
+                <dd>{summary.severity}</dd>
+                <dt>Owner</dt>
+                <dd>{summary.owner ?? '—'}</dd>
+                <dt>SLA</dt>
+                <dd>{summary.sla_status}</dd>
+                <dt>费用处理</dt>
+                <dd>{summary.point_treatment_status}</dd>
+                <dt>版本</dt>
+                <dd data-testid="overview-version">{summary.version}</dd>
+                <dt>完整度</dt>
+                <dd>{summary.data_completeness}</dd>
+                {detail && (detail as { user_visible_status?: string }).user_visible_status ? (
+                  <>
+                    <dt>用户可见状态</dt>
+                    <dd>{String((detail as { user_visible_status?: string }).user_visible_status)}</dd>
+                  </>
+                ) : null}
+              </dl>
             ) : null}
-            {canEscalate && badcase.status !== 'escalated' ? (
-              <div className="bc-drawer__escalate" data-testid="escalate-section">
-                <h3 className="bc-drawer__escalate-title">Escalate to incident</h3>
-                <p className="bc-drawer__escalate-hint">
-                  Promotes this badcase to a new incident. Requires BADCASE_CHANGE.
-                </p>
+          </section>
+        ) : null}
+
+        {tab === 'impacts' ? (
+          <section data-testid="badcase-tab-panel-impacts">
+            <div className="bc-drawer__impact-filters" data-testid="impact-confidence-filters">
+              <button
+                type="button"
+                data-testid="impact-filter-all"
+                onClick={() => setImpactFilter('all')}
+              >
+                全部
+              </button>
+              {CONFIDENCES.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  data-testid={`impact-filter-${c}`}
+                  aria-pressed={impactFilter === c}
+                  onClick={() => setImpactFilter(c)}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <ul data-testid="impact-list">
+              {filteredImpacts.map((impact) => (
+                <li
+                  key={impact.impact_id}
+                  data-testid={`impact-${impact.impact_id}`}
+                  data-confidence={impact.confidence}
+                >
+                  {impact.impact_kind}:{impact.subject_ref} ({impact.confidence})
+                </li>
+              ))}
+            </ul>
+            {filteredImpacts.length === 0 ? (
+              <p data-testid="impact-empty-unknown">无匹配影响（未知不得显示为 0 任务）</p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {tab === 'actions' ? (
+          <section data-testid="badcase-tab-panel-actions">
+            {actionError ? (
+              <div data-testid="action-error" role="alert">
+                {actionError}
+              </div>
+            ) : null}
+            {canManage && summary ? (
+              <div className="bc-drawer__actions">
                 <button
                   type="button"
-                  className="bc-drawer__escalate-button"
-                  data-testid="escalate-button"
-                  onClick={onEscalate}
-                  disabled={escalate.isPending}
+                  data-testid="action-add-note"
+                  disabled={busy}
+                  onClick={() =>
+                    void runAction({
+                      action_type: 'ADD_NOTE',
+                      note: 'operator note',
+                      reason: 'drawer note',
+                    })
+                  }
                 >
-                  {escalate.isPending
-                    ? 'Escalating…'
-                    : 'Escalate to Incident'}
+                  加注
                 </button>
-                {escalate.data ? (
-                  <p
-                    className="bc-drawer__escalate-result"
-                    data-testid="escalate-result"
-                  >
-                    Created {escalate.data.incidentId} at{' '}
-                    {formatTime(escalate.data.escalatedAt)}
-                  </p>
-                ) : null}
-                {escalate.isError ? (
-                  <p
-                    className="ac-error-banner"
-                    data-testid="escalate-error"
-                  >
-                    Failed to escalate
-                  </p>
-                ) : null}
+                <button
+                  type="button"
+                  data-testid="action-close"
+                  disabled={busy}
+                  onClick={() =>
+                    void runAction({
+                      action_type: 'CLOSE',
+                      reason: 'attempt close',
+                      closure_reason: 'fixed',
+                      // Intentionally incomplete — UI must surface closure gate
+                    })
+                  }
+                >
+                  尝试关闭
+                </button>
               </div>
-            ) : null}
+            ) : (
+              <p data-testid="actions-read-only">只读或无质量管理权限</p>
+            )}
           </section>
         ) : null}
 
         {tab === 'privacy' ? (
-          <section
-            className="bc-drawer__panel"
-            data-testid="bc-panel-privacy"
-          >
-            <p
-              className="bc-drawer__privacy-desc"
-              data-testid="privacy-description"
-            >
-              {PRIVACY_DESCRIPTION[badcase.privacyClass]}
+          <section data-testid="badcase-tab-panel-privacy">
+            <p data-privacy-class={legacy?.privacyClass ?? summary?.privacy_class}>
+              隐私等级：{legacy?.privacyClass ?? summary?.privacy_class}
             </p>
-            <ul
-              className="bc-drawer__privacy-list"
-              data-testid="privacy-policies"
-            >
-              <li>Raw resume content: hidden (FR-032)</li>
-              <li>Raw interview answers: hidden (FR-032)</li>
-              <li>Raw prompts / model outputs: hidden (FR-032)</li>
-              <li>Eval verdict + classification: visible</li>
-              <li>Affected feature area + owner: visible</li>
-              <li>Affected user id: visible (US2 privacy-safe lookup)</li>
-            </ul>
-          </section>
-        ) : null}
-
-        {tab === 'ai-task' ? (
-          <section
-            className="bc-drawer__panel"
-            data-testid="bc-panel-ai-task"
-          >
-            <p data-testid="ai-task-link-hint">
-              Cross-link to the AI task that produced this badcase. US3
-              surfaces the eval verdict + cost + latency in the AI
-              Operations workspace.
-            </p>
-            <a
-              className="bc-drawer__ai-task-link"
-              data-testid="ai-task-link"
-              href={`/admin-console/ai-operations?tab=eval&badcase=${encodeURIComponent(badcase.id)}&from=${encodeURIComponent(badcase.id)}`}
-            >
-              View related AI task in AI Operations →
-            </a>
-          </section>
-        ) : null}
-
-        {tab === 'comments' ? (
-          <section
-            className="bc-drawer__panel"
-            data-testid="bc-panel-comments"
-          >
-            <CommentList
-              comments={[]}  // Badcase comments not implemented in Phase 1 (FR-022 only spec'd for incident)
-              canAdd={false}
-              onAdd={() => undefined}
-            />
-            <p
-              className="bc-drawer__comments-hint"
-              data-testid="badcase-comments-hint"
-            >
-              [CROSS-TEAM-DEBT] Badcase comments land in Phase 2 batch 4
-              together with the badcase review_queue.
-            </p>
+            <p>完整内容 reveal 需要独立授权、理由与审计，合并不会扩大权限。</p>
           </section>
         ) : null}
       </div>
+
+      <footer className="bc-drawer__footer">
+        {canEscalate && legacy ? (
+          <button
+            type="button"
+            data-testid="badcase-escalate"
+            onClick={() => void onEscalate()}
+          >
+            升级为 Incident
+          </button>
+        ) : null}
+      </footer>
     </aside>
   )
 }
 
+/** @deprecated Prefer BadcaseDrawer with BadcaseListItem */
+export function BadcaseDrawerLegacy({
+  badcase,
+  onClose,
+  canEscalate,
+}: {
+  badcase: Badcase | null
+  onClose: () => void
+  canEscalate: boolean
+}) {
+  if (!badcase) return null
+  return (
+    <BadcaseDrawer
+      item={{ kind: 'legacy', value: badcase }}
+      onClose={onClose}
+      canEscalate={canEscalate}
+    />
+  )
+}
+
+export type { OperationalBadcaseSummary }
 export default BadcaseDrawer

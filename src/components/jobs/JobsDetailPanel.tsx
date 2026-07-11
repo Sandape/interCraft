@@ -164,7 +164,7 @@ export function JobsDetailPanel({
           variant="primary"
           leftIcon={<FileText className="h-3.5 w-3.5" />}
           data-testid="job-detail-resume-cta"
-          onClick={() => navigate(`/resume?new=true&source_job_id=${job.id}`)}
+          onClick={() => navigate(`/resume?derive=true&job_id=${job.id}`)}
         >
           为该岗位创建简历分支
         </Button>
@@ -261,7 +261,7 @@ function JobDerivedResumesSection({
           variant="secondary"
           disabled={!hasRequirements}
           title={hasRequirements ? undefined : '请先补充 JD'}
-          onClick={() => navigate('/resume')}
+          onClick={() => navigate(`/resume?derive=true&job_id=${jobId}`)}
         >
           一键派生
         </Button>

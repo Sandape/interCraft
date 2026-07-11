@@ -18,9 +18,12 @@
   the iteration process.
 -->
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]
+**Language/Version**: [runtime versions or NEEDS CLARIFICATION]
 
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
+**Resolved Dependencies**: [exact versions from lockfile/runtime, lockfile path or snapshot hash]
+
+**Dependency Support**: [support evidence/status for every production dependency; unsupported or
+unverified dependency deviation with concrete migration target; `N/A` only with rationale]
 
 **Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 
@@ -36,11 +39,42 @@
 
 **Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
 
+**Risk Classification**: [highest feature R0/R1/R2/R3 with rationale; distinguish from story priority and service tier]
+
+**Operation Risk Matrix**: [classify each governed operation/effect; highest applicable class wins]
+
+**Execution Model**: [request/response, durable dispatch intent + ARQ job, LangGraph thread, scheduled task, or N/A]
+
+**AI/Agent State**: [typed state, checkpointer/store, thread/execution identity, effect fencing,
+live-version/retention matrix, decoder/upcasters, N-1 rolling compatibility, or N/A with rationale]
+
+**External Dependencies**: [model/tool/search providers, timeout/retry/idempotency policy, or N/A]
+
+**Observability & Privacy**: [correlation IDs, required audit facts, redaction/retention policy]
+
+**Migration & Rollout**: [database-enforced migration exclusion/ledger, resumable backfill,
+separate expand/contract releases, checkpoint/payload compatibility, backout/roll-forward]
+
+**Operational Release Unit**: [service/capability boundary and inherited vs. capability-specific controls]
+
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+*SCREEN before Phase 0; re-check after Phase 1 design. Pre-screen research is allowed only
+for `RESEARCH REQUIRED`; `BLOCKED` stops work. Post-design `FAIL` stops implementation.*
 
-[Gates determined based on constitution file]
+| Gate | Applicability / inherited control | Pre-screen (`CLEAR` / `RESEARCH REQUIRED` / `BLOCKED`) | Post-design (`PASS` / `N/A WITH RATIONALE` / `APPROVED DEVIATION` / `FAIL`) | Evidence link |
+|---|---|---|---|---|
+| Boundaries & composition roots | [scope/owner] | [status] | [status] | [router/service/domain/adapter and API/worker/CLI/graph wiring] |
+| Typed contracts & authorization | [scope/owner] | [status] | [status] | [Pydantic/OpenAPI/errors, object authorization, execution-time revalidation] |
+| Async, transactions & process isolation | [scope/owner] | [status] | [status] | [lifespans, session-per-task, external I/O boundary, multi-worker state] |
+| Durable dispatch & concurrency ownership | [scope/owner] | [status] | [status] | [task+intent transaction, dispatcher/reconciler, admission, authoritative-write/effect fencing] |
+| LangGraph state & compatibility | [scope/owner or N/A rationale] | [status] | [status] | [state/reducers/checkpointer, interrupt/resume, live-version matrix/upcasters, N-1 rolling tests] |
+| Agent safety & data lifecycle | [operation risk/owner or N/A rationale] | [status] | [status] | [immutable authorization receipt, tool/effect intent, injection controls, per-store lifecycle/deletion propagation] |
+| Test-first & evaluation | [risk-based scope/owner] | [status] | [status] | [RED/equivalent evidence, unit/contract/integration/E2E/fault/eval] |
+| Observability, release & dependency support | [release unit/inheritance/owner] | [status] | [status] | [audit/telemetry, SLO/runbook/capacity/rollback, support status] |
+
+Every `APPROVED DEVIATION` requires a complete Deviation Register entry. Non-waivable
+controls from the constitution must be `PASS`, otherwise implementation is blocked.
 
 ## Project Structure
 
@@ -77,20 +111,22 @@ tests/
 ├── integration/
 └── unit/
 
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
+# [REMOVE IF UNUSED] Option 2: InterCraft web application
 backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
+├── app/
+│   ├── modules/           # domain/application/API boundaries
+│   ├── agents/            # LangGraph state, nodes, graphs, adapters
+│   ├── api/               # cross-module API composition
+│   └── workers/           # ARQ durable background execution
 └── tests/
 
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
+src/
+├── components/
+├── pages/
+├── api/
+└── repositories/
+
+tests/e2e/
 
 # [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
 api/
@@ -103,11 +139,10 @@ ios/ or android/
 **Structure Decision**: [Document the selected structure and reference the real
 directories captured above]
 
-## Complexity Tracking
+## Deviation Register
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
+> **Fill only for post-design `APPROVED DEVIATION`. An expired deviation is `FAIL`.**
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+| Control / Clause | Scope | Risk | Supplier Support Evidence / Status | Concrete Migration Target | Why Needed | Simpler Alternative Rejected | Compensating Controls | Owner | Approver | Expiry | Removal Task |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| [control] | [bounded scope] | [concrete risk] | [required for dependency deviation; otherwise N/A with rationale] | [required for dependency deviation; otherwise N/A with rationale] | [reason] | [why insufficient] | [measurable controls] | [role/name] | [role/name] | [YYYY-MM-DD] | [task/link] |

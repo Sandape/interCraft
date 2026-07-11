@@ -505,4 +505,35 @@ def _as_utc(dt: datetime) -> datetime:
     return dt
 
 
-__all__ = ["AbilityProfileService", "DIMENSION_LABELS"]
+def project_score_vs_insight(
+    *,
+    score_source: str,
+    score_verified: bool,
+    insight_domain_status: str,
+    insight_task_id: str | None = None,
+) -> dict:
+    """REQ-061 T094 — independent score vs AI insight projection (FR-040)."""
+    from app.modules.ai_runtime.adapters import ability_insight as insight
+
+    sep = insight.separate_score_and_insight(
+        score_source=score_source,
+        score_verified=score_verified,
+        insight_domain_status=insight_domain_status,
+        insight_task_id=insight_task_id,
+    )
+    return {
+        "score": {
+            "status": sep.score_status,
+            "source": sep.score_source,
+            "available": sep.score_available,
+        },
+        "insight": {
+            "status": sep.insight_status,
+            "task_id": sep.insight_task_id,
+            "failed": sep.insight_failed,
+        },
+        "score_rolled_back_on_insight_failure": sep.score_rolled_back_on_insight_failure,
+    }
+
+
+__all__ = ["AbilityProfileService", "DIMENSION_LABELS", "project_score_vs_insight"]

@@ -431,4 +431,565 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "module": "ai_operations"}
 
 
+# ---------------------------------------------------------------------------
+# REQ-061 US9 production metrics / budgets / reconciliation / drilldown (T118)
+# Mounted under /admin-console/ai-operations; OpenAPI also documents the
+# /admin-console/ai alias (see main.py production mount).
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/metrics",
+    status_code=200,
+    responses={
+        200: {"description": "Joined stability/quality/latency/point/cost metrics"},
+        403: {"description": "Admin required"},
+    },
+)
+async def get_production_metrics(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
+    capability: str | None = Query(default=None),
+    service_tier: str | None = Query(default=None),
+    policy_version: str | None = Query(default=None),
+    release_batch: str | None = Query(default=None),
+    grant_config_version: str | None = Query(default=None),
+) -> dict:
+    """Return fact-driven operational metrics (beta revenue always zero)."""
+    from app.modules.admin_console.ai_operations.production import empty_metrics
+
+    log.info(
+        "ai_operations.metrics.request",
+        capability=capability,
+        service_tier=service_tier,
+        policy_version=policy_version,
+        release_batch=release_batch,
+        grant_config_version=grant_config_version,
+        range_from=from_,
+        range_to=to,
+    )
+    return empty_metrics().model_dump(mode="json")
+
+
+@router.get(
+    "/budgets",
+    status_code=200,
+    responses={200: {"description": "Cost budgets and consumption"}, 403: {"description": "Admin required"}},
+)
+async def list_production_budgets(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from decimal import Decimal
+
+    from app.modules.admin_console.ai_operations.production import budget_to_out
+    from app.modules.ai_metering.budgets import BudgetDefinition
+
+    sample = BudgetDefinition(
+        scope_type="site",
+        scope_ref="*",
+        period="day",
+        amount_rmb=Decimal("1000"),
+    )
+    return {"items": [budget_to_out(sample, consumed_rmb=Decimal("0")).model_dump(mode="json")]}
+
+
+@router.get(
+    "/reconciliations",
+    status_code=200,
+    responses={200: {"description": "Reconciliation runs"}, 403: {"description": "Admin required"}},
+)
+async def list_production_reconciliations(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    return {"items": [], "data_quality": {"seed_or_mock_count": 0}}
+
+
+@router.get(
+    "/anomalies",
+    status_code=200,
+    responses={200: {"description": "Abnormal consumption decisions"}, 403: {"description": "Admin required"}},
+)
+async def list_production_anomalies(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from app.modules.ai_metering.anomalies import PROTECTED_OPERATIONS
+
+    return {
+        "items": [],
+        "protected_operations": sorted(PROTECTED_OPERATIONS),
+    }
+
+
+@router.get(
+    "/tasks/{task_id}/cost-drilldown",
+    status_code=200,
+    responses={
+        200: {"description": "Point→milestone→attempt→cost drilldown"},
+        403: {"description": "Admin required"},
+        404: {"description": "Task not found"},
+    },
+)
+async def get_task_cost_drilldown(
+    task_id: str,
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from datetime import datetime, timezone
+
+    from app.modules.admin_console.ai_operations.production import (
+        DataQualityOut,
+        DecimalMoney,
+        TaskCostDrilldownOut,
+    )
+
+    return TaskCostDrilldownOut(
+        task_id=task_id,
+        point_settled=0,
+        cost_status="unknown",
+        current_cost_rmb=DecimalMoney(amount="0", currency="CNY"),
+        attempts=[],
+        milestones=[],
+        data_quality=DataQualityOut(
+            fresh_at=datetime.now(timezone.utc),
+            coverage_percent=100.0,
+            unknown_count=0,
+            seed_or_mock_count=0,
+        ),
+    ).model_dump(mode="json")
+
+
+@router.get(
+    "/point-configs",
+    status_code=200,
+    responses={200: {"description": "Daily point config history"}, 403: {"description": "Admin required"}},
+)
+async def list_point_configs(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> list:
+    return []
+
+
+@router.get(
+    "/cost-rates",
+    status_code=200,
+    responses={200: {"description": "Versioned cost rates"}, 403: {"description": "Admin required"}},
+)
+async def list_cost_rates(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> list:
+    return []
+
+
+# ---------------------------------------------------------------------------
+# REQ-061 T104/T106 precursor — model policy admin surface
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/model-policies",
+    status_code=200,
+    responses={
+        200: {"description": "Candidate/current model policies"},
+        403: {"description": "Admin required"},
+    },
+)
+async def list_model_policies(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+    capability: str | None = Query(default=None),
+    service_tier: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+) -> dict:
+    from app.modules.ai_runtime.provider_gateway.policy_service import ModelPolicyService
+
+    svc = ModelPolicyService()
+    return {
+        "items": svc.list_policies(
+            capability=capability,
+            service_tier=service_tier,
+            status=status,
+        )
+    }
+
+
+@router.post(
+    "/model-policies",
+    status_code=201,
+    responses={
+        201: {"description": "Draft or candidate policy version created"},
+        403: {"description": "Admin required"},
+    },
+)
+async def create_model_policy(
+    body: dict,
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from app.modules.ai_runtime.provider_gateway.policy_service import (
+        ModelPolicyService,
+        PolicyServiceError,
+    )
+    from fastapi import HTTPException
+
+    svc = ModelPolicyService()
+    try:
+        return svc.create_policy(
+            capability=body["capability"],
+            subscenario=body["subscenario"],
+            service_tier=body["service_tier"],
+            primary_route=body["primary_route"],
+            allowed_fallbacks=list(body.get("allowed_fallbacks") or []),
+            quality_gate_ref=body["quality_gate_ref"],
+            latency_target_ms=int(body["latency_target_ms"]),
+            cost_ceiling_rmb=body["cost_ceiling_rmb"],
+            rollback_target=body.get("rollback_target"),
+            owner=body["owner"],
+            reason=body["reason"],
+        )
+    except PolicyServiceError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail=f"missing field: {exc}") from exc
+
+
+@router.post(
+    "/model-policies/{policy_version}/release",
+    status_code=202,
+    responses={
+        202: {"description": "Audited release transition accepted"},
+        403: {"description": "Admin required"},
+        409: {"description": "Conflict"},
+    },
+)
+async def release_model_policy(
+    policy_version: str,
+    body: dict,
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from app.modules.ai_runtime.provider_gateway.policy_service import (
+        ModelPolicyService,
+        PolicyServiceError,
+    )
+    from fastapi import HTTPException
+
+    svc = ModelPolicyService()
+    try:
+        return svc.release_policy(
+            policy_version,
+            target_status=body["target_status"],
+            traffic_percent=float(body.get("traffic_percent", 0)),
+            eval_evidence_ref=body["eval_evidence_ref"],
+            rollback_target=body["rollback_target"],
+            reason=body["reason"],
+            actor=str(_user_id) if _user_id else None,
+        )
+    except PolicyServiceError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail=f"missing field: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# REQ-061 US11 — release / evaluation comparison + transitions (T148)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/releases",
+    status_code=200,
+    responses={
+        200: {"description": "Gray-release batches"},
+        403: {"description": "Admin required"},
+    },
+)
+async def list_release_batches(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+    capability: str | None = Query(default=None),
+) -> dict:
+    from app.modules.ai_runtime.provider_gateway.release_service import (
+        get_release_service,
+    )
+
+    svc = get_release_service()
+    items = [b.to_dict() for b in svc.list_batches()]
+    if capability:
+        items = [i for i in items if i.get("capability_code") == capability]
+    log.info("ai_operations.releases.list", count=len(items), capability=capability)
+    return {"items": items, "stages": [1, 5, 20, 50, 100]}
+
+
+@router.post(
+    "/releases",
+    status_code=201,
+    responses={
+        201: {"description": "Release batch created"},
+        403: {"description": "Admin required"},
+        422: {"description": "Missing fields"},
+    },
+)
+async def create_release_batch(
+    body: dict,
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from fastapi import HTTPException
+
+    from app.modules.ai_runtime.provider_gateway.release_service import (
+        get_release_service,
+    )
+
+    try:
+        batch = get_release_service().create_batch(
+            capability_code=body["capability_code"],
+            candidate_policy_version=body["candidate_policy_version"],
+            stable_policy_version=body["stable_policy_version"],
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail=f"missing field: {exc}") from exc
+    log.info("ai_operations.releases.create", release_batch_id=batch.release_batch_id)
+    return batch.to_dict()
+
+
+@router.get(
+    "/releases/{release_batch_id}",
+    status_code=200,
+    responses={
+        200: {"description": "Release batch detail"},
+        403: {"description": "Admin required"},
+        404: {"description": "Not found"},
+    },
+)
+async def get_release_batch(
+    release_batch_id: str,
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from fastapi import HTTPException
+
+    from app.modules.ai_runtime.provider_gateway.release_service import (
+        get_release_service,
+    )
+
+    batch = get_release_service().get_batch(release_batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="release_batch_not_found")
+    return batch.to_dict()
+
+
+@router.get(
+    "/releases/{release_batch_id}/comparison",
+    status_code=200,
+    responses={
+        200: {"description": "Candidate vs stable comparison + gate evidence"},
+        403: {"description": "Admin required"},
+        404: {"description": "Not found"},
+    },
+)
+async def compare_release_batch(
+    release_batch_id: str,
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from fastapi import HTTPException
+
+    from app.modules.ai_runtime.provider_gateway.release_service import (
+        ReleaseServiceError,
+        get_release_service,
+    )
+
+    try:
+        return get_release_service().compare_candidate_stable(release_batch_id)
+    except ReleaseServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/releases/{release_batch_id}/offline-gate",
+    status_code=200,
+    responses={
+        200: {"description": "Offline gate evaluated"},
+        403: {"description": "Admin required"},
+        404: {"description": "Not found"},
+    },
+)
+async def evaluate_release_offline_gate(
+    release_batch_id: str,
+    body: dict,
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    from fastapi import HTTPException
+
+    from app.modules.ai_runtime.provider_gateway.release_service import (
+        ReleaseServiceError,
+        get_release_service,
+    )
+
+    try:
+        result = get_release_service().evaluate_offline_gate(
+            release_batch_id,
+            p0_p1_safe=bool(body.get("p0_p1_safe", True)),
+            structure_pass=bool(body.get("structure_pass", True)),
+            quality_delta_pp=float(body.get("quality_delta_pp", 0)),
+            p95_latency_delta_pct=float(body.get("p95_latency_delta_pct", 0)),
+            cost_delta_pct=float(body.get("cost_delta_pct", 0)),
+            dual_approved_cost=bool(body.get("dual_approved_cost", False)),
+        )
+    except ReleaseServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return result.to_dict()
+
+
+@router.post(
+    "/releases/{release_batch_id}/transitions",
+    status_code=202,
+    responses={
+        202: {"description": "Release transition accepted"},
+        403: {"description": "Admin required"},
+        404: {"description": "Not found"},
+        409: {"description": "Illegal transition"},
+    },
+)
+async def transition_release_batch(
+    release_batch_id: str,
+    body: dict,
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+) -> dict:
+    """Transition actions: start_gray | advance | stop_rollback | override."""
+    from fastapi import HTTPException
+
+    from app.modules.ai_runtime.provider_gateway.release_service import (
+        ReleaseServiceError,
+        get_release_service,
+    )
+
+    action = str(body.get("action") or "").strip()
+    svc = get_release_service()
+    try:
+        if action == "start_gray":
+            batch = svc.start_gray(release_batch_id)
+            return {"action": action, "batch": batch.to_dict()}
+        if action == "advance":
+            batch = svc.advance_stage(
+                release_batch_id,
+                low_traffic=bool(body.get("low_traffic")),
+                dual_approved_low_traffic=bool(body.get("dual_approved_low_traffic")),
+            )
+            return {"action": action, "batch": batch.to_dict()}
+        if action == "stop_rollback":
+            reason = str(body.get("reason") or "manual_stop")
+            batch = svc.stop_and_rollback(release_batch_id, reason=reason)
+            return {"action": action, "batch": batch.to_dict()}
+        if action == "override":
+            record = svc.record_override(
+                release_batch_id,
+                pm_approver=str(body["pm_approver"]),
+                technical_approver=str(body["technical_approver"]),
+                reason=str(body["reason"]),
+                scope=str(body.get("scope") or "release"),
+                expires_at=body.get("expires_at"),
+                bypass_safety_gate=bool(body.get("bypass_safety_gate", False)),
+            )
+            batch = svc.get_batch(release_batch_id)
+            return {
+                "action": action,
+                "override": {
+                    "override_id": record.override_id,
+                    "pm_approver": record.pm_approver,
+                    "technical_approver": record.technical_approver,
+                    "reason": record.reason,
+                    "scope": record.scope,
+                    "safety_gate_bypassed": record.safety_gate_bypassed,
+                },
+                "batch": batch.to_dict() if batch else None,
+            }
+        raise HTTPException(
+            status_code=422,
+            detail="action must be start_gray|advance|stop_rollback|override",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail=f"missing field: {exc}") from exc
+    except ReleaseServiceError as exc:
+        msg = str(exc)
+        status = 404 if msg.startswith("unknown_batch") else 409
+        raise HTTPException(status_code=status, detail=msg) from exc
+
+
+@router.get(
+    "/evaluations/comparison",
+    status_code=200,
+    responses={
+        200: {"description": "Online eval sample + calibration eligibility summary"},
+        403: {"description": "Admin required"},
+    },
+)
+async def get_evaluation_comparison(
+    _user_id: Annotated[UUID, Depends(_resolve_user_id_from_jwt)],
+    _cap: Annotated[bool, Depends(require_admin)],
+    capability: str | None = Query(default=None),
+) -> dict:
+    """Compare judge eligibility / sampling posture for ops (skeleton)."""
+    from app.eval.calibration import (
+        MIN_AGREEMENT_RATE,
+        MIN_MONTHLY_LABELS,
+        CalibrationStore,
+    )
+    from app.eval.capability_registry import get_capability_registry
+    from app.eval.judge import default_req061_rubric, is_blocking_eligible
+    from app.eval.online_sampler import (
+        HIGH_RISK_SAMPLE_RATE,
+        MANDATORY_SAMPLE_RATE,
+        ORDINARY_SAMPLE_RATE,
+    )
+
+    rubric = default_req061_rubric()
+    registry = get_capability_registry()
+    entries = registry.list_entries()
+    if capability:
+        entries = [e for e in entries if e.capability_code == capability]
+    store = CalibrationStore()
+    latest = store.latest()
+    log.info(
+        "ai_operations.evaluations.comparison",
+        capability=capability,
+        entry_count=len(entries),
+    )
+    return {
+        "rubric_version": rubric.version,
+        "calibration_status": rubric.calibration_status.value,
+        "blocking_eligible": is_blocking_eligible(rubric),
+        "sampling_rates": {
+            "ordinary": ORDINARY_SAMPLE_RATE,
+            "high_risk": HIGH_RISK_SAMPLE_RATE,
+            "mandatory": MANDATORY_SAMPLE_RATE,
+        },
+        "calibration_targets": {
+            "min_monthly_labels": MIN_MONTHLY_LABELS,
+            "min_agreement_rate": MIN_AGREEMENT_RATE,
+        },
+        "latest_calibration": latest.to_dict() if latest else None,
+        "capabilities": [
+            {
+                "capability_code": e.capability_code,
+                "action_code": e.action_code,
+                "node": e.node,
+                "risk_class": e.risk_class.value,
+                "min_active_cases": e.min_active_cases,
+                "stub": e.stub,
+            }
+            for e in entries
+        ],
+    }
+
+
 __all__ = ["router"]

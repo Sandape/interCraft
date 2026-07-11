@@ -260,3 +260,9 @@ uv run python -m app.eval.cli langsmith-sync \
   --destination-policy production-langsmith-full-content-v1 \
   --json
 ```
+
+## REQ-061 投影 / 隐私
+
+- `project_runtime_event`：策略授权的 LangSmith 投影（metadata/redacted/restricted），不调用引擎。
+- 生产导出必须带 export-policy decision；失败不得回写 runtime 事实。
+- Runbook：投影 backlog 用 runtime CLI `projection-status` / `projection-retry` 追赶，禁止重跑 AI。

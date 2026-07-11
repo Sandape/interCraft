@@ -1,11 +1,17 @@
-"""Deterministic judge helpers for REQ-045 US4.
+"""Deterministic judge helpers for REQ-045 US4 + REQ-061 US11 (T146).
 
 The production LLM-as-Judge adapter can plug in later; this module locks the
 calibration and reporting contract without requiring network calls.
+
+REQ-061 additions keep the REQ-045 API stable and add versioned execution,
+report-only/blocking eligibility, and human comparison hooks.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from app.eval.schemas import JudgeCalibrationStatus, JudgeRubricRecord
 
@@ -25,6 +31,132 @@ def default_judge_rubric(
         calibration_status=JudgeCalibrationStatus.REPORT_ONLY,
         owner=owner,
     )
+
+
+# ---------------------------------------------------------------------------
+# REQ-061 US11 interfaces
+# ---------------------------------------------------------------------------
+
+REQ061_JUDGE_VERSION = "judge.req061.v1"
+
+
+@dataclass
+class JudgeVerdict061:
+    """Versioned single-case judge result (FR-145)."""
+
+    judge_verdict_id: str
+    case_id: str
+    score: float
+    passed: bool
+    rationale: str
+    rubric_version: str
+    judge_model: str
+    judge_version: str
+    calibration_status: str
+    blocks_release: bool
+    evidence_range: dict[str, Any] = field(default_factory=dict)
+    evaluated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "judge_verdict_id": self.judge_verdict_id,
+            "case_id": self.case_id,
+            "score": self.score,
+            "passed": self.passed,
+            "rationale": self.rationale,
+            "rubric_version": self.rubric_version,
+            "judge_model": self.judge_model,
+            "judge_version": self.judge_version,
+            "calibration_status": self.calibration_status,
+            "blocks_release": self.blocks_release,
+            "evidence_range": dict(self.evidence_range),
+            "evaluated_at": self.evaluated_at,
+        }
+
+
+def default_req061_rubric(
+    *,
+    owner: str = "ai-quality",
+    version: str = "rubric.req061.v1",
+    judge_model: str = "mock-judge",
+    calibration_status: JudgeCalibrationStatus = JudgeCalibrationStatus.REPORT_ONLY,
+) -> JudgeRubricRecord:
+    return JudgeRubricRecord(
+        name="REQ-061 production quality judge",
+        version=version,
+        dimensions=["task_success", "fidelity", "safety", "factuality"],
+        scale={
+            "min": 0.0,
+            "max": 1.0,
+            "blocking_threshold": 0.85,
+            "min_labels": 100,
+        },
+        judge_model=judge_model,
+        calibration_status=calibration_status,
+        owner=owner,
+    )
+
+
+def is_blocking_eligible(rubric: JudgeRubricRecord) -> bool:
+    """True only when calibration permits blocking release gates (FR-146)."""
+    return rubric.calibration_status == JudgeCalibrationStatus.BLOCKING_ENABLED
+
+
+def evaluate_case(
+    case: dict[str, Any],
+    *,
+    rubric: JudgeRubricRecord | None = None,
+    judge_version: str = REQ061_JUDGE_VERSION,
+) -> JudgeVerdict061:
+    """Run versioned judge on one case (deterministic mock path)."""
+    rubric = rubric or default_req061_rubric()
+    threshold = float(rubric.scale.get("blocking_threshold", 0.85))
+    score = max(0.0, min(1.0, _case_score(case)))
+    passed = score >= threshold
+    case_id = str(case.get("caseId") or case.get("case_id") or uuid4())
+    blocking = is_blocking_eligible(rubric) and not passed
+    return JudgeVerdict061(
+        judge_verdict_id=f"judge-{case_id}",
+        case_id=case_id,
+        score=round(score, 4),
+        passed=passed,
+        rationale="deterministic REQ-061 mock judge score from case metrics",
+        rubric_version=rubric.version,
+        judge_model=rubric.judge_model,
+        judge_version=judge_version,
+        calibration_status=rubric.calibration_status.value,
+        blocks_release=blocking,
+        evidence_range={
+            "input_keys": sorted(
+                k for k in case.keys() if k not in {"llm_response", "raw"}
+            ),
+        },
+    )
+
+
+def compare_with_human(
+    verdict: JudgeVerdict061,
+    *,
+    human_passed: bool,
+    human_severity: str | None = None,
+) -> dict[str, Any]:
+    """Compare automatic verdict with a human label (FR-146)."""
+    agree = verdict.passed == human_passed
+    p0_p1_miss = (
+        (human_severity or "").upper() in {"P0", "P1"}
+        and (not human_passed)
+        and verdict.passed
+    )
+    return {
+        "case_id": verdict.case_id,
+        "agree": agree,
+        "p0_p1_miss": p0_p1_miss,
+        "judge_passed": verdict.passed,
+        "human_passed": human_passed,
+        "human_severity": human_severity,
+        "judge_version": verdict.judge_version,
+        "rubric_version": verdict.rubric_version,
+    }
 
 
 def _label_bool(row: dict[str, Any], key: str) -> bool:
@@ -115,7 +247,13 @@ def run_judge_cases(
 
 
 __all__ = [
+    "JudgeVerdict061",
+    "REQ061_JUDGE_VERSION",
     "calibrate_judge_rubric",
+    "compare_with_human",
     "default_judge_rubric",
+    "default_req061_rubric",
+    "evaluate_case",
+    "is_blocking_eligible",
     "run_judge_cases",
 ]

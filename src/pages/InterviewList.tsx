@@ -86,18 +86,18 @@ export default function InterviewList() {
   }
 
   return (
-    <div className="px-8 py-6 max-w-7xl mx-auto">
+    <div className="px-4 py-5 sm:px-6 lg:px-8 lg:py-6 max-w-7xl mx-auto">
       {/* 页头 */}
-      <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="flex flex-col items-stretch gap-4 mb-6 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-ink-1 tracking-tight">模拟面试</h1>
           <p className="text-sm text-ink-3 mt-1">
             基于简历和目标岗位生成定制化面试题库，AI 全程实时反馈
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link to="/interview/mode">
-            <Button variant="primary" leftIcon={<Plus className="h-3.5 w-3.5" />}>
+        <div className="sm:flex-none">
+          <Link to="/interview/mode" className="block">
+            <Button variant="primary" leftIcon={<Plus className="h-3.5 w-3.5" />} className="w-full sm:w-auto">
               开始新面试
             </Button>
           </Link>
@@ -135,7 +135,7 @@ export default function InterviewList() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         {/* 开始新面试 Hero */}
         <Card className="lg:col-span-2 p-6 bg-gradient-to-br from-brand-50/60 via-surface to-surface dark:from-brand-500/5 dark:via-dark-surface dark:to-dark-surface border-brand-200/60 dark:border-brand-500/20">
-          <div className="flex items-start gap-5">
+          <div className="flex flex-col items-start gap-4 sm:flex-row sm:gap-5">
             <div className="h-14 w-14 rounded-lg bg-gradient-to-br from-brand-900 to-brand-600 dark:from-brand-500 dark:to-brand-300 flex items-center justify-center flex-shrink-0 shadow-notion">
               <Sparkles className="h-6 w-6 text-white" strokeWidth={2.5} />
             </div>
@@ -223,24 +223,26 @@ export default function InterviewList() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <Tabs
-          value={tab}
-          onChange={setTab}
-          items={[
-            { key: 'history', label: '历史记录', count: sessions.length },
-            { key: 'error', label: '错题本', count: errorQuestions.length },
-          ]}
-        />
+      <div className="flex flex-col items-stretch gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="overflow-x-auto">
+          <Tabs
+            value={tab}
+            onChange={setTab}
+            items={[
+              { key: 'history', label: '历史记录', count: sessions.length },
+              { key: 'error', label: '错题本', count: errorQuestions.length },
+            ]}
+          />
+        </div>
         <div className="flex items-center gap-2">
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-muted pointer-events-none" />
             <input
               data-testid="interview-search-input"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索公司或岗位…"
-              className="h-8 pl-8 pr-3 text-sm rounded-md bg-surface-muted dark:bg-dark-surface-muted text-ink-1 placeholder:text-ink-muted border-0 focus:outline-none focus:ring-2 focus:ring-brand-500/30 w-56"
+              className="h-8 w-full rounded-md border-0 bg-surface-muted pl-8 pr-3 text-sm text-ink-1 placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand-500/30 sm:w-56 dark:bg-dark-surface-muted"
             />
           </div>
         </div>

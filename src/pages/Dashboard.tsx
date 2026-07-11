@@ -27,6 +27,7 @@ import {
   useDashboardSummary,
   type DashboardSummary,
 } from '@/hooks/queries/useDashboardSummary'
+import { OnboardingRecoveryCard } from '@/features/onboarding/OnboardingRecoveryCard'
 
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user)
@@ -42,6 +43,7 @@ export default function Dashboard() {
 
   return (
     <div className="px-8 py-6 max-w-7xl mx-auto pb-24 md:pb-6" data-testid="dashboard-command-center">
+      <OnboardingRecoveryCard />
       {/* L0 — 今日指挥台 */}
       <div className="mb-6">
         <div className="flex items-start justify-between gap-4">
@@ -182,7 +184,7 @@ export default function Dashboard() {
             description={`${l0?.today_interviews.length ?? 0} 场`}
             action={
               <Link
-                to="/jobs"
+                to="/jobs?interview=today"
                 className="text-2xs text-ink-3 hover:text-ink-1 transition-colors inline-flex items-center gap-0.5"
                 data-testid="dashboard-today-all"
               >
@@ -214,7 +216,7 @@ export default function Dashboard() {
           ) : (
             <div className="text-sm text-ink-3 py-3 text-center">
               <p>今天没有安排面试</p>
-              <Link to="/jobs" className="text-xs text-brand-600 hover:underline mt-1 inline-block">
+              <Link to="/jobs?new=true" className="text-xs text-brand-600 hover:underline mt-1 inline-block">
                 去求职追踪登记
               </Link>
             </div>

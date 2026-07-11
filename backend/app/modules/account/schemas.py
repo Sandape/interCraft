@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -83,6 +84,10 @@ class NotificationOut(BaseModel):
 class NotificationCenterResponse(BaseModel):
     notifications: list[NotificationOut]
     unread_count: int
+
+
+class NotificationPatchIn(BaseModel):
+    is_read: Literal[True]
 
 
 # ---- Devices ----

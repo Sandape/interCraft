@@ -1,29 +1,17 @@
 /**
- * IncidentsBadcases — REQ-044 US4 / FR-021~FR-023 业务层.
+ * IncidentsBadcases — REQ-044 US4 / REQ-061 US10.
  *
- * Operations-led workspace for incident triage + badcase review.
- * Layout:
- *
- *   - Header with 3 tabs: Incidents | Badcases
- *   - Workspace-level stats strip
- *   - Tab body:
- *       Incidents: filter bar + list + drawer
- *       Badcases:  list + drawer
- *   - Per-tab drawer (incident or badcase)
- *
- * Cross-workspace drilldown contract (SC-007 3-min drilldown) is
- * satisfied by the Evidence tab in the incident drawer: each link
- * dispatches an `ic:open-evidence` CustomEvent that the page-level
- * listener can map to a route navigation.
+ * Badcases tab prefers the canonical production facade
+ * (`/api/v1/admin-console/ai/badcases`). On failure it shows unavailable
+ * (never seed/demo fallback for production facts).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   useIncidents,
-  useBadcases,
+  useProductionBadcases,
 } from '@/admin/hooks/queries/useIncidents'
 import type {
-  Badcase,
   EvidenceLink,
   Incident,
   IncidentFilters,
@@ -31,7 +19,10 @@ import type {
 import { IncidentFilterBar } from '@/admin/components/incidents/IncidentFilterBar'
 import { IncidentCard } from '@/admin/components/incidents/IncidentCard'
 import { IncidentDrawer } from '@/admin/components/incidents/IncidentDrawer'
-import { BadcaseList } from '@/admin/components/incidents/BadcaseList'
+import {
+  BadcaseList,
+  type BadcaseListItem,
+} from '@/admin/components/incidents/BadcaseList'
 import { BadcaseDrawer } from '@/admin/components/incidents/BadcaseDrawer'
 
 type WorkspaceTab = 'incidents' | 'badcases'
@@ -46,17 +37,33 @@ const DEFAULT_FILTERS: IncidentFilters = {
   trend: 'all',
 }
 
+type BadcaseUiFilters = {
+  status: string
+  severity: string
+  sla_status: string
+}
+
+const DEFAULT_BC_FILTERS: BadcaseUiFilters = {
+  status: 'all',
+  severity: 'all',
+  sla_status: 'all',
+}
+
 export function IncidentsBadcases() {
   const [tab, setTab] = useState<WorkspaceTab>('incidents')
   const [filters, setFilters] = useState<IncidentFilters>(DEFAULT_FILTERS)
+  const [bcFilters, setBcFilters] = useState<BadcaseUiFilters>(DEFAULT_BC_FILTERS)
   const [openIncident, setOpenIncident] = useState<Incident | null>(null)
-  const [openBadcase, setOpenBadcase] = useState<Badcase | null>(null)
+  const [openBadcase, setOpenBadcase] = useState<BadcaseListItem | null>(null)
   const [searchParams] = useSearchParams()
 
   const incidentsQuery = useIncidents()
-  const badcasesQuery = useBadcases()
+  const productionQuery = useProductionBadcases({
+    status: bcFilters.status === 'all' ? undefined : bcFilters.status,
+    severity: bcFilters.severity === 'all' ? undefined : bcFilters.severity,
+    sla_status: bcFilters.sla_status === 'all' ? undefined : bcFilters.sla_status,
+  })
 
-  // Optional ?id=<incident_id> deep-link from the command-center.
   useEffect(() => {
     const id = searchParams.get('id')
     if (!id || !incidentsQuery.data) return
@@ -65,9 +72,7 @@ export function IncidentsBadcases() {
   }, [searchParams, incidentsQuery.data])
 
   const allIncidents = incidentsQuery.data?.incidents ?? []
-  const allBadcases = badcasesQuery.data?.badcases ?? []
 
-  // Distinct owner / feature_area / journey values for the filter bar.
   const owners = useMemo(
     () => Array.from(new Set(allIncidents.map((i) => i.owner))).sort(),
     [allIncidents],
@@ -85,15 +90,9 @@ export function IncidentsBadcases() {
 
   const filteredIncidents = useMemo(() => {
     return allIncidents.filter((inc) => {
-      if (filters.severity !== 'all' && inc.severity !== filters.severity) {
-        return false
-      }
-      if (filters.status !== 'all' && inc.status !== filters.status) {
-        return false
-      }
-      if (filters.owner !== 'all' && inc.owner !== filters.owner) {
-        return false
-      }
+      if (filters.severity !== 'all' && inc.severity !== filters.severity) return false
+      if (filters.status !== 'all' && inc.status !== filters.status) return false
+      if (filters.owner !== 'all' && inc.owner !== filters.owner) return false
       if (
         filters.featureArea !== 'all' &&
         inc.affectedFeatureArea !== filters.featureArea
@@ -106,22 +105,16 @@ export function IncidentsBadcases() {
       ) {
         return false
       }
-      if (filters.trend !== 'all' && inc.trend !== filters.trend) {
-        return false
-      }
+      if (filters.trend !== 'all' && inc.trend !== filters.trend) return false
       return true
     })
   }, [allIncidents, filters])
 
-  // Cross-workspace drilldown handler (SC-007 3-min drilldown).
   useEffect(() => {
     const handler = (event: Event) => {
       const ce = event as CustomEvent<EvidenceLink>
       const link = ce.detail
       if (!link) return
-      // [CROSS-TEAM-DEBT] Phase 2 batch 4 will replace this stub with
-      // a real navigate(link.href) call. For US4 we surface the link
-      // type so Playwright can verify the 8-type coverage.
       console.info('[incidents-badcases] open evidence', link.type, link.href)
     }
     window.addEventListener('ic:open-evidence', handler)
@@ -131,9 +124,16 @@ export function IncidentsBadcases() {
   const incidentsTotal = incidentsQuery.data?.total ?? 0
   const incidentsConfirmed = incidentsQuery.data?.confirmedCount ?? 0
   const incidentsCandidate = incidentsQuery.data?.candidateCount ?? 0
-  const badcasesTotal = badcasesQuery.data?.total ?? 0
-  const badcasesOpen = badcasesQuery.data?.openCount ?? 0
-  const badcasesEscalated = badcasesQuery.data?.escalatedCount ?? 0
+
+  const productionItems: BadcaseListItem[] = (productionQuery.data?.items ?? []).map(
+    (value) => ({ kind: 'operational' as const, value }),
+  )
+  const badcasesTotal = productionItems.length
+  const badcasesOpen = productionItems.filter(
+    (i) => i.kind === 'operational' && !['CLOSED', 'REJECTED', 'MERGED'].includes(i.value.status),
+  ).length
+  const productionUnavailable = productionQuery.isError
+  const dq = productionQuery.data?.data_quality ?? null
 
   return (
     <div
@@ -143,17 +143,11 @@ export function IncidentsBadcases() {
     >
       <div className="ac-page__header">
         <h1 className="ac-page__title">事件与差例</h1>
-        <span className="ac-page__hint">
-          运营分诊 · 影响优先分组
-        </span>
+        <span className="ac-page__hint">运营分诊 · 影响优先分组</span>
       </div>
 
       <div className="ib-shell">
-        <nav
-          className="ib-tabs"
-          role="tablist"
-          aria-label="Workspace tabs"
-        >
+        <nav className="ib-tabs" role="tablist" aria-label="Workspace tabs">
           <button
             type="button"
             role="tab"
@@ -182,10 +176,7 @@ export function IncidentsBadcases() {
           </button>
         </nav>
 
-        <section
-          className="ib-stats"
-          data-testid="incidents-badcases-stats"
-        >
+        <section className="ib-stats" data-testid="incidents-badcases-stats">
           <div className="ib-stat" data-testid="stat-confirmed">
             <span className="ib-stat__label">已确认事件</span>
             <span className="ib-stat__value">{incidentsConfirmed}</span>
@@ -198,17 +189,14 @@ export function IncidentsBadcases() {
             <span className="ib-stat__label">未关闭差例</span>
             <span className="ib-stat__value">{badcasesOpen}</span>
           </div>
-          <div className="ib-stat" data-testid="stat-badcases-escalated">
-            <span className="ib-stat__label">已升级差例</span>
-            <span className="ib-stat__value">{badcasesEscalated}</span>
+          <div className="ib-stat" data-testid="stat-badcases-total">
+            <span className="ib-stat__label">差例总数</span>
+            <span className="ib-stat__value">{badcasesTotal}</span>
           </div>
         </section>
 
         {tab === 'incidents' ? (
-          <section
-            className="ib-incidents"
-            data-testid="incidents-section"
-          >
+          <section className="ib-incidents" data-testid="incidents-section">
             <IncidentFilterBar
               filters={filters}
               onChange={setFilters}
@@ -217,10 +205,7 @@ export function IncidentsBadcases() {
               journeys={journeys}
             />
             {incidentsQuery.isLoading ? (
-              <p
-                className="ib-loading"
-                data-testid="incidents-loading"
-              >
+              <p className="ib-loading" data-testid="incidents-loading">
                 加载事件…
               </p>
             ) : incidentsQuery.isError ? (
@@ -228,15 +213,9 @@ export function IncidentsBadcases() {
                 加载事件失败。
               </div>
             ) : (
-              <div
-                className="ib-incidents__list"
-                data-testid="incidents-list"
-              >
+              <div className="ib-incidents__list" data-testid="incidents-list">
                 {filteredIncidents.length === 0 ? (
-                  <p
-                    className="ib-incidents__empty"
-                    data-testid="incidents-empty"
-                  >
+                  <p className="ib-incidents__empty" data-testid="incidents-empty">
                     无事件匹配当前筛选条件。
                   </p>
                 ) : (
@@ -253,21 +232,69 @@ export function IncidentsBadcases() {
           </section>
         ) : (
           <section className="ib-badcases" data-testid="badcases-section">
-            {badcasesQuery.isLoading ? (
-              <p
-                className="ib-loading"
-                data-testid="badcases-loading"
-              >
+            <div className="ib-badcase-filters" data-testid="badcase-filter-bar">
+              <label>
+                状态
+                <select
+                  data-testid="badcase-filter-status"
+                  value={bcFilters.status}
+                  onChange={(e) =>
+                    setBcFilters((f) => ({ ...f, status: e.target.value }))
+                  }
+                >
+                  <option value="all">全部</option>
+                  <option value="OPEN">OPEN</option>
+                  <option value="TRIAGED">TRIAGED</option>
+                  <option value="IN_PROGRESS">IN_PROGRESS</option>
+                  <option value="AWAITING_VALIDATION">AWAITING_VALIDATION</option>
+                  <option value="CLOSED">CLOSED</option>
+                  <option value="REJECTED">REJECTED</option>
+                  <option value="MERGED">MERGED</option>
+                </select>
+              </label>
+              <label>
+                严重度
+                <select
+                  data-testid="badcase-filter-severity"
+                  value={bcFilters.severity}
+                  onChange={(e) =>
+                    setBcFilters((f) => ({ ...f, severity: e.target.value }))
+                  }
+                >
+                  <option value="all">全部</option>
+                  <option value="P0">P0</option>
+                  <option value="P1">P1</option>
+                  <option value="P2">P2</option>
+                  <option value="P3">P3</option>
+                </select>
+              </label>
+              <label>
+                SLA
+                <select
+                  data-testid="badcase-filter-sla"
+                  value={bcFilters.sla_status}
+                  onChange={(e) =>
+                    setBcFilters((f) => ({ ...f, sla_status: e.target.value }))
+                  }
+                >
+                  <option value="all">全部</option>
+                  <option value="within_sla">within_sla</option>
+                  <option value="at_risk">at_risk</option>
+                  <option value="breached">breached</option>
+                </select>
+              </label>
+            </div>
+            {productionQuery.isLoading ? (
+              <p className="ib-loading" data-testid="badcases-loading">
                 加载差例…
               </p>
-            ) : badcasesQuery.isError ? (
-              <div className="ac-error-banner" data-testid="badcases-error">
-                加载差例失败。
-              </div>
             ) : (
               <BadcaseList
-                badcases={allBadcases}
+                items={productionItems}
                 onOpen={setOpenBadcase}
+                filters={bcFilters}
+                unavailable={productionUnavailable}
+                dataQuality={dq}
               />
             )}
           </section>
@@ -281,9 +308,10 @@ export function IncidentsBadcases() {
         canComment
       />
       <BadcaseDrawer
-        badcase={openBadcase}
+        item={openBadcase}
         onClose={() => setOpenBadcase(null)}
         canEscalate
+        canManage
       />
     </div>
   )

@@ -31,6 +31,8 @@ class StartResponse(BaseModel):
     thread_id: str
     conversation_id: str
     status: str
+    # REQ-061 T086 — canonical control/detail links (no provider internals).
+    runtime_links: dict[str, str] | None = None
 
 
 class MessageRequest(BaseModel):
@@ -42,11 +44,13 @@ class MessageResponse(BaseModel):
     detected_intent: str | None = None
     confidence: float | None = None
     redirect_to: str | None = None
+    runtime_links: dict[str, str] | None = None
 
 
 class CloseResponse(BaseModel):
     thread_id: str
     status: str
+    runtime_links: dict[str, str] | None = None
 
 
 class StateResponse(BaseModel):
@@ -54,6 +58,7 @@ class StateResponse(BaseModel):
     detected_intent: str | None = None
     message_count: int | None = None
     session_active: bool | None = None
+    runtime_links: dict[str, str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +73,7 @@ async def general_coach_start(
 ):
     """Start a general coach conversation."""
     from app.agents.graphs.general_coach import get_general_coach_graph
+    from app.modules.ai_runtime.adapters.general_coach import runtime_links_for_thread
 
     user_id = str(current_user.id)
     graph = get_general_coach_graph()
@@ -84,6 +90,7 @@ async def general_coach_start(
         thread_id=thread_id,
         conversation_id=thread_id,
         status="running",
+        runtime_links=runtime_links_for_thread(thread_id),
     )
 
 
@@ -95,6 +102,7 @@ async def general_coach_messages(
 ):
     """Send a message in a general coach conversation."""
     from app.agents.graphs.general_coach import get_general_coach_graph
+    from app.modules.ai_runtime.adapters.general_coach import runtime_links_for_thread
 
     graph = get_general_coach_graph()
     try:
@@ -107,6 +115,7 @@ async def general_coach_messages(
         detected_intent=result.get("detected_intent"),
         confidence=result.get("confidence"),
         redirect_to=result.get("suggested_redirect"),
+        runtime_links=runtime_links_for_thread(thread_id),
     )
 
 
@@ -117,6 +126,7 @@ async def general_coach_close(
 ):
     """Close a general coach conversation."""
     from app.agents.graphs.general_coach import get_general_coach_graph
+    from app.modules.ai_runtime.adapters.general_coach import runtime_links_for_thread
 
     graph = get_general_coach_graph()
     try:
@@ -124,7 +134,11 @@ async def general_coach_close(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    return CloseResponse(thread_id=thread_id, status="closed")
+    return CloseResponse(
+        thread_id=thread_id,
+        status="closed",
+        runtime_links=runtime_links_for_thread(thread_id),
+    )
 
 
 @router.get("/{thread_id}/state")
@@ -135,6 +149,7 @@ async def general_coach_state(
     """Get current state of general coach conversation."""
     from app.agents.graphs.general_coach import get_general_coach_graph
     from app.agents.utils.node_error import serialize_state_error
+    from app.modules.ai_runtime.adapters.general_coach import runtime_links_for_thread
 
     graph = get_general_coach_graph()
     try:
@@ -148,4 +163,8 @@ async def general_coach_state(
     # helper was defined but never invoked by any agent API endpoint.
     err = state.pop("error", None)
     serialized = serialize_state_error(state_error=err, state_error_legacy=None)
-    return {**state, **serialized}
+    return {
+        **state,
+        **serialized,
+        "runtime_links": runtime_links_for_thread(thread_id),
+    }

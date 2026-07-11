@@ -1,6 +1,5 @@
-/** 019 — Topbar "新建简历" dropdown (blank + 基于岗位). */
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Topbar } from '@/components/layout/Topbar'
@@ -8,20 +7,52 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { useAuthStore } from '@/stores/useAuthStore'
 
 const mockNavigate = vi.fn()
+const notificationMocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  markRead: vi.fn(),
+}))
+
+vi.mock('@/api/account', () => ({
+  accountApi: {
+    getNotificationCenter: notificationMocks.get,
+    markNotificationRead: notificationMocks.markRead,
+  },
+}))
+vi.mock('@/hooks/queries/useAIPoints', () => ({
+  useAIPointAccount: () => ({
+    data: {
+      plan_label: 'Pro',
+      experience_badge: '新用户体验',
+      is_paid: false,
+      available: 2000,
+      reserved: 0,
+      buckets: [],
+      next_expiry: null,
+      daily_grant_amount: 2000,
+      parallel_ai_task_limit: 2,
+      history_days: 90,
+      business_date: '2026-07-11',
+      timezone: 'Asia/Shanghai',
+      grant_config_version: 'v1',
+    },
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
+}))
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
   return { ...actual, useNavigate: () => mockNavigate }
 })
 
 beforeAll(() => {
-  // matchMedia is referenced by ThemeContext; jsdom doesn't ship it.
   if (!window.matchMedia) {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
         matches: false,
         media: query,
-        onchange: null,
         addListener: vi.fn(),
         removeListener: vi.fn(),
         addEventListener: vi.fn(),
@@ -34,6 +65,10 @@ beforeAll(() => {
 
 beforeEach(() => {
   mockNavigate.mockReset()
+  notificationMocks.get.mockReset()
+  notificationMocks.get.mockResolvedValue({ notifications: [], unread_count: 0 })
+  notificationMocks.markRead.mockReset()
+  notificationMocks.markRead.mockResolvedValue(undefined)
   useAuthStore.setState({
     user: {
       id: '01900000-0000-7000-8000-000000000001',
@@ -52,62 +87,74 @@ beforeEach(() => {
   })
 })
 
-function renderTopbar() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={qc}>
+function renderTopbar(onOpenSearch = vi.fn()) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={client}>
       <ThemeProvider>
         <MemoryRouter>
-          <Topbar />
+          <Topbar onOpenSearch={onOpenSearch} />
         </MemoryRouter>
       </ThemeProvider>
     </QueryClientProvider>,
   )
+  return { onOpenSearch }
 }
 
-describe('Topbar — new-resume dropdown (019)', () => {
-  it('opens the menu and renders blank + per-job items', async () => {
+describe('Topbar current interaction contract', () => {
+  it('routes the single create action to the unified three-theme flow', () => {
     renderTopbar()
-    fireEvent.click(screen.getByTestId('topbar-new-resume-button'))
 
-    await waitFor(() => {
-      expect(screen.getByTestId('topbar-new-resume-menu')).toBeInTheDocument()
-    })
-    await waitFor(() => {
-      expect(screen.getByTestId('topbar-new-resume-blank')).toHaveTextContent('空白创建')
-    })
-    // wait for useJobs() to resolve
-    await waitFor(() => {
-      expect(screen.getByTestId('topbar-new-resume-from-job-job-mock-1')).toBeInTheDocument()
-    })
-  })
-
-  it('blank create navigates to /resume?new=true', async () => {
-    renderTopbar()
     fireEvent.click(screen.getByTestId('topbar-new-resume-button'))
-    await waitFor(() => screen.getByTestId('topbar-new-resume-blank'))
-    fireEvent.click(screen.getByTestId('topbar-new-resume-blank'))
     expect(mockNavigate).toHaveBeenCalledWith('/resume?new=true')
+    expect(screen.queryByTestId('topbar-new-resume-menu')).not.toBeInTheDocument()
   })
 
-  it('job-based create navigates to /resume?new=true&source_job_id={id}', async () => {
-    renderTopbar()
-    fireEvent.click(screen.getByTestId('topbar-new-resume-button'))
-    await waitFor(() => screen.getByTestId('topbar-new-resume-from-job-job-mock-1'))
-    fireEvent.click(screen.getByTestId('topbar-new-resume-from-job-job-mock-1'))
-    expect(mockNavigate).toHaveBeenCalledWith('/resume?new=true&source_job_id=job-mock-1')
+  it('opens the shared command palette from search', () => {
+    const { onOpenSearch } = renderTopbar()
+
+    fireEvent.click(screen.getByTestId('topbar-search-input'))
+    expect(onOpenSearch).toHaveBeenCalledTimes(1)
   })
 
-  it('clicking outside closes the menu', async () => {
+  it('shows a truthful empty notification state without a fake unread dot', async () => {
     renderTopbar()
-    fireEvent.click(screen.getByTestId('topbar-new-resume-button'))
-    await waitFor(() => screen.getByTestId('topbar-new-resume-menu'))
-    // The overlay is a sibling div with class "fixed inset-0 z-40"
-    const overlay = document.querySelector('.fixed.inset-0.z-40') as HTMLElement
-    expect(overlay).toBeInTheDocument()
-    fireEvent.click(overlay)
-    await waitFor(() => {
-      expect(screen.queryByTestId('topbar-new-resume-menu')).not.toBeInTheDocument()
+
+    const button = screen.getByTestId('topbar-notifications-button')
+    expect(button.querySelector('.bg-brand-500')).toBeNull()
+    fireEvent.click(button)
+    expect(await screen.findByText('暂无新的待处理通知')).toBeInTheDocument()
+    expect(screen.getByText('0 条未读')).toBeInTheDocument()
+  })
+
+  it('renders the real unread count and marks one notification as read', async () => {
+    notificationMocks.get.mockResolvedValue({
+      unread_count: 1,
+      notifications: [
+        {
+          id: 'notice-1',
+          type: 'report_ready',
+          title: '面试报告已生成',
+          message: '点击通知后会标记为已读。',
+          related_task_id: null,
+          is_read: false,
+          created_at: '2026-07-11T00:00:00Z',
+        },
+      ],
     })
+    renderTopbar()
+
+    expect(await screen.findByTestId('topbar-unread-count')).toHaveTextContent('1')
+    fireEvent.click(screen.getByTestId('topbar-notifications-button'))
+    fireEvent.click(await screen.findByRole('button', { name: /面试报告已生成/ }))
+
+    await waitFor(() => expect(notificationMocks.markRead).toHaveBeenCalledWith('notice-1'))
+  })
+
+  it('keeps the admin entry routed to the mounted admin application', () => {
+    renderTopbar()
+
+    fireEvent.click(screen.getByTestId('topbar-admin-console-button'))
+    expect(mockNavigate).toHaveBeenCalledWith('/admin-console/command-center')
   })
 })

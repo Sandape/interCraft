@@ -590,10 +590,14 @@ async def cmd_list(args: argparse.Namespace) -> int:
     try:
         async for db in get_db_session_no_rls():
             await set_rls_user_id(db, user_id)
-            rows = await repo.list_all(
+            rows = await repo.list_by_status(
                 db,
                 user_id=user_id,
                 status=status_filter,
+                severity=getattr(args, "severity", None),
+                capability=getattr(args, "capability", None),
+                owner=getattr(args, "owner", None),
+                sla_status=getattr(args, "sla_status", None),
                 page=args.page,
                 page_size=args.page_size,
             )
@@ -622,9 +626,7 @@ async def cmd_get(args: argparse.Namespace) -> int:
             if row is None:
                 _err(f"badcase {args.badcase_id!r} not found")
                 return 1
-            actions = await repo.list_review_actions(
-                db, badcase_id=args.badcase_id
-            )
+            actions = await repo.list_review_actions(db, badcase_id=args.badcase_id)
             payload = {
                 "badcase": _row_to_dict(row),
                 "reviewActions": [_action_to_dict(a) for a in actions],
@@ -634,7 +636,139 @@ async def cmd_get(args: argparse.Namespace) -> int:
     except Exception as exc:
         _err(f"get failed: {exc}")
         return 1
-    return 1  # async for emitted no session — defensive
+    return 1
+
+
+async def cmd_timeline(args: argparse.Namespace) -> int:
+    if not args.badcase_id:
+        _err("--badcase-id is required")
+        return 2
+    user_id = _cli_user_id(args)
+    try:
+        async for db in get_db_session_no_rls():
+            await set_rls_user_id(db, user_id)
+            row = await repo.get(db, badcase_id=args.badcase_id, user_id=user_id)
+            if row is None:
+                _err(f"badcase {args.badcase_id!r} not found")
+                return 1
+            actions = await repo.list_review_actions(db, badcase_id=args.badcase_id)
+            payload = {
+                "status": "ok",
+                "data": {
+                    "badcase_id": args.badcase_id,
+                    "items": [_action_to_dict(a) for a in actions],
+                },
+                "issues": [],
+            }
+            _emit_json(payload, args.json)
+            return 0
+    except Exception as exc:
+        _err(f"timeline failed: {exc}")
+        return 1
+    return 1
+
+
+async def cmd_impacts(args: argparse.Namespace) -> int:
+    if not args.badcase_id:
+        _err("--badcase-id is required")
+        return 2
+    from app.modules.badcases.impact import impact_to_dict, list_impacts
+
+    user_id = _cli_user_id(args)
+    try:
+        async for db in get_db_session_no_rls():
+            await set_rls_user_id(db, user_id)
+            rows, next_cursor = await list_impacts(
+                db,
+                badcase_id=args.badcase_id,
+                confidence=getattr(args, "confidence", None),
+            )
+            payload = {
+                "status": "ok",
+                "data": {
+                    "items": [impact_to_dict(r) for r in rows],
+                    "next_cursor": next_cursor,
+                },
+                "issues": [],
+            }
+            _emit_json(payload, args.json)
+            return 0
+    except Exception as exc:
+        _err(f"impacts failed: {exc}")
+        return 1
+    return 1
+
+
+async def cmd_action(args: argparse.Namespace) -> int:
+    """Execute typed review command (061 management contract)."""
+    from app.modules.badcases.service import (
+        BadcaseCommandError,
+        execute_review_command,
+        missing_closure_fields,
+    )
+
+    if not args.badcase_id:
+        _err("--badcase-id is required")
+        return 2
+    command: dict[str, Any] = {
+        "action_type": args.action_type,
+        "expected_version": int(args.expected_version),
+        "reason": args.reason,
+    }
+    if getattr(args, "input_file", None):
+        try:
+            extra = json.loads(Path(args.input_file).read_text(encoding="utf-8"))
+            if not isinstance(extra, dict):
+                _err("--input must be a JSON object")
+                return 2
+            command.update(extra)
+            command["action_type"] = args.action_type
+            command["expected_version"] = int(args.expected_version)
+            command["reason"] = args.reason
+        except Exception as exc:
+            _err(f"failed to read --input: {exc}")
+            return 2
+
+    user_id = _cli_user_id(args)
+    try:
+        async for db in get_db_session_no_rls():
+            await set_rls_user_id(db, user_id)
+            try:
+                receipt = await execute_review_command(
+                    db,
+                    badcase_id=args.badcase_id,
+                    command=command,
+                    actor=args.reason and f"cli:{user_id}" or f"cli:{user_id}",
+                    idempotency_key=getattr(args, "idempotency_key", None),
+                    user_id=user_id,
+                )
+            except BadcaseCommandError as exc:
+                issues = [{"code": exc.code, "message": str(exc)}]
+                if exc.code == "CLOSURE_EVIDENCE_REQUIRED":
+                    issues.append(
+                        {
+                            "code": "missing_fields",
+                            "fields": missing_closure_fields(command),
+                        }
+                    )
+                payload = {
+                    "status": "refused",
+                    "data": {},
+                    "issues": issues,
+                }
+                _emit_json(payload, args.json)
+                return 3
+            if not await _commit_or_rollback(db, on_error_exit=1):
+                return 1
+            _emit_json(
+                {"status": "ok", "data": receipt, "issues": []},
+                args.json,
+            )
+            return 0
+    except Exception as exc:
+        _err(f"action failed: {exc}")
+        return 1
+    return 1
 
 
 # ---------------------------------------------------------------------------
@@ -779,6 +913,41 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_user_id_arg(p_get)
     _add_json_arg(p_get)
     p_get.set_defaults(func=cmd_get)
+
+    # REQ-061 US10 — timeline / impacts / action
+    p_timeline = sub.add_parser("timeline", help="List review timeline for a badcase")
+    p_timeline.add_argument("--badcase-id", required=True)
+    _add_user_id_arg(p_timeline)
+    _add_json_arg(p_timeline)
+    p_timeline.set_defaults(func=cmd_timeline)
+
+    p_impacts = sub.add_parser("impacts", help="List impact links for a badcase")
+    p_impacts.add_argument("--badcase-id", required=True)
+    p_impacts.add_argument(
+        "--confidence",
+        choices=["confirmed", "possible", "excluded", "unknown"],
+        default=None,
+    )
+    _add_user_id_arg(p_impacts)
+    _add_json_arg(p_impacts)
+    p_impacts.set_defaults(func=cmd_impacts)
+
+    p_action = sub.add_parser("action", help="Execute a typed review command")
+    p_action.add_argument("--badcase-id", required=True)
+    p_action.add_argument("--type", required=True, dest="action_type")
+    p_action.add_argument("--expected-version", type=int, required=True, dest="expected_version")
+    p_action.add_argument("--reason", required=True)
+    p_action.add_argument("--input", dest="input_file", help="JSON file with command fields")
+    p_action.add_argument("--idempotency-key", dest="idempotency_key", required=True)
+    _add_user_id_arg(p_action)
+    _add_json_arg(p_action)
+    p_action.set_defaults(func=cmd_action)
+
+    # Extend list filters (061)
+    p_list.add_argument("--severity", help="Filter by severity (P0-P3 or legacy)")
+    p_list.add_argument("--capability", help="Filter by capability code")
+    p_list.add_argument("--owner", help="Filter by owner")
+    p_list.add_argument("--sla", dest="sla_status", help="Filter by sla_status")
 
     return parser
 

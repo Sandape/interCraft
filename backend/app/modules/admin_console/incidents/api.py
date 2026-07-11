@@ -432,7 +432,15 @@ async def escalate_badcase(
         )
 
 
+# REQ-061 US10 — re-export canonical operational facade (T134)
+from app.modules.admin_console.incidents.operational_badcases import (  # noqa: E402
+    CompatibilityLinks,
+    operational_badcases_router,
+)
+
 __all__ = [
+    "CompatibilityLinks",
     "badcases_router",
     "incidents_router",
+    "operational_badcases_router",
 ]

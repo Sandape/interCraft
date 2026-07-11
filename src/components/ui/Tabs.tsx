@@ -18,7 +18,7 @@ interface TabsProps {
 
 export function Tabs({ items, value, onChange, className, size = 'md', getTabId }: TabsProps) {
   return (
-    <div className={cn('flex items-center gap-0.5', className)} role="tablist">
+    <div className={cn('flex w-max items-center gap-0.5', className)} role="tablist">
       {items.map((item) => {
         const active = item.key === value
         return (
@@ -29,7 +29,7 @@ export function Tabs({ items, value, onChange, className, size = 'md', getTabId 
             aria-selected={active}
             data-testid={getTabId?.(item.key)}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded font-medium transition-all duration-200',
+              'inline-flex flex-none items-center gap-1.5 whitespace-nowrap rounded font-medium transition-all duration-200',
               size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3 text-sm',
               active
                 ? 'bg-surface-muted text-ink-1 dark:bg-dark-surface-muted dark:text-dark-ink-primary'

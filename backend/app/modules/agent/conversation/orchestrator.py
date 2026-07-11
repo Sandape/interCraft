@@ -32,9 +32,7 @@ from app.modules.agent.conversation.reply_formatter import (
     UNKNOWN_STREAK_TEXT,
     UNKNOWN_TEXT,
     WEB_GUIDE_DELETE,
-    WEB_GUIDE_OFFER,
     format_low_confidence,
-    segment,
 )
 from app.modules.agent.conversation.tools import create_job as tool_create_job
 from app.modules.agent.conversation.tools import query_ability as tool_query_ability
@@ -68,10 +66,10 @@ class ConversationOrchestrator:
         text = (getattr(parsed, "text", None) or "").strip()
         try:
             reply = await self._handle(text, parsed)
-        except Exception:
-            logger.exception(
+        except Exception as exc:
+            logger.error(
                 "orchestrator_handle_failed",
-                extra={"user_id": str(self.user_id)},
+                extra={"error_type": type(exc).__name__},
             )
             reply = "抱歉，处理消息时出错了，请稍后重试。"
         m.orchestrator_handle_latency_seconds.observe(time.perf_counter() - start)
@@ -162,9 +160,7 @@ class ConversationOrchestrator:
         return "请先回复「确认」或「取消」完成当前操作。你刚才的消息我会在确认后处理。"
 
     async def _handle_interview(self, text: str, ctx: dict) -> str:
-        adapter = InterviewAdapter(
-            self.session, self.user_id, send_interim=self.send_interim
-        )
+        adapter = InterviewAdapter(self.session, self.user_id, send_interim=self.send_interim)
         session_id = ctx.get("interview_session_id")
         sid = UUID(str(session_id)) if session_id else None
         round_no = int(ctx.get("interview_round") or 0)
@@ -337,25 +333,19 @@ class ConversationOrchestrator:
             return result["reply_text"]
 
         if intent == "query_reports":
-            result = await tool_query_reports.execute(
-                self.session, self.user_id, entities
-            )
+            result = await tool_query_reports.execute(self.session, self.user_id, entities)
             ctx["unknown_streak"] = 0
             await self._safe_set(ctx)
             return result["reply_text"]
 
         if intent == "query_ability":
-            result = await tool_query_ability.execute(
-                self.session, self.user_id, entities
-            )
+            result = await tool_query_ability.execute(self.session, self.user_id, entities)
             ctx["unknown_streak"] = 0
             await self._safe_set(ctx)
             return result["reply_text"]
 
         if intent == "start_interview":
-            adapter = InterviewAdapter(
-                self.session, self.user_id, send_interim=self.send_interim
-            )
+            adapter = InterviewAdapter(self.session, self.user_id, send_interim=self.send_interim)
             result = await adapter.start(entities)
             data = result.get("data") or {}
             if data.get("session_id"):
@@ -368,13 +358,9 @@ class ConversationOrchestrator:
             return result["reply_text"]
 
         if intent == "continue_interview":
-            adapter = InterviewAdapter(
-                self.session, self.user_id, send_interim=self.send_interim
-            )
+            adapter = InterviewAdapter(self.session, self.user_id, send_interim=self.send_interim)
             result = await adapter.continue_session(
-                UUID(str(ctx["interview_session_id"]))
-                if ctx.get("interview_session_id")
-                else None
+                UUID(str(ctx["interview_session_id"])) if ctx.get("interview_session_id") else None
             )
             data = result.get("data") or {}
             if result.get("ok") and data.get("session_id"):
@@ -388,9 +374,7 @@ class ConversationOrchestrator:
         if intent == "pause_interview":
             adapter = InterviewAdapter(self.session, self.user_id)
             sid = (
-                UUID(str(ctx["interview_session_id"]))
-                if ctx.get("interview_session_id")
-                else None
+                UUID(str(ctx["interview_session_id"])) if ctx.get("interview_session_id") else None
             )
             result = await adapter.pause(sid, ctx.get("interview_round"))
             ctx["state"] = "idle"
@@ -400,9 +384,7 @@ class ConversationOrchestrator:
         if intent == "end_interview":
             adapter = InterviewAdapter(self.session, self.user_id)
             sid = (
-                UUID(str(ctx["interview_session_id"]))
-                if ctx.get("interview_session_id")
-                else None
+                UUID(str(ctx["interview_session_id"])) if ctx.get("interview_session_id") else None
             )
             result = await adapter.end(sid, ctx.get("interview_round"))
             ctx["state"] = "idle"
@@ -413,19 +395,13 @@ class ConversationOrchestrator:
 
         return UNKNOWN_TEXT
 
-    async def _prepare_write(
-        self, intent: str, entities: dict[str, Any], ctx: dict
-    ) -> str:
+    async def _prepare_write(self, intent: str, entities: dict[str, Any], ctx: dict) -> str:
         if intent == "create_job":
             result = await tool_create_job.prepare(self.session, self.user_id, entities)
         elif intent == "update_status":
-            result = await tool_update_status.prepare(
-                self.session, self.user_id, entities
-            )
+            result = await tool_update_status.prepare(self.session, self.user_id, entities)
         else:
-            result = await tool_update_fields.prepare(
-                self.session, self.user_id, entities
-            )
+            result = await tool_update_fields.prepare(self.session, self.user_id, entities)
 
         data = result.get("data") or {}
         if data.get("needs_confirmation") and data.get("pending_action"):

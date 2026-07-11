@@ -40,6 +40,7 @@ from app.modules.agent.repository import (
 )
 from app.modules.agent.service import decrypt_token
 from app.channels.ilink_client import ILinkClient
+from app.channels.message_handler import process_outbound_queue
 
 log = get_logger("workers.agents_outbound_drain")
 
@@ -76,7 +77,10 @@ async def agents_outbound_drain(ctx: dict) -> dict:
     pending_rows = []
     async for session in get_db_session_no_rls():
         result = await session.execute(
-            sa_text("SELECT user_id FROM get_active_credentials()")
+            sa_text(
+                "SELECT user_id FROM wechat_consumer_registrations "
+                "WHERE active = true ORDER BY updated_at"
+            )
         )
         active_user_ids = [str(row[0]) for row in result.fetchall()]
         break
@@ -87,7 +91,7 @@ async def agents_outbound_drain(ctx: dict) -> dict:
         try:
             async for session in get_db_session(user_id=UUID(user_id_str)):
                 cutoff = datetime.now(timezone.utc) - _MAX_AGE
-                stmt = (
+                recent_stmt = (
                     select(AgentMessage)
                     .where(
                         AgentMessage.direction == "outbound",
@@ -97,9 +101,25 @@ async def agents_outbound_drain(ctx: dict) -> dict:
                     .order_by(AgentMessage.created_at.asc())
                     .limit(_MAX_USERS_PER_TICK * 5)
                 )
-                result = await session.execute(stmt)
+                result = await session.execute(recent_stmt)
                 rows = list(result.scalars().all())
                 pending_rows.extend(rows)
+                old_result = await session.execute(
+                    select(AgentMessage).where(
+                        AgentMessage.direction == "outbound",
+                        AgentMessage.status == "pending",
+                        AgentMessage.created_at <= cutoff,
+                    )
+                )
+                old_rows = list(old_result.scalars().all())
+                for old_row in old_rows:
+                    old_row.status = "failed"
+                    old_row.delivery_status = "failed"
+                    old_row.error_category = "retry_window_exceeded"
+                    old_row.claim_owner = None
+                    old_row.claim_until = None
+                failed_count += len(old_rows)
+                skipped_count += len(old_rows)
                 break
         except Exception as exc:
             log.exception(
@@ -125,32 +145,6 @@ async def agents_outbound_drain(ctx: dict) -> dict:
                 extra={"user_id": str(user_id), "error": str(exc)[:120]},
             )
 
-    # Mark old pending rows as failed. We use the same SECURITY DEFINER
-    # scan but for rows older than the cutoff (which is the same as
-    # "everything not in the recent scan"). The function returns all
-    # pending; we update any whose created_at <= cutoff.
-    from sqlalchemy import text as sa_text
-    async for session in get_db_session_no_rls():
-        max_age_hours = int(_MAX_AGE.total_seconds() // 3600)
-        result = await session.execute(
-            sa_text("SELECT * FROM get_outbound_drain_candidates(:max_age)"),
-            {"max_age": max_age_hours},
-        )
-        all_pending = result.mappings().all()
-        cutoff = datetime.now(timezone.utc) - _MAX_AGE
-        old_rows = [
-            r for r in all_pending
-            if r["created_at"] and r["created_at"] <= cutoff
-        ]
-        if old_rows:
-            msg_repo = AgentMessageRepository(session)
-            for row in old_rows:
-                await msg_repo.update_status(row["id"], "failed", error_message="exceeded_24h_retry_window")
-            await session.commit()
-            failed_count += len(old_rows)
-            skipped_count = len(old_rows)
-        break
-
     log.info(
         "agents_outbound_drain.done",
         sent=sent_count,
@@ -166,11 +160,9 @@ async def _drain_user(
 
     Returns the count of successfully sent messages.
     """
-    from app.core.db import get_db_session_no_rls
+    from app.core.db import get_session_context
 
-    async for session in get_db_session_no_rls():
-        from sqlalchemy import text as sa_text
-        await session.execute(sa_text("SET LOCAL row_security = off"))
+    async with get_session_context(user_id=user_id) as session:
         cred_repo = WeChatCredentialRepository(session)
         cred = await cred_repo.get_by_user(user_id)
         if cred is None or cred.bot_token_encrypted is None or cred.status != "active":
@@ -194,39 +186,16 @@ async def _drain_user(
                 extra={"user_id": str(user_id)},
             )
             return 0
-        break
 
     client = ILinkClient(bot_token=bot_token, base_url=base_url)
     await client.start()
     try:
-        sent = 0
-        async for session in get_db_session_no_rls():
-            from sqlalchemy import text as sa_text
-            await session.execute(sa_text("SET LOCAL row_security = off"))
-            msg_repo = AgentMessageRepository(session)
-            for row in rows:
-                ctx = row.context_token or ""
-                try:
-                    await asyncio.wait_for(
-                        client.send_text(to_user_id, row.content, ctx),
-                        timeout=_SEND_TIMEOUT,
-                    )
-                    await msg_repo.update_status(row.id, "sent")
-                    sent += 1
-                except Exception as exc:
-                    log.warning(
-                        "agents_outbound_drain.send_failed",
-                        extra={
-                            "user_id": str(user_id),
-                            "msg_id": str(row.id),
-                            "error": str(exc)[:120],
-                        },
-                    )
-                    # Leave status=pending; next tick will retry.
-                    break
-            await session.commit()
-            break
-        return sent
+        return await process_outbound_queue(
+            str(user_id),
+            to_user_id,
+            client,
+            session_factory=lambda: get_session_context(user_id=user_id),
+        )
     finally:
         await client.stop()
 

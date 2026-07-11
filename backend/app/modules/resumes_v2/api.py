@@ -328,6 +328,7 @@ async def create_resume(
             name=payload.name,
             slug=payload.slug,
             template=payload.template,
+            theme_id=payload.theme_id,
             from_sample=payload.from_sample,
         )
     except ServiceError as e:
@@ -339,6 +340,7 @@ async def create_resume(
         resume_id=str(row.id),
         version=int(row.version),
         template=payload.template,
+        theme_id=payload.theme_id,
         from_sample=payload.from_sample,
     )
     out = _resume_to_out(row, include_data=True)

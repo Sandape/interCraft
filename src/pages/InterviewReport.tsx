@@ -187,6 +187,58 @@ export default function InterviewReport() {
         />
       )}
 
+      {/* REQ-061 T077 — partial/full milestones, failure recovery, task/point links */}
+      <div className="mb-6 space-y-3" data-testid="interview-report-runtime">
+        {(session.task_id || report?.task_id) && (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <Link
+              to={`/ai-tasks/${encodeURIComponent(String(session.task_id || report?.task_id))}`}
+              className="text-brand-600 underline"
+              data-testid="interview-report-task-link"
+            >
+              查看 AI 任务
+            </Link>
+            {(session.points_summary || report?.points_summary) && (
+              <span className="text-ink-3" data-testid="interview-report-points">
+                点数 已扣 {(session.points_summary || report?.points_summary)?.settled ?? 0}
+                {' / '}
+                预留 {(session.points_summary || report?.points_summary)?.reserved ?? 0}
+              </span>
+            )}
+          </div>
+        )}
+        {(report?.milestones || session.milestones)?.length ? (
+          <div data-testid="interview-report-milestones" className="rounded-lg border border-surface-border p-3">
+            <div className="text-xs font-medium text-ink-3 mb-2">报告里程碑</div>
+            <ul className="space-y-1 text-sm">
+              {(report?.milestones || session.milestones || []).map((m) => (
+                <li key={m.code} data-testid={`interview-report-milestone-${m.code}`}>
+                  {m.code} · {m.status}
+                  {m.settle_eligible ? ' · 可结算' : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {(report?.failure || session.failure || report?.report_status === 'partial' || session.status === 'partially_succeeded') && (
+          <div
+            role="alert"
+            data-testid="interview-report-partial-or-failure"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          >
+            <p className="font-medium">
+              {(report?.failure || session.failure)?.message
+                || (report?.report_status === 'partial' || session.status === 'partially_succeeded'
+                  ? '报告为部分交付，已完成评分已保留。'
+                  : '报告生成异常')}
+            </p>
+            {(report?.available_actions || session.available_actions)?.includes('retry_failed_component') && (
+              <p className="mt-1 text-xs">可通过 AI 任务详情重试失败组件。</p>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* 总览卡 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
         <Card className="md:col-span-2 p-6 bg-gradient-to-br from-brand-50/40 to-surface dark:from-brand-500/5 dark:to-dark-surface">

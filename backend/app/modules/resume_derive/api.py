@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Header, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,6 +80,7 @@ async def promote_root(
 @router.post("/resumes/derive", status_code=status.HTTP_202_ACCEPTED)
 async def start_derive(
     body: DeriveStartIn,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     session: AsyncSession = Depends(db_session_user_dep),
     user_id: UUID = Depends(get_current_user_id),
 ):
@@ -91,13 +92,14 @@ async def start_derive(
             target_page_count=int(body.target_page_count),
             template_id=body.template_id,
             root_resume_id=body.root_resume_id,
+            idempotency_key=idempotency_key,
         )
-        return DeriveRunAcceptedOut(run_id=run.id, status=run.status)
+        return ResumeDeriveService.start_response_payload(run)
     except DeriveError as exc:
         return _err(exc)
 
 
-@router.get("/resumes/derive-runs/{run_id}", response_model=DeriveRunOut)
+@router.get("/resumes/derive-runs/{run_id}")
 async def get_derive_run(
     run_id: UUID,
     session: AsyncSession = Depends(db_session_user_dep),
@@ -106,7 +108,7 @@ async def get_derive_run(
     svc = ResumeDeriveService(session)
     try:
         run = await svc.get_run(run_id, user_id=user_id)
-        return DeriveRunOut.model_validate(run)
+        return ResumeDeriveService.status_response_payload(run)
     except DeriveError as exc:
         return _err(exc)
 
@@ -120,7 +122,7 @@ async def cancel_derive_run(
     svc = ResumeDeriveService(session)
     try:
         run = await svc.cancel_run(run_id, user_id=user_id)
-        return DeriveRunOut.model_validate(run)
+        return ResumeDeriveService.status_response_payload(run)
     except DeriveError as exc:
         return _err(exc)
 
@@ -146,6 +148,7 @@ async def resume_guidance(
             target_page_count=pages,
             template_id=template,
             root_resume_id=run.root_resume_id,
+            idempotency_key=None,
         )
         return DeriveRunAcceptedOut(run_id=new_run.id, status=new_run.status)
     except DeriveError as exc:
@@ -189,12 +192,13 @@ async def derive_rationale(
     }
 
 
-@router.get("/resumes/{resume_id}/suggestions")
-async def list_suggestions(
+@router.get("/resumes/{resume_id}/derive-suggestions")
+async def list_derive_suggestions(
     resume_id: UUID,
     session: AsyncSession = Depends(db_session_user_dep),
     user_id: UUID = Depends(get_current_user_id),
 ):
+    """Legacy derive_meta suggestions (REQ-055/056). Prefer REQ-059 analysis suggestions."""
     from app.modules.resumes_v2.repository import ResumeV2Repository
 
     row = await ResumeV2Repository(session).get(resume_id, user_id=user_id)

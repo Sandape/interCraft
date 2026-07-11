@@ -174,7 +174,18 @@ def _matches_trace_query(row: TraceSearchRow, trace: dict[str, Any], query: str)
 
 
 def search_traces(filters: TraceSearchFilters | None = None) -> dict[str, Any]:
+    """Search traces. REQ-061 T170: disable in-memory demo when seeded fallbacks off."""
+    from app.modules.admin_console.production_fallbacks import seed_fallbacks_disabled
+
     filters = filters or TraceSearchFilters()
+    if seed_fallbacks_disabled():
+        response = TraceSearchResponse(
+            items=[],
+            next_cursor=None,
+            freshness_at="unavailable",
+        )
+        return response.model_dump(mode="json")
+
     demo = build_strong_debug_demo(environment="local")
     traces = sorted(demo["traces"], key=lambda item: str(item.get("started_at", "")), reverse=True)
 
