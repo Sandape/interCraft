@@ -1,10 +1,10 @@
 # Runtime & Secret Audit — REQ-064 Phase 5c
 
-> **Dispatch:** req-064-phase5c-20260712-01  
-> **Date:** 2026-07-12  
-> **Base:** `b15130155b8dc75bc68d4294949c176f1387751e`  
-> **Branch:** `codex/064-phase5c-runtime-reconciliation`  
-> **AC Hash:** `0fdc18c53b4af3b2d1f9791d6441e17d1d3853e9e930f3618e4e20de97c90c6c`  
+> **Dispatch:** req-064-phase5c-20260712-01
+> **Date:** 2026-07-12
+> **Base:** `b15130155b8dc75bc68d4294949c176f1387751e`
+> **Branch:** `codex/064-phase5c-runtime-reconciliation`
+> **AC Hash:** `0fdc18c53b4af3b2d1f9791d6441e17d1d3853e9e930f3618e4e20de97c90c6c`
 > **Operator:** Claude Code (deepseek-v4-flash)
 
 ---
@@ -16,7 +16,10 @@ This audit covers two parallel concerns mandated by REQ-064 Phase 5c:
 1. **Runtime reconciliation** — removal from Git tracking of 21 Claude runtime/local files that are machine-local or ephemeral by nature.
 2. **Secret scan** — classification of historical credential-like patterns found in the reachable object graph, with explicit no-claim of live-secret validation.
 
-The audit operates on the `D:\Project\eGGG` primary root (cloned at `D:\Project\eGGG-phase5c-clone`). No primary-root file contents were read or mutated; all operations are metadata-only, using `git status`, `git ls-files`, `git hash-object`, and `git cat-file`.
+Tracked-file removal, hashing, and history scanning run only in the clean
+external worktree `D:\Project\eGGG-phase5c-clone`. The primary root
+`D:\Project\eGGG` is queried only for NUL-delimited Git status metadata used by
+the external manifest; Phase 5c does not read or mutate its file contents.
 
 ---
 
@@ -36,7 +39,11 @@ A repository-external backup of the 21 tracked runtime/local files was created b
 
 ## 3. Removed Inventory — 21 Tracked Runtime/Local Files
 
-All files below were removed from Git tracking via `git rm`. They remain on disk (now gitignored) and are preserved in the external backup above.
+All files below were removed from the branch with `git rm`. After merge, future
+clones will not contain them and an unchanged local tracked copy may be removed
+when that checkout updates. The repository-external backup and Git history are
+therefore the recovery sources; this audit does not claim the files remain on
+disk.
 
 ### 3.1 `.claude/agent-memory/` (9 files)
 
@@ -74,7 +81,7 @@ All files below were removed from Git tracking via `git rm`. They remain on disk
 | 20 | `.claude/state.json` | `2ae01a1d` | 1,155 | `D269FC481EB5...` |
 | 21 | `.claude/settings.local.json` | `41ea43f2` | 5,756 | `57E92693C763...` |
 
-**Total removed from tracking:** 21 files  
+**Total removed from tracking:** 21 files
 **Total backup size:** 68,653 bytes (compressed archive)
 
 ---
@@ -92,6 +99,9 @@ The following project assets were explicitly **not** removed and remain Git-trac
 | `.cursor/rules/` | 1 | `agent-delivery.mdc` |
 
 These are durable, version-controlled project definitions — not machine-local or ephemeral state.
+
+**Total retained durable assets:** 66 (1 project settings file + 6 agents + 8
+commands + 50 skills + 1 Cursor rule).
 
 ---
 
@@ -117,17 +127,16 @@ The following narrow rules were appended to `.gitignore` (see file at repository
 
 ## 6. Rollback Implications
 
-To restore the removed files to tracking:
+Rollback is another governed PR: create a rollback Issue/dispatch/branch from
+authoritative `master`, then run `git revert <phase-5c-squash-sha>` without
+`-m`. That inverse commit restores the tracked versions and removes the ignore
+rules together. Use the external backup only when local runtime content must be
+recovered independently of the tracked historical versions; never extract it
+over unclassified user work.
 
-```bash
-# Restore from external backup (files remain on disk, but need re-tracking)
-git rm --cached <path>  # only if already gitignored
-git add <path>          # re-track
-```
-
-The files remain on disk as local files; `git rm` was used (not `git rm --cached` with `--ignore-rm`), so they are deleted and re-ignored. The external backup at `D:\Project\eGGG-governance-audit\phase5c-tracked-claude-runtime-b151301.zip` is the canonical restore source.
-
-**Risk:** If `.gitignore` entries are removed before re-adding, and the files still exist on disk, they will appear as untracked. If removed from disk, they must be restored from backup first.
+**Risk:** Updating a checkout after this merge can remove unchanged tracked
+runtime copies. The verified external backup is required before merge and must
+be retained until Phase 10 reconciliation is accepted.
 
 ---
 
@@ -137,7 +146,9 @@ The files remain on disk as local files; `git rm` was used (not `git rm --cached
 
 - **Reachable commits:** 258
 - **Reachable objects:** 7,397
-- **High-confidence regex targets:** provider API keys, private keys (`BEGIN.*PRIVATE KEY`), generic `secret`/`token`/`password` patterns
+- **High-confidence regex targets:** structured provider API-key prefixes and
+  private-key headers. Generic `secret`/`token`/`password` assignments were not
+  included in this pass because they require a separate entropy-aware scanner.
 - **Historical match entries:** 441 (aggregate across all commits for the three identified paths)
 
 ### 7.2 Path Classifications
@@ -148,7 +159,7 @@ The files remain on disk as local files; `git rm` was used (not `git rm --cached
 |---|---|
 | **Type** | Redaction test fixture |
 | **Classification** | ✅ **Redaction fixture** — intentional test samples for exercising the redaction pipeline |
-| **Live secret?** | No. These are synthetic sample values (SHA-256 prefix: `CBC69B4F8705`) used in unit tests to verify redaction logic correctly strips credential-like patterns from payloads. |
+| **Live secret?** | **Not validated.** File/function context identifies an intentional redaction fixture (value-hash prefix `CBC69B4F8705`); no provider call was made and no live-status claim is made. |
 | **Action** | No change required; redaction fixture serves its purpose. |
 
 #### Path B: `specs/003-phase4-interview-agent/contracts/llm-client.md`
@@ -157,7 +168,7 @@ The files remain on disk as local files; `git rm` was used (not `git rm --cached
 |---|---|
 | **Type** | Documentation / specification |
 | **Classification** | ⚠️ **Credential-like documentation example** — contains a documented `DEEPSEEK_API_KEY` value used as a usage illustration in a spec document |
-| **Live secret?** | **Not proven live.** The value (SHA-256 prefix: `048055C74692`) appears in documentation context (line 132) of a spec document. This commit `0282157` is the initial commit; the same document has been revised across 27 historical patches. No runtime validation was performed to determine if this key is active, revoked, or dummy. |
+| **Live secret?** | **Not proven live.** The value-hash prefix `048055C74692` appears in documentation context at line 132 and traces to initial commit `0282157`. No runtime validation was performed to determine whether it is active, revoked, or dummy. |
 | **Action** | Require continued redaction: treat as potentially sensitive documentation; do not reuse or expose. Future engineering should replace with a placeholder (e.g., `sk-...replace-me...`) in the spec. |
 
 #### Path C: `src/components/ai/AITaskActions.tsx`
@@ -165,7 +176,7 @@ The files remain on disk as local files; `git rm` was used (not `git rm --cached
 | Field | Value |
 |---|---|
 | **Type** | React component |
-| **Classification** | ✅ **Regex false positive** — the pattern matches stem from React `data-testid` attribute strings used for testing. The regex `data-testid` is a common false-positive trigger in secret scanners. |
+| **Classification** | ✅ **Regex false positive** — the broad `sk-` branch matched characters inside a React `data-testid` value, not a credential field. |
 | **Live secret?** | No. All matches are UI test identifiers, not credentials. |
 | **Action** | None required. No credential values present. |
 
@@ -173,10 +184,13 @@ The files remain on disk as local files; `git rm` was used (not `git rm --cached
 
 ```
 GET https://api.github.com/repos/Sandape/interCraft/secret-scanning/alerts
-Response: HTTP 403 (Forbidden)
+Responses observed in separate attempts: HTTP 404 and HTTP 403
 ```
 
-The GitHub secret-scanning API was **unavailable** (not authorized). No results from the upstream scanning service could be incorporated. This audit relies solely on metadata-level local analysis.
+The GitHub secret-scanning API was **unavailable** (not authorized/not found).
+No upstream alerts were incorporated. This audit relies on a redacted local
+pattern scan across reachable commit snapshots; matching values were not
+written to the report.
 
 ### 7.4 Limitations & Honest Disclosure
 
@@ -184,4 +198,8 @@ The GitHub secret-scanning API was **unavailable** (not authorized). No results 
 2. **No secret values are recorded in this report.** All metadata (blob hashes, SHA-256 of content, path names) is safe for version control. Value-hash prefixes are truncated to 12 hex characters where shown.
 3. **GitHub API unavailable.** The upstream GitHub secret-scanning alert feed could not be queried. Any alerts that may exist on the server side were not consulted.
 4. **Scanner limitations.** Pattern-based regex scanning produces both false positives (like `data-testid`) and may miss obfuscated or encoded credentials. This audit is a point-in-time sample, not a comprehensive cryptographic proof.
-5. **No credential rotation was triggered.** Because no live secret was confirmed, no key rotation, revocation, or incident response process was initiated. If a reviewer suspects any documented value may be live, a separate, out-of-band validation should be conducted.
+5. **No credential rotation was triggered.** Because no live secret was
+   confirmed, no key rotation, revocation, or incident response was initiated.
+   If the Owner cannot prove from provider-side inventory/rotation records that
+   the documentation example was never live or is already revoked, rotate it;
+   do not validate it by sending the historical value to a provider API.

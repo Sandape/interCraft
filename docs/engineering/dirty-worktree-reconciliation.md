@@ -1,11 +1,11 @@
 # Dirty Worktree Reconciliation — REQ-064 Phase 5c
 
-> **Dispatch:** req-064-phase5c-20260712-01  
-> **Date:** 2026-07-12  
-> **Base:** `b15130155b8dc75bc68d4294949c176f1387751e`  
-> **Branch:** `codex/064-phase5c-runtime-reconciliation`  
-> **Primary root:** `D:\Project\eGGG`  
-> **Manifest:** `D:\Project\eGGG-governance-audit\dirty-worktree-manifest-20260712.csv`  
+> **Dispatch:** req-064-phase5c-20260712-01
+> **Date:** 2026-07-12
+> **Base:** `b15130155b8dc75bc68d4294949c176f1387751e`
+> **Branch:** `codex/064-phase5c-runtime-reconciliation`
+> **Primary root:** `D:\Project\eGGG`
+> **Manifest:** `D:\Project\eGGG-governance-audit\dirty-worktree-manifest-20260712.csv`
 > **Operator:** Claude Code (deepseek-v4-flash)
 
 ---
@@ -17,7 +17,7 @@
 | **Total dirty entries** | **7,951** |
 | Modified (` M`) | **5** |
 | Untracked (`??`) | **7,946** |
-| Quoted/unparseable paths | **1,850** (preserved; see §7) |
+| Quoted/unparseable paths | **0** — manifest regenerated from NUL-delimited (`-z`) status output |
 | Snapshot time | 2026-07-12 at time of dispatch |
 
 > **Verify:** These counts match the authoritative `git status --porcelain=v1 -uall` output from the primary root.
@@ -28,31 +28,30 @@
 
 ### 2.1 Modified Entries (5)
 
-All 5 modified entries are working-tree changes. These are NOT part of the Phase 5c scope and remain unmodified by this work.
+All five are preserved and require an owner before routing:
+
+- `.specify/feature.json`
+- `AGENTS.md`
+- `CLAUDE.md`
+- `backend/tests/conftest.py`
+- `specs/README.md`
 
 ### 2.2 Untracked Entries (7,946)
 
-Aggregated by top-level group (`top_group` in manifest):
+The NUL-safe manifest deliberately uses conservative categories; filenames are
+decoded exactly and no path content was read:
 
-| Top Group | Count | Proposed Ownership |
-|---|---|---|
-| `docs/` | 4,259 | Publish via Issue/dispatch/PR |
-| `needs_manual_review` (quoted paths) | 1,850 | Manual review required |
-| `backend/` | 422 | Archive outside repo; approved ignore |
-| `.team-test-cc/` | 382 | Retained named user work |
-| `.claude/` durable retained | 202 | Approved ignore (durable assets remain) |
-| `.team-test/` | 167 | Retained named user work |
-| `.test-acceptance/` | 131 | Retained named user work |
-| `.claude/` runtime removed | 125 | Approved ignore (Phase 5c) |
-| `test-reports/` | 106 | Publish via Issue/dispatch/PR |
-| `specs/` | 100 | Publish via Issue/dispatch/PR |
-| `tmp/` | 47 | Archive outside repo |
-| `tests/` | 39 | Publish via Issue/dispatch/PR |
-| `team-autonomous-loop-workspace/` | 20 | Retained named user work |
-| `.claude/bug-tickets/` | 14 | Approved ignore (Phase 5c preemptive) |
-| `.claude/` unclassified | 13 | Manual review |
-| `.worktrees/` | 9 | Archive outside repo |
-| Other | 13 | Manual review / per-item routing |
+| Proposed category | Count | Meaning |
+|---|---:|---|
+| `needs_owner_assignment` | 7,067 | Includes 6,104 evidence candidates, 756 runtime/test workspaces, 202 durable-tooling candidates, and the 5 tracked modifications; none is treated as named user work until a person accepts ownership |
+| `publish_via_dispatch_pr` | 318 | Source/spec/test/document candidates that still require an Issue, exact allowlist, and review before publication |
+| `approved_ignore` | 139 | Claude runtime paths covered by the narrow Phase-5c ignore policy |
+| `needs_manual_review` | 427 | Paths not safely classified by path-only rules |
+
+Largest exact top-level groups are `docs/` (6,109), `backend/` (422),
+`.team-test-cc/` (382), `.claude/` (354), `.team-test/` (167),
+`.test-acceptance/` (131), `test-reports/` (106), `specs/` (100), `tmp/`
+(47), and `tests/` (39).
 
 ---
 
@@ -62,49 +61,42 @@ Per the dirty-worktree CSV classification, each entry is assigned one of the fol
 
 ### 3.1 Publish via Issue/dispatch/PR
 
-Entries in this category represent work product that should be routed through the normal delivery pipeline. These include:
-- `docs/` — documentation changes
-- `test-reports/` — test output
-- `specs/` — specification documents
-- `tests/` — test artifacts
-
-**Phase 10 routing:** These should be submitted as PRs against the primary repository following the standard governance process.
+These 318 path-only candidates may be work product, but the category is not
+publication approval. Phase 10 must group them by owner and requirement, create
+bounded Issues/dispatches, inspect content safely, and publish only the groups
+that pass review.
 
 ### 3.2 Archive Outside Repository
 
-Entries that are build artifacts, runtime data, or temporary files that should not be committed:
-- `backend/` build artifacts (`.venv`, `.ruff_cache`, etc.)
-- `tmp/` temporary files
-- `.worktrees/` git worktree metadata
-
-These should be cleaned from disk or added to appropriate `.gitignore` rules in future phases.
+No current row is pre-approved for archival. A path may move into this category
+only after an owner confirms it is reproducible/non-durable and the archive
+destination/hash is recorded. `backend/`, `tmp/`, and workspace names alone are
+not sufficient evidence for deletion or ignore rules.
 
 ### 3.3 Approved Ignore (via .gitignore)
 
-Entries that are now covered by `.gitignore` rules:
+The 139 manifest rows under these paths are covered by the reviewed Phase-5c
+ignore policy:
 - `.claude/settings.local.json` — Phase 5c
 - `.claude/state.json` — Phase 5c
 - `.claude/agent-memory/` — Phase 5c
 - `.claude/teams/` — Phase 5c
 - `.claude/bug-tickets/` — Phase 5c (preemptive)
-- `.claude/durable retained (agents/commands/skills/settings.json)` — explicitly NOT ignored
+
+Durable `.claude/agents`, `.claude/commands`, `.claude/skills`,
+`.claude/settings.json`, and `.cursor/rules` are explicitly not ignored.
 
 ### 3.4 Retained Named User Work
 
-Entries that represent user-specific or team-specific working state:
-- `.team-test-cc/` — test CC configuration
-- `.team-test/` — test configuration
-- `.test-acceptance/` — acceptance test working data
-- `team-autonomous-loop-workspace/` — autonomous loop workspace
-
-These are intentionally left untracked and unignored; they belong to individual users or teams and should not be committed.
+No row is considered “named user work” merely because it lives in a team or
+test directory. The 7,067 `needs_owner_assignment` rows must receive an owner,
+retention decision, and next action. Until then they remain untracked,
+unignored, and untouched.
 
 ### 3.5 Manual Review Required
 
-Entries where the classification could not be automatically determined:
-- Quoted/unparseable paths (1,850) — paths with special characters that `git status` quoted
-- `.claude/` unclassified entries (13) — unusual files in `.claude/` that don't match known patterns
-- Other top-level entries that don't fit known categories
+The 427 path-only unknowns require manual ownership review. This count no longer
+includes Git-quoted filenames: NUL-delimited parsing decoded those names safely.
 
 ---
 
@@ -126,30 +118,30 @@ The following operations are **prohibited** as part of this Phase 5c work:
 |---|---|
 | **Path** | `D:\Project\eGGG-governance-audit\dirty-worktree-manifest-20260712.csv` |
 | **Rows** | 7,951 (7,946 untracked + 5 modified) |
-| **SHA-256** | `A56548B350E3DD455B8F22B1CB4D8EB27F2EB5115CAFC94365537D9C02A9C369` |
+| **SHA-256** | `21113B401D714D4DC0C49DE996D5D5253D978E54708A224A0027CDB044871FB2` |
 | **Headers** | `status`, `path`, `top_group`, `proposed_category`, `rationale_code` |
-| **Format** | UTF-8 CSV with RFC 4180 quoting |
+| **Format** | UTF-8 CSV generated from `git status --porcelain=v1 -z -uall`; raw paths are NUL-delimited before RFC 4180 CSV quoting |
 
 ---
 
 ## 6. Phase 10 Routing & Acceptance
 
-The dirty worktree is NOT clean after this phase. Phase 5c only addresses tracked Claude runtime files and their gitignore rules. Future phases (Phase 6+) will address additional categories.
+The dirty worktree is NOT clean after this phase. Phase 5c only addresses the
+reviewed Claude runtime class and produces a trustworthy handoff manifest.
+Phases 6–9 retain their existing governance/CI/automation scopes; they must not
+silently absorb dirty-root cleanup. Phase 10 owns final routing.
 
 | Phase | Scope | Status |
 |---|---|---|
-| Phase 5c | Claude runtime tracked files + gitignore ✅ | **Done** |
-| Phase 6+ | Build artifacts, temp files | **Not started** |
-| Phase 7+ | Documentation/report publishing | **Not started** |
-| Phase 8+ | Named user workspace handling | **Not started** |
-| Phase 9+ | Manual review of unclassified/quoted paths | **Not started** |
-| Phase 10 | Final routing of publishable work | **Not started** |
+| Phase 5c | Claude runtime tracked files + narrow ignore + manifest | **In review until PR merge/verification** |
+| Phase 6–9 | Existing REQ-064 intake/gate, CI, automation, and drill scopes | **No dirty-root routing added** |
+| Phase 10 | Assign owners; route publish/archive/ignore/retain decisions; prove zero unexplained entries | **Not started** |
 
 **Acceptance criteria for this phase:**
-1. ✅ All 21 tracked runtime files removed from Git tracking
-2. ✅ .gitignore rules added for runtime directories (narrow, not blanket)
-3. ✅ External backup verified before removal
-4. ✅ External CSV manifest generated and verified (7,951 rows)
-5. ✅ Runtime & secret audit document created
-6. ✅ Dirty worktree reconciliation document created
-7. ❌ Primary root is NOT clean — and should not be claimed as such
+1. All 21 tracked runtime files are removed by this PR and recoverable from the verified backup/history.
+2. Ignore rules are narrow and durable project assets remain visible.
+3. The external manifest has 7,951 NUL-safely parsed rows and the recorded hash.
+4. Phase 10 starts with 7,067 owner assignments, 318 publication candidates,
+   139 approved-ignore rows, and 427 manual reviews; every later decision must
+   update the manifest/evidence rather than bulk-delete.
+5. Primary root is NOT clean and this document must never be used to claim it is.
