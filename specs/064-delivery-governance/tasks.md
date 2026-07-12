@@ -13,7 +13,15 @@ Execute in strict order: no Phase N+1 until every slice of Phase N is merged.
 - Dependencies: previous phase ALL slices merged; within a phase, slices merge in order
 - Intended paths listed per task
 - Validation: required checks per PR slice
-- Rollback: `git revert -m 1 <merge-sha>`
+- Rollback: follow the canonical squash rollback protocol below; never use `-m`
+
+**Canonical squash rollback protocol**: merged governance PRs use squash merge,
+so the resulting commit has one parent. Create a new rollback Issue and fresh
+dispatch from authoritative `master`, create a rollback branch, run
+`git revert <squash-merge-sha>` (without `-m`), verify the inverse diff and all
+applicable checks, then open a Draft PR and return through the normal
+review/Owner-bypass and squash-merge path. Never push the revert directly to
+`master`.
 
 **Final task count after all edits: 52 tasks** — all FR-001 through FR-029 and SC-001 through SC-009 have corresponding task entries and requirements-status rows.
 
@@ -49,7 +57,7 @@ Execute in strict order: no Phase N+1 until every slice of Phase N is merged.
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -81,7 +89,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 Restores AGENTS.md to pre-Phase 5b state, removes CLAUDE.md and .cursor/rules/agent-delivery.mdc.
@@ -114,7 +122,7 @@ Restores AGENTS.md to pre-Phase 5b state, removes CLAUDE.md and .cursor/rules/ag
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 Must verify `.gitignore` revert doesn't re-track runtime files incorrectly.
@@ -157,7 +165,7 @@ Must verify `.gitignore` revert doesn't re-track runtime files incorrectly.
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -192,7 +200,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -225,7 +233,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -255,7 +263,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -284,7 +292,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -310,7 +318,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -336,7 +344,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -362,7 +370,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -391,7 +399,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -420,7 +428,7 @@ git revert -m 1 <merge-sha>
 #### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -461,7 +469,7 @@ git revert -m 1 <merge-sha>
 ### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 Removes cursor automation workflow and handler script.
@@ -510,7 +518,7 @@ Removes cursor automation workflow and handler script.
 ### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 ---
@@ -570,7 +578,7 @@ git revert -m 1 <merge-sha>
 ### Rollback
 
 ```bash
-git revert -m 1 <merge-sha>
+git revert <squash-merge-sha>
 ```
 
 Removes acceptance checklist, evidence files, and HTML walkthrough. Dry-run Issue and its merged PR remain in history.
