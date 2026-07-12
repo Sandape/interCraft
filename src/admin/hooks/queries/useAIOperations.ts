@@ -9,8 +9,13 @@ import {
 } from '@/api/admin-ai-operations'
 import {
   aiOperationsApi,
+  defaultMetricsFilters,
+  type MetricsFilters,
   type OpsFilters,
 } from '@/admin/api/ai-operations'
+
+export { defaultMetricsFilters }
+export type { MetricsFilters }
 
 export const aiOperationsQueryKeys = {
   kpis: () => ['ai-operations', 'kpis'] as const,
@@ -34,6 +39,13 @@ export const aiOpsKeys = {
   costDrilldown: (filters: OpsFilters & { task_id?: string }) =>
     [...aiOpsKeys.all, 'cost-drilldown', filters] as const,
   pointTimeline: (taskId: string) => [...aiOpsKeys.all, 'point-timeline', taskId] as const,
+  productionMetrics: (filters: MetricsFilters) =>
+    [...aiOpsKeys.all, 'production-metrics', filters] as const,
+  budgets: () => [...aiOpsKeys.all, 'budgets'] as const,
+  reconciliations: () => [...aiOpsKeys.all, 'reconciliations'] as const,
+  anomalies: () => [...aiOpsKeys.all, 'anomalies'] as const,
+  taskCostDrilldown: (taskId: string) =>
+    [...aiOpsKeys.all, 'task-cost-drilldown', taskId] as const,
 }
 
 export function useKpis() {
@@ -153,6 +165,49 @@ export function useAIOpsPointTimeline(taskId: string | null) {
   return useQuery({
     queryKey: aiOpsKeys.pointTimeline(taskId ?? ''),
     queryFn: ({ signal }) => aiOperationsApi.getPointTimeline(taskId as string, signal),
+    enabled: Boolean(taskId),
+    staleTime: 15_000,
+  })
+}
+
+/** REQ-061 US9 — production joined metrics with stable filters. */
+export function useProductionMetrics(filters: MetricsFilters = defaultMetricsFilters) {
+  return useQuery({
+    queryKey: aiOpsKeys.productionMetrics(filters),
+    queryFn: ({ signal }) => aiOperationsApi.getProductionMetrics(filters, signal),
+    staleTime: 30_000,
+  })
+}
+
+export function useProductionBudgets() {
+  return useQuery({
+    queryKey: aiOpsKeys.budgets(),
+    queryFn: ({ signal }) => aiOperationsApi.listBudgets(signal),
+    staleTime: 30_000,
+  })
+}
+
+export function useProductionReconciliations() {
+  return useQuery({
+    queryKey: aiOpsKeys.reconciliations(),
+    queryFn: ({ signal }) => aiOperationsApi.listReconciliations(signal),
+    staleTime: 30_000,
+  })
+}
+
+export function useProductionAnomalies() {
+  return useQuery({
+    queryKey: aiOpsKeys.anomalies(),
+    queryFn: ({ signal }) => aiOperationsApi.listAnomalies(signal),
+    staleTime: 30_000,
+  })
+}
+
+export function useTaskCostDrilldown(taskId: string | null) {
+  return useQuery({
+    queryKey: aiOpsKeys.taskCostDrilldown(taskId ?? ''),
+    queryFn: ({ signal }) =>
+      aiOperationsApi.getTaskCostDrilldown(taskId as string, signal),
     enabled: Boolean(taskId),
     staleTime: 15_000,
   })
