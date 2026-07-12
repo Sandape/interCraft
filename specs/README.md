@@ -30,14 +30,15 @@ git history only for old context if specifically needed.
 
 ## Active
 
-**Current SpecKit focus (2026-07-11):** REQ-061（全域 AI / Agent 生产级升级）
-is the active specification — 内测阶段使用每日 2,000 点体验点数，所有普通用户显示
-Pro + “新用户体验”；specify/plan/tasks 制品已生成，tasks 审阅通过后 next `/speckit-implement`。商业套餐与微信支付已拆分为 REQ-062，
+**Current SpecKit focus (2026-07-12):** REQ-063（派生简历满页校准与真实页数一致）
+is the active specification — specify、plan、tasks 已完成，next `/speckit-implement`（US1 MVP）。
+REQ-061 仍为近期主线实现焦点之一；商业套餐与微信支付为 REQ-062，
 在 ICP 备案与商业化批准完成前保持 **deferred**。
 
 | ID | Feature | Status | Source Of Truth | Notes |
 |---|---|---|---|---|
-| 061 | 全域 AI / Agent 生产级升级 | active | [spec.md](./061-ai-agent-production/spec.md) | Implementation tasks complete except T183 LangGraph upgrade **deferred** (keep 0.2.x). See [requirements-status.md](./061-ai-agent-production/requirements-status.md). |
+| 063 | 派生简历满页校准与真实页数一致 | active | [tasks.md](./063-derive-page-fill/tasks.md) | Specify+plan+tasks complete; next `/speckit-implement`（US1 MVP）。 |
+| 061 | 全域 AI / Agent 生产级升级 | in_progress | [spec.md](./061-ai-agent-production/spec.md) | Implementation tasks complete except T183 LangGraph upgrade **deferred** (keep 0.2.x). See [requirements-status.md](./061-ai-agent-production/requirements-status.md). |
 | 060 | 微信 Agent 生产级升级 | in_progress | [spec.md](./060-wechat-agent-production/spec.md) | Specify/plan/tasks/implementation complete; US6/US7 done. Physical Demo-WeChat inbound plus Chrome/MCP/log triad remains for US1-US5/T100-T104. |
 | 059 | AI 岗位定制简历与编辑建议闭环 | done | [spec.md](./059-ai-resume-intelligence/spec.md) | Real DeepSeek analysis + Cursor browser visual acceptance PASS. Route conflict with legacy derive suggestions fixed. Evidence: `docs/evidence/059-ai-resume-intelligence/`. |
 | 058 | 模拟面试 Agent 质量与体验优化 | in_progress | [spec.md](./058-interview-agent-optimize/spec.md) | Implement landed (plan prewarm, plan-driven Q, score-first WS, failure/degrade, sanitize/report). Unit evidence under `docs/evidence/058-interview-agent-optimize/`; harness timing pending. |
