@@ -28,7 +28,7 @@
 8. [Failure Codes & Stop Rules](#8-failure-codes--stop-rules)
 9. [Rollback Procedure](#9-rollback-procedure)
 10. [Break-Glass & Drift Evidence](#10-break-glass--drift-evidence)
-11. [Stale Local-Ref Fallback](#11-stale-local-ref-fallback)
+11. [Authoritative Ref Verification & Transport Failure](#11-authoritative-ref-verification--transport-failure)
 12. [Authorization & Approval](#12-authorization--approval)
 
 ---
@@ -69,7 +69,7 @@ verification → Issue/requirement closure
 
 | Role | Identity | Responsibilities |
 |---|---|---|
-| **Codex** | Supervising acceptance authority | Issues dispatches, approves Stage-B activation, performs acceptance verification, owns governance system integrity |
+| **Codex** | Supervising acceptance authority | Issues dispatches, performs acceptance verification, and applies Stage-B only under explicit Sandape Owner R3 confirmation/delegation |
 | **Driver** | `claude-code`, `codex`, `cursor`, `cursor-automation`, or `human` | Executes the work assigned by a dispatch: implements changes, writes tests, produces evidence, opens PR |
 | **Reviewer** | Human (not the PR author) | Performs code review, verifies AC compliance, checks evidence, approves or requests changes |
 | **Sandape Owner** | Repository / product owner | Owns PR-only bypass authority (see [§12.2](#122-owner-pr-only-bypass)); can delegate bypass to Codex with explicit case-by-case confirmation |
@@ -148,40 +148,53 @@ graph LR
 
 - Work from a **fresh external clone** or a **dedicated git worktree** to avoid
   conflicts with dirty primary worktrees.
-- Branch name MUST be prefixed with the driver identity, e.g.:
-  - `codex/064-phase5a-sop-adr`
-  - `claude-code/064-phase6b-dispatch`
-  - `human/064-phase7a-frontend-ci`
+- Branch name MUST use the repository `codex/` governance prefix regardless of
+  which client is the dispatch driver, e.g. `codex/064-phase5a-sop-adr`.
 - Branch MUST fork from the authoritative remote `master` HEAD at dispatch time.
 
 ```bash
 # External clone
 git clone https://github.com/Sandape/interCraft.git interCraft-work
 cd interCraft-work
-git checkout -b codex/064-phase5a-sop-adr
+git switch -c codex/064-phase5a-sop-adr <dispatch-base-sha>
 
 # Or worktree (from primary clone)
-git worktree add ../interCraft-work codex/064-phase5a-sop-adr
+git worktree add -b codex/064-phase5a-sop-adr ../interCraft-work <dispatch-base-sha>
 ```
 
 ### 4.5 Preflight
 
-Run the preflight gate before every commit:
+Run the preflight gate from an existing PowerShell session. All parameters are
+mandatory; a parameterless invocation is invalid:
 
-```bash
-pwsh -File scripts/governance/preflight.ps1
+```powershell
+$preflight = @{
+  ExpectedRepoRoot = (Resolve-Path .).Path
+  ExpectedBranch = 'codex/064-phase5a-sop-adr'
+  ExpectedBaseSha = '<40-character-dispatch-base-sha>'
+  BaseRef = 'origin/master'
+  AllowedPath = @('<allowed/path-1>', '<allowed/path-2>')
+  TargetPath = @('<target/path-1>', '<target/path-2>')
+  OutputJson = $true
+}
+& scripts/governance/preflight.ps1 @preflight
 ```
+
+Before editing and after committing, the worktree MUST be clean. While the
+bounded target files are intentionally modified, add
+`AllowDirtyWithinAllowedPaths = $true`; preflight still rejects every dirty
+path outside the allowlist.
 
 Preflight verifies:
 1. Repository root is correct
 2. Branch is not `master`
-3. Base SHA matches authoritative remote `master`
+3. The caller-verified local `BaseRef` matches the expected dispatch base
 4. No dirty state in the worktree
 5. All changed paths are within allowed paths
-6. Dispatch reference is valid (when dispatch files exist)
 
-**If preflight fails, fix the issue before committing.** Do not use `--force`
-or skip flags unless explicitly authorized by a handoff note.
+**If preflight fails, stop and resolve the cause before committing.** Preflight
+has no authorized bypass mode; do not invent force/skip flags or weaken its
+checks in a handoff note.
 
 ### 4.6 Bounded Change
 
@@ -238,7 +251,7 @@ gh pr create \
 
 ## Risk & Rollback
 - **Risk**: Low / Medium / High
-- **Rollback**: \`git revert -m 1 <merge-sha>\`
+- **Rollback**: create a governed rollback branch/PR and run \`git revert <squash-merge-sha>\` (never \`-m\` for a squash commit)
 
 ## Unrun Checks
 - CI (awaiting PR open)
@@ -296,8 +309,9 @@ pipeline succeeded.
   1. Implementation merged and verified on `master`.
   2. Verification evidence exists and is linked from the Issue.
   3. `requirements-status.md` updated to reflect completion.
-- Use `Closes #N` in the merge commit body (not the branch commit) or close
-  manually after verification.
+- Keep `Refs #N` through merge, then close the Issue manually only after
+  authoritative master and evidence verification. Do not let `Closes #N`
+  auto-close it before those checks finish.
 
 ---
 
@@ -393,20 +407,21 @@ The preflight gate runs locally before every commit.
 
 ### Checks
 
-| # | Check | Failure |
-|---|---|---|
-| P1 | Repository root is correct | `PREFLIGHT_WRONG_ROOT` |
-| P2 | Branch is not `master` | `PREFLIGHT_MASTER_BRANCH` |
-| P3 | Base SHA matches authoritative remote master | `PREFLIGHT_BASE_MISMATCH` |
-| P4 | Working tree is clean (no dirty files) | `PREFLIGHT_DIRTY_ROOT` |
-| P5 | All changed paths within allowed paths | `PREFLIGHT_PATH_ESCAPE` |
-| P6 | Dispatch reference is valid (when dispatch file exists) | `PREFLIGHT_INVALID_DISPATCH` |
+| Check | Actual failure code(s) |
+|---|---|
+| Repository root equals the dispatched root | `REPO_ROOT_MISMATCH` |
+| Named branch is present, not protected, and equals the dispatched branch | `DETACHED_HEAD`, `PROTECTED_BRANCH`, `BRANCH_MISMATCH` |
+| Caller-verified local `BaseRef` exists, equals the dispatch base, and is an ancestor of HEAD | `BASE_REF_MISSING`, `BASE_SHA_MISMATCH` |
+| Allowlist and target paths use the supported safe syntax | `INVALID_ALLOWED_PATH`, `INVALID_TARGET_PATH` |
+| Every target path is inside the dispatch allowlist | `TARGET_NOT_ALLOWED` |
+| Dirty status is parseable and either absent or wholly allowlisted in explicit scoped mode | `DIRTY_STATUS_UNPARSEABLE`, `DIRTY_WORKTREE`, `DIRTY_PATH_ESCAPE` |
 
 ### Usage
 
-```bash
-pwsh -File scripts/governance/preflight.ps1
-```
+Use the mandatory PowerShell parameter hashtable in [§4.5](#45-preflight).
+Run it once in clean mode before editing, once with
+`AllowDirtyWithinAllowedPaths = $true` while reviewing intended edits, and once
+again in clean mode after the commit.
 
 Exit code 0 = pass. Any non-zero exit = stop and fix.
 
@@ -458,12 +473,14 @@ dispatch. **Not yet implemented** — this section describes the planned design.
 
 | Code | Meaning | Action |
 |---|---|---|
-| `PREFLIGHT_WRONG_ROOT` | Not running from repo root | `cd` to repo root |
-| `PREFLIGHT_MASTER_BRANCH` | Branch is `master` | Create a feature branch |
-| `PREFLIGHT_BASE_MISMATCH` | Base SHA != remote master HEAD | Rebase or update base |
-| `PREFLIGHT_DIRTY_ROOT` | Working tree has uncommitted changes | Commit or stash |
-| `PREFLIGHT_PATH_ESCAPE` | Changed files outside allowed paths | Revert changes; stay in bounds |
-| `PREFLIGHT_INVALID_DISPATCH` | Dispatch reference invalid | Contact Codex for new dispatch |
+| `REPO_ROOT_MISMATCH` | Actual root differs from dispatched root | Stop and enter the exact external workspace |
+| `DETACHED_HEAD` / `PROTECTED_BRANCH` / `BRANCH_MISMATCH` | Branch identity is unsafe or unexpected | Create/switch to the exact dispatched `codex/` branch |
+| `BASE_REF_MISSING` / `BASE_SHA_MISMATCH` | Local BaseRef is missing, stale, or not an ancestor of HEAD | Stop; verify authoritative master and obtain a fresh dispatch if it advanced |
+| `INVALID_ALLOWED_PATH` / `INVALID_TARGET_PATH` | A path is absolute, traversing, control-bearing, or uses an unsupported glob | Correct the dispatch/target; never weaken validation |
+| `TARGET_NOT_ALLOWED` | A target is outside the dispatch allowlist | Stop and obtain a reviewed fresh dispatch if broader scope is truly required |
+| `DIRTY_STATUS_UNPARSEABLE` | Git status contains a path that cannot be handled deterministically | Stop for manual ownership review |
+| `DIRTY_WORKTREE` | Worktree is dirty in clean-required mode | Classify every dirty path; use scoped mode only for fully allowlisted intended edits |
+| `DIRTY_PATH_ESCAPE` | Scoped dirty path is outside the allowlist | Stop and preserve unowned work; do not commit, stash, or delete it |
 
 ### Gate Failure Codes (Phase 6, future)
 
@@ -474,9 +491,9 @@ dispatch. **Not yet implemented** — this section describes the planned design.
 | `GATE_ISSUE_NOT_OPEN` | Issue closed or not found | Reopen or new Issue |
 | `GATE_DISPATCH_NOT_FOUND` | No dispatch for this Issue | Contact Codex |
 | `GATE_DISPATCH_INACTIVE` | Dispatch superseded or expired | Request new dispatch |
-| `GATE_AC_HASH_MISMATCH` | AC hash changed | Update dispatch or rebase |
+| `GATE_AC_HASH_MISMATCH` | Canonical AC hash changed | Expire the old dispatch and issue a fresh one after revalidation |
 | `GATE_AC_MALFORMED` | AC statement malformed | Fix Issue AC section |
-| `GATE_PATH_ESCAPE` | Changes outside allowed paths | Revert out-of-bounds files |
+| `GATE_PATH_ESCAPE` | Changes outside allowed paths | Stop and preserve unowned work; narrow the branch or issue a reviewed fresh dispatch |
 | `GATE_SINGLETON_VIOLATION` | Changed singleton without governance Issue | Create governance Issue |
 | `GATE_BASE_NOT_AUTHORITATIVE` | base_sha != remote master | Rebase and new dispatch |
 | `GATE_BASE_STALE` | PR not derived from base_sha | Rebase PR |
@@ -501,15 +518,14 @@ dispatch. **Not yet implemented** — this section describes the planned design.
 
 ### Standard Rollback
 
+Every repository merge is a squash merge and produces a single-parent commit.
+Rollback is another governed delivery, never a direct push:
+
 ```bash
-# Find the merge SHA
-git log master --oneline | head -5
-
-# Revert the merge commit
-git revert -m 1 <merge-sha>
-
-# Push the revert
-git push origin master
+# After creating a rollback Issue and fresh dispatch from authoritative master
+git switch -c codex/<req>-rollback-<purpose> <authoritative-master-sha>
+git revert <squash-merge-sha>   # no -m: the squash commit is not a merge commit
+# Run tests/preflight, commit if needed, push this branch, then open a Draft PR
 ```
 
 ### Rollback Verification
@@ -521,10 +537,12 @@ After revert, verify:
 
 ### Rollback Principles
 
-1. Every PR MUST be individually revertible. No PR should depend on another PR
-   being merged first in a way that makes individual revert impossible.
-2. `git revert -m 1 <merge-sha>` is the standard method — it creates a new
-   commit that undoes the merge while preserving history.
+1. Every PR slice MUST define a reversible boundary. Dependencies are allowed
+   but must be explicit; reverting an earlier slice may require reverting its
+   dependent slices in reverse order or first adding a compatibility change.
+2. `git revert <squash-merge-sha>` without `-m` creates the inverse commit;
+   deliver it through a new Draft PR, review or documented Owner PR-only
+   bypass, and squash merge.
 3. `git reset --hard` MUST NOT be used on a shared branch.
 4. After rollback, the original Issue is re-opened (if closed) with a note
    about the revert.
@@ -539,8 +557,8 @@ In exceptional circumstances requiring urgent deviation from the standard flow:
 
 1. **Document**: Create a governance Issue documenting what, why, and the
    expected duration of deviation.
-2. **Authorize**: Obtain explicit Sandape Owner confirmation (or delegated
-   Codex authorization per §12.2).
+2. **Authorize**: Obtain explicit Sandape Owner confirmation. Codex may execute
+   only under case-by-case delegation; it does not replace Owner authorization.
 3. **Execute**: Perform the minimum necessary deviation.
 4. **Evidence**: Capture screenshots, CLI logs, API responses, and timestamps.
 5. **Restore**: Return to standard flow as soon as the emergency passes.
@@ -570,7 +588,7 @@ In exceptional circumstances requiring urgent deviation from the standard flow:
 
 ---
 
-## 11. Stale Local-Ref Fallback
+## 11. Authoritative Ref Verification & Transport Failure
 
 ### Problem
 
@@ -591,24 +609,29 @@ gh api repos/Sandape/interCraft/git/ref/heads/master --jq '.object.sha'
 
 ### When Local Transport Is Unavailable
 
-If `gh api` fails (network, 403, TLS):
+If `gh api` fails (network, 403, TLS), freshness is unproven and the workflow
+MUST fail closed:
 
-1. **Fallback**: `git rev-parse origin/master` with a warning logged.
-2. **Note in PR**: Document in PR body that freshness was verified against
-   local ref due to transport failure.
-3. **Re-verify**: When transport is restored, re-run the check.
-4. **If SHA differs**: The dispatch is expired; issue a new one with the
-   authoritative SHA.
+1. Preserve the bounded work without committing or opening/updating a PR.
+2. Do not substitute `origin/master`, disable TLS verification, or weaken
+   certificate checks.
+3. Retry authenticated GitHub access; if failure persists, escalate to Codex
+   or the Sandape Owner with the error and timestamp.
+4. When transport is restored, re-read authoritative `master`. If it advanced,
+   expire the dispatch, issue a fresh one, and update the branch from that base.
 
 ### Preflight Integration
 
-The preflight script (`scripts/governance/preflight.ps1`) already implements
-this fallback:
+The current preflight validates the caller-supplied local `BaseRef`; it does not
+query GitHub and does not implement a network fallback. The caller MUST first
+prove that `origin/master` and the dispatch base both equal authoritative
+GitHub `master`, then invoke preflight with the mandatory parameter hashtable:
 
 ```
-1. Try: gh api repos/Sandape/interCraft/git/ref/heads/master
-2. On failure: fall back to git rev-parse origin/master with warning
-3. Compare base_sha against the retrieved SHA
+1. Read authoritative master with gh api; on failure, STOP.
+2. Fetch origin/master and require it to equal the authoritative SHA.
+3. Require dispatch base_sha to equal that SHA.
+4. Invoke preflight with BaseRef=origin/master and the exact dispatch fields.
 ```
 
 ---
@@ -659,12 +682,12 @@ human non-author approval requirement **only** under these conditions:
 
 | Situation | Command / Action |
 |---|---|
-| Create external worktree | `git worktree add ../<name> <branch>` |
-| Run preflight | `pwsh -File scripts/governance/preflight.ps1` |
+| Create external worktree | `git worktree add -b <codex/branch> ../<name> <dispatch-base-sha>` |
+| Run preflight | Use the mandatory PowerShell parameter hashtable in §4.5/§6 |
 | Open Draft PR | `gh pr create --base master --draft --title "..." --body "Refs #N"` |
 | Get authoritative master SHA | `gh api repos/Sandape/interCraft/git/ref/heads/master --jq '.object.sha'` |
 | Squash merge | `gh pr merge <N> --squash --delete-branch` |
-| Rollback | `git revert -m 1 <merge-sha>` |
+| Rollback | New Issue/dispatch/branch + `git revert <squash-merge-sha>` + Draft PR |
 | File governance incident | Create Issue with label `governance` |
 
 ## Appendix B: Related Documents

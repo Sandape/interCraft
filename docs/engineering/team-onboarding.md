@@ -84,7 +84,7 @@ cd interCraft-work
 
 # Option B: Worktree from your existing clone
 cd /path/to/primary/clone
-git worktree add ../interCraft-phase5a codex/064-phase5a-sop-adr
+git worktree add -b codex/064-phase5a-sop-adr ../interCraft-phase5a <dispatch-base-sha>
 cd ../interCraft-phase5a
 ```
 
@@ -103,14 +103,10 @@ See the [Delivery SOP](./delivery-sop.md) for complete step details.
 
 ### 2.4 Run Preflight
 
-Before every commit:
-
-```bash
-pwsh -File scripts/governance/preflight.ps1
-```
-
-- Exit code 0 = ready to commit.
-- Non-zero exit = stop and fix the reported issue.
+Before every commit, use the mandatory parameterized PowerShell invocation in
+[Delivery SOP §4.5](./delivery-sop.md#45-preflight). A parameterless
+`preflight.ps1` call is invalid. Run clean mode before editing and after the
+commit; use scoped-dirty mode only while every dirty path is allowlisted.
 
 ### 2.5 Follow Issue / Dispatch / PR
 
@@ -190,8 +186,8 @@ Until `CLAUDE.md` and `.claude/settings.json` are created:
 
 ### 4.3 Key Constraints
 
-- **Preflight before commit**: Always run `pwsh -File scripts/governance/preflight.ps1`.
-- **Branch naming**: Prefix with `codex/`, `claude-code/`, or `human/`.
+- **Preflight before commit**: Use the mandatory parameter hashtable in SOP §4.5.
+- **Branch naming**: Use the repository `codex/` prefix; the dispatch records the actual driver.
 - **Commit messages**: Include `Refs #N`.
 - **Draft PR**: Open as Draft, not Ready for Review.
 - **Never direct-push master.**
@@ -257,21 +253,22 @@ Until Phase 8 is complete, Cursor Automation does not run.
 git clone https://github.com/Sandape/interCraft.git
 cd interCraft
 
-# Create a feature branch (never work on master)
-git checkout -b human/my-feature-branch
+# Create the dispatch branch from its exact authoritative base
+git switch -c codex/my-feature-branch <dispatch-base-sha>
 
-# Run preflight to verify environment
-pwsh -File scripts/governance/preflight.ps1
+# Run the parameterized preflight from SOP §4.5
 ```
 
 ### 7.2 Daily Workflow
 
-1. **Sync**: `git fetch origin && git rebase origin/master`
+1. **Sync before dispatch**: fetch authoritative master before the dispatch is
+   issued. After dispatch, do not rebase under the old dispatch; obtain a fresh
+   dispatch/base first if master advances.
 2. **Work**: Make changes to files within your dispatch's `allowed_paths`.
-3. **Preflight**: `pwsh -File scripts/governance/preflight.ps1`
+3. **Preflight**: Run the mandatory parameterized invocation from SOP §4.5.
 4. **Test**: Run relevant tests (`npm run test`, `cd backend && uv run pytest`).
 5. **Commit**: `git commit -m "feat(scope): description\n\nRefs #N"`
-6. **Push**: `git push origin human/my-feature-branch`
+6. **Push**: `git push origin codex/my-feature-branch`
 7. **PR**: Open Draft PR via `gh pr create --draft` or GitHub web UI.
 8. **Review**: Request review from a non-author human.
 9. **Merge**: Squash merge after approval.
@@ -288,61 +285,57 @@ pwsh -File scripts/governance/preflight.ps1
 
 ## 8. First Dry-Run
 
-Complete these steps to verify your setup:
+Phase 5a supports a no-write environment rehearsal. The full write/PR/merge
+dry-run requires the dedicated Phase-10 Issue and dispatch; never invent an
+Issue such as `#0` or write a test file outside an allowlist.
 
-### Step 1: Fresh Clone
+### Step 1: Fresh Clone and Read Canonical Rules
 
 ```bash
 cd /tmp
 git clone https://github.com/Sandape/interCraft.git interCraft-dryrun
 cd interCraft-dryrun
-```
-
-### Step 2: Read Canonical Rules
-
-```bash
 cat AGENTS.md
-cat docs/engineering/delivery-sop.md   # requires docs/engineering/ to exist
+cat docs/engineering/delivery-sop.md
 cat docs/README.md
 cat specs/README.md
 ```
 
-### Step 3: Verify Client Loads Rules
+### Step 2: Verify Client Rule Loading
 
 Ask your AI client: "What is the delivery workflow for InterCraft?"
-- It should describe the Spec → Issue → Dispatch → PR → Review → Merge flow.
-- It should NOT suggest direct-pushing to `master`.
 
-### Step 4: Run Preflight on a Clean Repo
+- It should describe Spec → Issue → Dispatch → PR → Review → Merge.
+- It must not suggest direct-pushing to `master`.
+- It should distinguish active Stage-A controls from future Stage-B controls.
 
-```bash
-pwsh -File scripts/governance/preflight.ps1
-```
+### Step 3: Create a No-Write Validation Branch
 
-Expected outcome: pass (exit 0) or a clear failure message you can interpret.
-
-### Step 5: Create a Test Branch and Commit
+Read authoritative `master`; if GitHub API or fetch fails, stop rather than
+using a stale local ref.
 
 ```bash
-git checkout -b codex/dryrun-verification
-echo "# Dry run evidence" > docs/evidence/dryrun.md
-git add docs/evidence/dryrun.md
-git commit -m "chore: dryrun verification\n\nRefs #0"
+gh api repos/Sandape/interCraft/git/ref/heads/master --jq '.object.sha'
+git switch -c codex/dryrun-environment-check <authoritative-master-sha>
 ```
 
-### Step 6: Run Preflight Again
+From PowerShell, run the SOP §4.5 parameterized preflight in clean mode. Use
+the current branch and master SHA, and choose an existing documentation path as
+both the allowed and target path. Do not edit or commit it. A pass proves only
+the local environment and preflight wiring, not the full delivery workflow.
+
+### Step 4: Clean Up
 
 ```bash
-pwsh -File scripts/governance/preflight.ps1
+git switch master
+git branch -D codex/dryrun-environment-check
+cd ..
+rm -rf interCraft-dryrun
 ```
 
-### Step 7: Clean Up
-
-```bash
-git checkout master
-git branch -D codex/dryrun-verification
-rm -rf /tmp/interCraft-dryrun
-```
+For the complete Spec → Issue → Dispatch → branch → Draft PR → CI → review →
+squash merge rehearsal, wait for the Codex-issued Phase-10 dry-run Issue and
+follow the SOP without shortcuts.
 
 ---
 
@@ -350,7 +343,7 @@ rm -rf /tmp/interCraft-dryrun
 
 ### Dirty Root
 
-**Symptom**: Preflight fails with `PREFLIGHT_DIRTY_ROOT`.
+**Symptom**: Preflight fails with `DIRTY_WORKTREE` or `DIRTY_PATH_ESCAPE`.
 
 **Cause**: You have uncommitted changes in the working tree.
 
@@ -364,24 +357,22 @@ rm -rf /tmp/interCraft-dryrun
 
 ### Stale Base
 
-**Symptom**: Preflight fails with `PREFLIGHT_BASE_MISMATCH`.
+**Symptom**: Preflight fails with `BASE_REF_MISSING` or `BASE_SHA_MISMATCH`.
 
 **Cause**: Your branch's base SHA no longer matches authoritative remote
 `master`.
 
 **Solution**:
-```bash
-# Fetch the latest master
-git fetch origin master
 
-# Rebase your branch
-git rebase origin/master
-
-# If conflicts: resolve them, then continue rebase
-git rebase --continue
-
-# If the dispatch base_sha is also stale, contact Codex for a new dispatch
-```
+1. Stop work under the old dispatch; it is expired when authoritative master
+   advances.
+2. Re-read master with `gh api`. If that fails, remain stopped.
+3. Ask Codex to supersede/expire the old dispatch and issue a fresh dispatch
+   with the new base SHA and revalidated AC/allowlist.
+4. Only then fetch master and update the branch. Prefer a new branch/PR or a
+   non-force merge of the new base; never force-update a shared branch without
+   an explicit governed handoff.
+5. Run parameterized preflight against the new dispatch before continuing.
 
 ### Red Legacy CI
 
@@ -410,26 +401,26 @@ your change. CI repair is scheduled for Phase 7.
 **Solution**:
 1. Verify authentication: `gh auth status`.
 2. Re-authenticate: `gh auth login`.
-3. If behind a proxy, configure: `gh config set git_proxy https://proxy:port`.
-4. On temporary failure, preflight falls back to `git rev-parse origin/master`
-   with a warning. Document this in the PR.
-5. If persistent, escalate to Codex or Sandape Owner.
+3. If an approved corporate proxy is required, use the environment's managed
+   proxy/certificate setup; do not invent a proxy URL in repository docs.
+4. Stop the write workflow. Do not use stale `origin/master`,
+   `GIT_SSL_NO_VERIFY`, `http.sslVerify=false`, or any certificate bypass.
+5. If persistent, escalate to Codex or Sandape Owner with the exact error and
+   timestamp. Resume only after authenticated GitHub state can be verified.
 
 ### Preflight Fails on a Fresh Clone
 
-**Symptom**: Preflight reports `PREFLIGHT_WRONG_ROOT`.
+**Symptom**: Preflight reports `REPO_ROOT_MISMATCH`.
 
 **Cause**: Running preflight from outside the repository root.
 
-**Solution**: Ensure your working directory is the repository root:
-```bash
-cd /path/to/interCraft
-pwsh -File scripts/governance/preflight.ps1
-```
+**Solution**: Ensure your working directory is the repository root, then run
+the mandatory parameterized invocation from SOP §4.5. A parameterless command
+cannot validate the dispatch and is not supported.
 
 ### Preflight Reports Branch Is Master
 
-**Symptom**: `PREFLIGHT_MASTER_BRANCH`.
+**Symptom**: `PROTECTED_BRANCH`, `BRANCH_MISMATCH`, or `DETACHED_HEAD`.
 
 **Cause**: You're on the `master` branch. Direct work on `master` is forbidden.
 
@@ -440,7 +431,8 @@ git checkout -b codex/my-feature
 
 ### Preflight Reports Path Escape
 
-**Symptom**: `PREFLIGHT_PATH_ESCAPE`.
+**Symptom**: `TARGET_NOT_ALLOWED`, `DIRTY_PATH_ESCAPE`,
+`INVALID_ALLOWED_PATH`, or `INVALID_TARGET_PATH`.
 
 **Cause**: Changed files outside the dispatch's allowed paths.
 
@@ -490,12 +482,12 @@ Create a GitHub Issue with the `governance` label (Phase 6, future) when:
 | Need | Command or Action |
 |---|---|
 | Fresh clone | `git clone https://github.com/Sandape/interCraft.git` |
-| Create worktree | `git worktree add ../<name> <branch>` |
-| Run preflight | `pwsh -File scripts/governance/preflight.ps1` |
+| Create worktree | `git worktree add -b <codex/branch> ../<name> <dispatch-base-sha>` |
+| Run preflight | Use the mandatory PowerShell parameter hashtable in SOP §4.5 |
 | Get authoritative master SHA | `gh api repos/Sandape/interCraft/git/ref/heads/master --jq '.object.sha'` |
 | Open Draft PR | `gh pr create --base master --draft --title "..." --body "Refs #N"` |
-| Rebase onto master | `git fetch origin master && git rebase origin/master` |
-| Rollback a merge | `git revert -m 1 <merge-sha>` |
+| Stale base | Stop, obtain a fresh dispatch/base, then update the branch |
+| Rollback a squash merge | New Issue/dispatch/branch + `git revert <squash-merge-sha>` + Draft PR |
 | Read the full SOP | [docs/engineering/delivery-sop.md](./delivery-sop.md) |
-| Read AGENTS.md | `cat ../../AGENTS.md` |
-| Read specs index | `cat ../../specs/README.md` |
+| Read AGENTS.md | `cat AGENTS.md` (from repository root) |
+| Read specs index | `cat specs/README.md` (from repository root) |

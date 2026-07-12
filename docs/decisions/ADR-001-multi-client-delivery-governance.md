@@ -332,7 +332,7 @@ The governance system as a whole is classified **R3** (highest):
 | Gate scripts (Phase 6c) | R1 | Issue dispatch + PR + tests |
 | CI repair (Phase 7) | R1 | Issue dispatch + PR + non-author review |
 | Cursor Automation (Phase 8) | R2 | Issue dispatch + PR + CODEOWNERS |
-| Ruleset change (Stage-B, Phase 9) | R3 | Codex explicit approval + screenshot evidence |
+| Ruleset change (Stage-B, Phase 9) | R3 | Sandape Owner per-execution confirmation + authenticated Owner UI step-up (Codex may operate only when explicitly delegated) + before/after evidence |
 | Direct push to master | forbidden | — (Ruleset permanently forbids) |
 
 ### R2/R3 Authorization Confirmation
@@ -341,13 +341,16 @@ This ADR is accepted with the understanding that:
 
 - **R2 operations** (automation writing to repository) require a governance
   Issue, dispatch, PR, and CODEOWNERS review before deployment.
-- **R3 operations** (Ruleset changes for Stage-B) require Codex explicit
-  case-by-case confirmation with screenshot evidence before and after the
-  change. NekoDreamSensei is NOT required as a second approver for R3
-  operations on the governance system itself — Codex acceptance with
-  visual evidence is sufficient.
-- All R2/R3 operations are performed by Codex under explicit authorization,
-  not by unattended automation.
+- **R3 operations** (Ruleset changes for Stage-B) require Sandape Owner
+  per-execution confirmation plus authenticated GitHub Owner UI step-up and
+  screenshot evidence before and after the change. Codex may perform the UI
+  action only under explicit case-by-case delegation. NekoDreamSensei is not a
+  fixed second approver or blocker; the authenticated Owner step-up is the
+  spec-defined R3 control.
+- R2 automation operates only within an explicit Issue/dispatch, least-
+  privilege App identity, and human-authorized trigger. R3 Ruleset operations
+  are performed by the Sandape Owner or by Codex under explicit case-by-case
+  Owner delegation, never by unattended automation.
 
 ## Consequences
 
