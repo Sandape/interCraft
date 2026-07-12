@@ -1,0 +1,13 @@
+{
+  "ability_insight": 30,
+  "error_coach": 30,
+  "failure_recovery": 30,
+  "general_coach": 30,
+  "interview": 50,
+  "point_safety": 50,
+  "privacy": 30,
+  "proactive_research": 50,
+  "resume_derive": 50,
+  "resume_intelligence": 50,
+  "wechat_agent": 50
+}
