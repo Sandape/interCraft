@@ -124,7 +124,7 @@
 param(
     # --- Create parameter set ---
     [Parameter(ParameterSetName = 'Create', Mandatory)]
-    [ValidatePattern('^[a-z0-9._-]+$')]
+    [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)+-\d{8}-\d{2,}$')]
     [string] $DispatchId,
 
     [Parameter(ParameterSetName = 'Create', Mandatory)]
@@ -154,6 +154,7 @@ param(
     # --- Validate parameter set ---
     [Parameter(ParameterSetName = 'Validate', Mandatory)]
     [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)+-\d{8}-\d{2,}$')]
     [string] $ValidateDispatchId,
 
     [Parameter(ParameterSetName = 'Validate', Mandatory)]
@@ -163,6 +164,7 @@ param(
     # --- Supersede parameter set ---
     [Parameter(ParameterSetName = 'Supersede', Mandatory)]
     [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)+-\d{8}-\d{2,}$')]
     [string] $SupersedeDispatchId,
 
     [Parameter(ParameterSetName = 'Supersede', Mandatory)]
@@ -171,6 +173,7 @@ param(
 
     [Parameter(ParameterSetName = 'Supersede', Mandatory)]
     [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)+-\d{8}-\d{2,}$')]
     [string] $SupersedeByDispatchId,
 
     [Parameter(ParameterSetName = 'Supersede', Mandatory)]
@@ -192,6 +195,7 @@ param(
     # --- Expire parameter set ---
     [Parameter(ParameterSetName = 'Expire', Mandatory)]
     [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)+-\d{8}-\d{2,}$')]
     [string] $ExpireDispatchId,
 
     [Parameter(ParameterSetName = 'Expire', Mandatory)]
@@ -234,6 +238,10 @@ function Get-DispatchDir {
 
 function Get-DispatchFilePath {
     param([string] $Dir, [string] $Id)
+    if ([string]::IsNullOrWhiteSpace($Id) -or
+        $Id -cnotmatch '^[a-z0-9]+(?:-[a-z0-9]+)+-\d{8}-\d{2,}$') {
+        throw "DISPATCH_INVALID_ID: dispatch_id '$Id' does not match the canonical lowercase filename-safe format"
+    }
     return [System.IO.Path]::Combine($Dir, "$Id.json")
 }
 
