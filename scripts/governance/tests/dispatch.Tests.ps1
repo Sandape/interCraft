@@ -1072,6 +1072,56 @@ It 'rejects Expire when the caller supplies the wrong Issue number' {
     Assert-True ($dispatch.state -eq 'active') 'Rejected Expire must leave the dispatch active'
 }
 
+# --- Test 32: Validate ID traversal is rejected before path resolution ---
+It 'rejects a traversal ID for Validate without reading an external sentinel' {
+    $env = New-TestEnv
+    $sentinel = Join-Path $env.Root 'sentinel.json'
+    Set-Content -LiteralPath $sentinel -Value '{"sentinel":"unchanged"}' -Encoding ASCII
+    $before = [Convert]::ToBase64String([IO.File]::ReadAllBytes($sentinel))
+    $rejected = $false
+    try { & $scriptUnderTest -ValidateDispatchId '../sentinel' -ValidateIssueNumber 1 -StorePath $env.Store 2>&1 | Out-Null; $rejected = $LASTEXITCODE -ne 0 } catch { $rejected = $true }
+    Assert-True $rejected 'Traversal Validate ID must be rejected'
+    Assert-True (([Convert]::ToBase64String([IO.File]::ReadAllBytes($sentinel))) -eq $before) 'External sentinel changed'
+}
+
+# --- Test 33: Supersede old-ID traversal is rejected before path resolution ---
+It 'rejects a traversal old ID for Supersede without mutating an external sentinel' {
+    $env = New-TestEnv
+    $sentinel = Join-Path $env.Root 'sentinel.json'
+    Set-Content -LiteralPath $sentinel -Value '{"sentinel":"unchanged"}' -Encoding ASCII
+    $before = [Convert]::ToBase64String([IO.File]::ReadAllBytes($sentinel))
+    $rejected = $false
+    try {
+        & $scriptUnderTest -SupersedeDispatchId '../sentinel' -SupersedeIssueNumber 1 `
+            -SupersedeByDispatchId 'req-064-test-20260712-71' -SupersedeByDriver codex `
+            -SupersedeBySpecTaskId T207 -SupersedeByGovernanceVersion 'stage-a-owner-pr-bypass-v1' `
+            -SupersedeByAllowedPath @('scripts/**') -StorePath $env.Store 2>&1 | Out-Null
+        $rejected = $LASTEXITCODE -ne 0
+    } catch { $rejected = $true }
+    Assert-True $rejected 'Traversal Supersede ID must be rejected'
+    Assert-True (([Convert]::ToBase64String([IO.File]::ReadAllBytes($sentinel))) -eq $before) 'External sentinel changed'
+}
+
+# --- Test 34: Expire ID traversal is rejected before path resolution ---
+It 'rejects a traversal ID for Expire without mutating an external sentinel' {
+    $env = New-TestEnv
+    $sentinel = Join-Path $env.Root 'sentinel.json'
+    Set-Content -LiteralPath $sentinel -Value '{"sentinel":"unchanged"}' -Encoding ASCII
+    $before = [Convert]::ToBase64String([IO.File]::ReadAllBytes($sentinel))
+    $rejected = $false
+    try { & $scriptUnderTest -ExpireDispatchId '../sentinel' -ExpireIssueNumber 1 -ExpirationReason manual -StorePath $env.Store 2>&1 | Out-Null; $rejected = $LASTEXITCODE -ne 0 } catch { $rejected = $true }
+    Assert-True $rejected 'Traversal Expire ID must be rejected'
+    Assert-True (([Convert]::ToBase64String([IO.File]::ReadAllBytes($sentinel))) -eq $before) 'External sentinel changed'
+}
+
+# --- Test 35: Case-ambiguous IDs are rejected ---
+It 'rejects uppercase dispatch IDs before filesystem access' {
+    $env = New-TestEnv
+    $rejected = $false
+    try { & $scriptUnderTest -ValidateDispatchId 'REQ-064-test-20260712-72' -ValidateIssueNumber 1 -StorePath $env.Store 2>&1 | Out-Null; $rejected = $LASTEXITCODE -ne 0 } catch { $rejected = $true }
+    Assert-True $rejected 'Uppercase/case-ambiguous dispatch ID must be rejected'
+}
+
 } finally {
     # Cleanup temp root
     $resolvedTemp = [IO.Path]::GetFullPath($tempRoot)
