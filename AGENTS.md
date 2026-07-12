@@ -7,6 +7,19 @@ and point agents to the canonical source for the current task.
 Current SpecKit plan: `specs/063-derive-page-fill/plan.md`.
 <!-- SPECKIT END -->
 
+## Canonical Delivery
+
+Refer to [`docs/engineering/delivery-sop.md`](./docs/engineering/delivery-sop.md) (SOP) and
+[`docs/engineering/team-onboarding.md`](./docs/engineering/team-onboarding.md) (setup).
+
+- **Spec** is the source of truth; **Issue + dispatch** is the execution unit.
+- Work from a fresh external clone/worktree on an exact **`codex/` branch**.
+- Run the **parameterized preflight** before every commit.
+- Open a **Draft PR with `Refs #N`**.
+- Default review: **one human non-author**. Owner may use a documented **PR-only bypass**.
+- **Squash merge** only. **Direct push to `master` is forbidden**.
+- **Stop** on stale/unproven base or out-of-scope dirty paths.
+
 ## Canonical Navigation
 
 1. Current active SpecKit feature: read `.specify/feature.json`.

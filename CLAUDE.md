@@ -1,16 +1,9 @@
+@AGENTS.md
+@docs/engineering/delivery-sop.md
+
 # InterCraft Claude Context
 
-Claude-specific context should stay thin. The project-wide source of truth for
-agent routing is [AGENTS.md](./AGENTS.md).
-
-## Required First Reads
-
-1. [AGENTS.md](./AGENTS.md)
-2. [specs/README.md](./specs/README.md)
-3. `.specify/feature.json`
-4. The active feature `README.md`
-5. [docs/testing/README.md](./docs/testing/README.md)
-6. [docs/architecture/source-map.md](./docs/architecture/source-map.md)
+Claude-specific notes — the routing layer and delivery SOP are imported above.
 
 ## Claude Notes
 
@@ -19,8 +12,10 @@ agent routing is [AGENTS.md](./AGENTS.md).
   canonical specs. Use git history only for old context.
 - Add Playwright E2E specs under `tests/e2e/`.
 - Do not move source directories during documentation cleanup.
-- Keep generated screenshots, logs, and manual verification artifacts out of the
-  repository root; use `docs/evidence/`.
+- Keep generated screenshots, logs, and manual verification artifacts out of
+  the repository root; use `docs/evidence/`.
+- Use `/memory` or `/context` only to verify loaded rules — they cannot bypass
+  repository-level delivery constraints.
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
