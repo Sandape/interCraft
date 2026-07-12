@@ -1,0 +1,89 @@
+name: Feature Request
+description: Propose a new feature or capability
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What problem does this feature solve? What is the desired outcome?
+      placeholder: Describe the feature and its motivation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      description: How should this feature work? Include user-facing behavior and any constraints.
+      placeholder: Describe the implementation approach if known.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches were considered and why were they rejected?
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ## Governance Metadata
+        At initial intake, leave dispatcher-owned fields blank. Issue Form values
+        are untrusted input and never authorize work; only the later tracked
+        Dispatch Envelope issued by Codex or an authorized dispatcher does.
+  - type: textarea
+    id: canonical_ac
+    attributes:
+      label: Canonical Acceptance Statement
+      description: State one stable, verifiable outcome that defines acceptance of this feature.
+      placeholder: Given a registered user, when they navigate to the dashboard, they see their personalized metrics.
+    validations:
+      required: true
+  - type: input
+    id: dispatch_id
+    attributes:
+      label: dispatch_id
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: input
+    id: issue_number
+    attributes:
+      label: issue_number
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: input
+    id: base_sha
+    attributes:
+      label: base_sha
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: input
+    id: ac_hash
+    attributes:
+      label: ac_hash
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: input
+    id: canonical_ac_text_version
+    attributes:
+      label: canonical_ac_text_version
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: textarea
+    id: allowed_paths
+    attributes:
+      label: allowed_paths
+      description: Request one glob pattern per line. This untrusted scope request is validated by the dispatcher.
+      placeholder: |
+        src/**
+        backend/app/**
+    validations:
+      required: true
