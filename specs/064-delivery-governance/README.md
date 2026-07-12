@@ -15,9 +15,9 @@
 
 将 InterCraft 从「SpecKit 文档存在，但代码和 Agent 变更主要直接进入 `master`」迭代为标准化交付流水线：
 
-`Spec → Issue → Dispatch → 独立分支/worktree → Draft PR → CI → 真人非作者 Review → Squash Merge`
+`Spec → Issue → Dispatch → 独立分支/worktree → Draft PR → CI → Review（默认真人非作者审批；显式 Owner PR-only bypass 可例外）→ Squash Merge`
 
-本需求涵盖治理体系的设计、规则、自动化与团队验收，共六个实施阶段（Phase 5–10），每个阶段均为独立可审查、可回滚的 PR。
+本需求涵盖治理体系的设计、规则、自动化与团队验收，共六个实施阶段（Phase 5–10）；每个阶段包含一个或多个按序执行、独立可审查且可回滚的 PR slice。
 
 ## Scope
 
@@ -30,9 +30,9 @@
 
 ## Non-Goals
 
-- 不修改生产代码、CI Workflow 语法、Ruleset、客户端配置文件或产品行为
+- Phase 4 Spec-only PR 不修改生产代码、CI Workflow、Ruleset、客户端配置文件或产品行为；后续阶段只按 tasks.md 中明确列出的独立 slice 修改治理制品
 - 不修改 `.specify/feature.json`（保持指向 `specs/063-derive-page-fill`）
-- 不合并 PR、不批准、不关闭 Issue、不修改仓库设置
+- 自动化身份不合并、不批准、不关闭 Issue、不修改仓库设置；经用户明确授权的 Owner/Codex 验收操作除外
 - Phase 4 本身不触及 `D:\Project\eGGG` dirty worktree；但治理体系在 Phase 10 最终验收前 MUST 完成 reconciliation，包括所有权分类和有界路由
 - 不部署到任何环境
 

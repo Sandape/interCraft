@@ -40,7 +40,7 @@ The PR Gate MUST run these checks in order, fail-closed on first failure:
 | D1 | Issue exists and is open | Issue #N not found or closed | `GATE_ISSUE_NOT_OPEN` |
 | D2 | Dispatch envelope exists | No `.github/dispatches/<id>.json` | `GATE_DISPATCH_NOT_FOUND` |
 | D3 | Dispatch state is `active` | State is `superseded` or `expired` | `GATE_DISPATCH_INACTIVE` |
-| D4 | AC hash matches canonical AC field | Envelope `ac_hash` ≠ sha256(normalized canonical AC field from `## Acceptance Criteria` or `### AC` section) | `GATE_AC_HASH_MISMATCH` |
+| D4 | AC hash matches canonical acceptance statement | Envelope `ac_hash` ≠ sha256(normalized, versioned `Canonical Acceptance Statement` defined by the Dispatch Envelope contract) | `GATE_AC_HASH_MISMATCH` |
 | D4a | Canonical acceptance statement well-formed | Versioned canonical statement missing, duplicated, empty, or malformed per Dispatch Envelope normalization contract | `GATE_AC_MALFORMED` |
 
 ### 3. Path Validation

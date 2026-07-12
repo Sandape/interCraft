@@ -12,7 +12,7 @@
 
 InterCraft 仓库当前存在多个治理缺口：SpecKit 文档与产品代码变更之间缺乏强制门禁；多个客户端（Codex、Claude Code、Cursor、人工开发）可能同时修改同一路径；CI 持续红色且非 Required；无标准化 Issue Forms、PR Template、CODEOWNERS 或 Dispatch 协议。
 
-本需求不解决具体产品缺陷，而是建立一套持续可行的多客户端交付治理体系：保证每次变更都经过 `Spec → Issue → Dispatch → 独立分支/worktree → Draft PR → CI → 真人非作者 Review → Squash Merge` 流程。
+本需求不解决具体产品缺陷，而是建立一套持续可行的多客户端交付治理体系：保证每次变更都经过 `Spec → Issue → Dispatch → 独立分支/worktree → Draft PR → CI → Review（默认真人非作者审批；显式 Owner PR-only bypass 可例外）→ Squash Merge` 流程。
 
 治理体系本身不产生直接用户价值，但消除当前开发流程中的协调开销、合并冲突和绕过风险。
 

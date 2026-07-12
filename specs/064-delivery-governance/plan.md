@@ -6,10 +6,10 @@
 
 ## Summary
 
-将 InterCraft 从 "SpecKit 存在但变更直入 master" 迭代为标准化交付流水线。共六个实施阶段（Phase 5–10），每个阶段为独立可审查可回滚 PR，按原始十阶段顺序执行。
+将 InterCraft 从 "SpecKit 存在但变更直入 master" 迭代为标准化交付流水线。共六个实施阶段（Phase 5–10），每个阶段包含一个或多个独立可审查、可回滚的有序 PR slice，按原始十阶段顺序执行。
 
 治理核心承诺：
-- 每个变更经过 `Spec → Issue → Dispatch → 独立分支/worktree → Draft PR → CI → 真人非作者 Review → Squash Merge`
+- 每个变更经过 `Spec → Issue → Dispatch → 独立分支/worktree → Draft PR → CI → Review（默认真人非作者审批；显式 Owner PR-only bypass 可例外）→ Squash Merge`
 - 自动化门禁确保同一 Issue 最多一个有效 PR
 - Dispatch 固定 dispatch_id、driver、base SHA、AC hash、allowed paths
 - 所有治理脚本 fail-closed
@@ -32,8 +32,8 @@
 
 **Constraints**:
 - 每个 PR 单一关注点，不跨阶段合并
-- 不修改产品代码、CI Workflow 语法、Ruleset、客户端配置文件、`.specify/feature.json`
-- 不合并、不批准、不关闭 Issue、不修改仓库设置
+- Phase 4 Spec-only PR 不修改产品代码、CI Workflow、Ruleset、客户端配置文件或 `.specify/feature.json`；后续阶段只修改各 slice 明列的治理路径
+- 自动化身份不合并、不批准、不关闭 Issue、不修改仓库设置；经用户明确授权的 Owner/Codex 验收操作除外
 - 不读取或写入生产 Secret
 
 **Risk Classification**: **R3**（Constitution 定义外部副作用为 R2、权限/Ruleset 边界变更为 R3；特征整体涉及 Ruleset 变更和自动化写入，最高风险 R3）
