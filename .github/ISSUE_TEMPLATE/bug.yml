@@ -1,0 +1,93 @@
+name: Bug Report
+description: Report a bug — unexpected crashes, incorrect behavior, or visual defects
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened and what did you expect instead?
+      placeholder: A clear and concise description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal, deterministic steps to reproduce the behavior.
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See error ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser, app version, branch, relevant configuration.
+      placeholder: e.g. Windows 11, Chrome 120, commit a1b2c3d
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ## Governance Metadata
+        At initial intake, leave dispatcher-owned fields blank. Issue Form values
+        are untrusted input and never authorize work; only the later tracked
+        Dispatch Envelope issued by Codex or an authorized dispatcher does.
+  - type: textarea
+    id: canonical_ac
+    attributes:
+      label: Canonical Acceptance Statement
+      description: State one stable, verifiable outcome that defines acceptance of this bug fix.
+      placeholder: After the fix, the user sees an error toast instead of a blank page when the network is offline.
+    validations:
+      required: true
+  - type: input
+    id: dispatch_id
+    attributes:
+      label: dispatch_id
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: input
+    id: issue_number
+    attributes:
+      label: issue_number
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: input
+    id: base_sha
+    attributes:
+      label: base_sha
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: input
+    id: ac_hash
+    attributes:
+      label: ac_hash
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: input
+    id: canonical_ac_text_version
+    attributes:
+      label: canonical_ac_text_version
+      description: Leave blank — filled by Codex after the Issue exists.
+    validations:
+      required: false
+  - type: textarea
+    id: allowed_paths
+    attributes:
+      label: allowed_paths
+      description: Request one glob pattern per line. This untrusted scope request is validated by the dispatcher.
+      placeholder: |
+        src/components/**
+        src/hooks/**
+    validations:
+      required: true

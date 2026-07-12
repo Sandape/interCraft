@@ -1,0 +1,10 @@
+# Governance paths — automatically request @Sandape review.
+# This does not disable the documented, case-specific Owner PR-only bypass.
+/.github/                        @Sandape
+/docs/engineering/               @Sandape
+/docs/decisions/                 @Sandape
+/scripts/governance/             @Sandape
+/specs/                          @Sandape
+/AGENTS.md                       @Sandape
+/CLAUDE.md                       @Sandape
+/.cursor/rules/                  @Sandape
