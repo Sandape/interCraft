@@ -1,28 +1,8 @@
-/** InterviewSessionRepository — read-only skeleton (M11, US4 partial). */
+/** InterviewSessionRepository — factory + abstract class (M11, US4 partial). */
 import { request } from '../api/client'
 import { interviewHistory as mockSessions } from '../data/mockData'
-import type { InterviewPlan, InterviewWebResearch } from './interviewSessionRepo'
-
-export interface InterviewSession {
-  id: string
-  mode: string
-  status: string
-  position: string | null
-  company: string | null
-  score: number | null
-  overall_score: number | null
-  duration_seconds: number | null
-  question_count: number | null
-  thread_id: string | null
-  job_id: string | null
-  branch_id: string | null
-  base_location: string | null
-  requirements_md: string | null
-  interview_plan: InterviewPlan | null
-  web_research: InterviewWebResearch | null
-  created_at: string
-  updated_at: string
-}
+import type { InterviewSession } from './interviewSessionRepo'
+export type { InterviewSession, InterviewPlan, InterviewWebResearch } from './interviewSessionRepo'
 
 export interface CreateInterviewSessionInput {
   position: string
@@ -88,8 +68,10 @@ export class MockInterviewSessionRepository extends InterviewSessionRepository {
       thread_id: null,
       job_id: null,
       branch_id: null,
-      base_location: null,
-      requirements_md: null,
+      max_questions: null,
+      started_at: null,
+      ended_at: null,
+      duration_sec: null,
       interview_plan: null,
       web_research: null,
       created_at: m.date || new Date().toISOString(),
@@ -113,8 +95,10 @@ export class MockInterviewSessionRepository extends InterviewSessionRepository {
       thread_id: null,
       job_id: null,
       branch_id: null,
-      base_location: null,
-      requirements_md: null,
+      max_questions: null,
+      started_at: null,
+      ended_at: null,
+      duration_sec: null,
       interview_plan: null,
       web_research: null,
       created_at: found.date || new Date().toISOString(),
@@ -136,8 +120,10 @@ export class MockInterviewSessionRepository extends InterviewSessionRepository {
       thread_id: null,
       job_id: input.job_id ?? null,
       branch_id: input.branch_id ?? null,
-      base_location: input.base_location ?? null,
-      requirements_md: input.requirements_md ?? null,
+      max_questions: null,
+      started_at: null,
+      ended_at: null,
+      duration_sec: null,
       interview_plan: null,
       web_research: null,
       created_at: new Date().toISOString(),
