@@ -33,7 +33,7 @@
 - 不修改生产代码、CI Workflow 语法、Ruleset、客户端配置文件或产品行为
 - 不修改 `.specify/feature.json`（保持指向 `specs/063-derive-page-fill`）
 - 不合并 PR、不批准、不关闭 Issue、不修改仓库设置
-- 不触及 `D:\Project\eGGG` dirty worktree
+- Phase 4 本身不触及 `D:\Project\eGGG` dirty worktree；但治理体系在 Phase 10 最终验收前 MUST 完成 reconciliation，包括所有权分类和有界路由
 - 不部署到任何环境
 
 ## Dependencies

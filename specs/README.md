@@ -63,7 +63,7 @@ REQ-001 至 REQ-052 的历史状态见下方基线索引。
 
 | ID | Feature | Status | Source Of Truth | Notes |
 |---|---|---|---|---|
-| 064 | 跨应用交付治理 | planned | [tasks.md](./064-delivery-governance/tasks.md) | Spec ready; implementation in Phases 5–10 as independent PRs. Dispatch envelope, governance state/gate, handoff invariants specified. See [README.md](./064-delivery-governance/README.md). |
+| 064 | 跨应用交付治理 | planned | [tasks.md](./064-delivery-governance/tasks.md) | Spec ready; 6 phases (5–10), 16 ordered PR slices. Maximum risk R3 (Ruleset boundary). Dispatch envelope, governance state/gate, handoff invariants specified. See [README.md](./064-delivery-governance/README.md). |
 
 ## Done Or Baseline
 

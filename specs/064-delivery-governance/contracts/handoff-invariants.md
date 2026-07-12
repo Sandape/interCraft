@@ -12,9 +12,9 @@ Define the invariants governing transfer (handoff) of a Dispatch from one Driver
 A handoff occurs when:
 
 1. **Driver change**: The `driver` field in the dispatch envelope changes (e.g., from `claude-code` to `codex`)
-2. **Issue content change**: The Issue's acceptance criteria text is edited, changing its `ac_hash`
+2. **Issue content change**: The Issue's canonical acceptance criteria field is edited, changing its `ac_hash`
 3. **Phase advancement**: The previous phase's PR has been merged, and the next phase begins
-4. **Base SHA change**: `master` advances beyond the dispatch's `base_sha`
+4. **Base SHA change**: `master` advances beyond the dispatch's `base_sha` (authoritative remote `master` HEAD via `gh api`, not stale local ref)
 
 ## Invariant Rules
 
@@ -23,8 +23,8 @@ A handoff occurs when:
 When a handoff occurs, the previous dispatch MUST be marked `superseded` (driver change) or `expired` (base/AC change).
 
 ```text
-# On new dispatch with same spec_task_id but different driver:
-1. Read existing dispatch for (spec_task_id, driver=OLD)
+# On new dispatch for the same issue_number/execution target:
+1. Read the current active dispatch for issue_number
 2. Mark it state=superseded
 3. Create new dispatch with state=active
 4. Write superseded timestamp to old dispatch file
@@ -47,21 +47,26 @@ At any time, at most one PR for a given Issue can pass the Gate. If PR-A is open
 
 ### Invariant H4: AC Hash Determines Acceptance Criteria
 
-The `ac_hash` in the dispatch envelope MUST be the SHA-256 digest of the Issue's acceptance criteria text. If the Issue is edited:
+The `ac_hash` in the dispatch envelope MUST be the SHA-256 digest of the versioned canonical acceptance statement defined by the Dispatch Envelope contract. If that statement is edited:
 
 1. The old dispatch becomes `expired` (AC hash mismatch)
 2. A new dispatch must be issued with the updated `ac_hash`
 3. Any PR referencing the old dispatch fails the Gate at check D4
 
-### Invariant H5: Base Freshness
+### Invariant H5: Base Freshness (Deterministic)
 
-The dispatch's `base_sha` must be an ancestor of `master` HEAD for the PR to pass the Gate.
+Dispatch `base_sha` MUST equal authoritative remote `master` HEAD at dispatch creation time AND at Gate validation time. PR HEAD MUST descend from `base_sha`.
 
 ```text
-git merge-base --is-ancestor <base_sha> origin/master
+# Use authoritative remote state, NOT stale local origin/master
+gh api repos/:owner/:repo/git/ref/heads/master --jq '.object.sha'
+
+# Verify:
+#   1. base_sha == authoritative_master_sha  (both at dispatch time and Gate time)
+#   2. git merge-base --is-ancestor base_sha PR_HEAD  (PR descends from base)
 ```
 
-If this check fails, the dispatch is `expired` and a new dispatch with an updated `base_sha` must be issued.
+If `master` advances between dispatch creation and Gate validation, the dispatch is `expired`. MUST issue a new dispatch with the latest `master` SHA as `base_sha`, and rebase the PR onto the new base. Never rely on stale local `origin/master` — always verify via `gh api` when local transport is unavailable.
 
 ### Invariant H6: Path Escrow
 
@@ -105,6 +110,9 @@ Each handoff MUST leave the following evidence:
 
 If a handoff causes issues:
 
-1. Reactivate old dispatch (change state back to `active`) ONLY if no PR from new dispatch has merged
-2. If a new PR merged, revert it: `git revert -m 1 <merge-sha>`
-3. Gate will accept old dispatch's PR again
+1. MUST NOT reactivate expired or superseded dispatch. Instead, issue a fresh dispatch (new `dispatch_id`) with revalidated `base_sha`, `ac_hash`, and `allowed_paths`, set `state=active`.
+2. If a PR from the new dispatch has already merged and needs reversal: `git revert -m 1 <merge-sha>`
+3. Create a new branch or reuse existing branch with the fresh dispatch
+4. PR Gate validates the fresh dispatch — on pass, work can proceed
+
+**Why no reactivation**: An expired/superseded dispatch's `base_sha` may no longer equal authoritative `master` HEAD, and its `ac_hash` may not reflect the current canonical AC field. Reactivating it would bypass the deterministic freshness guarantee and could allow stale or conflicting work to proceed.

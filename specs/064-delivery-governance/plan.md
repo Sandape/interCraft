@@ -36,7 +36,7 @@
 - 不合并、不批准、不关闭 Issue、不修改仓库设置
 - 不读取或写入生产 Secret
 
-**Risk Classification**: **R1**（大部分为 R0 文档变更；自动化脚本写入仓库为 R1）
+**Risk Classification**: **R3**（Constitution 定义外部副作用为 R2、权限/Ruleset 边界变更为 R3；特征整体涉及 Ruleset 变更和自动化写入，最高风险 R3）
 
 **Operation Risk Matrix**:
 | Operation | Risk |
@@ -45,7 +45,9 @@
 | 客户端适配文件（AGENTS.md, CLAUDE.md, .cursor/rules/） | R1 |
 | 自动化 Gate 和 Dispatch 脚本 | R1 |
 | CI 分层修复 | R1（不影响生产数据） |
-| Cursor 自动化 bot 操作 | R1 |
+| 自动化 bot 开 PR、写入分支、合并操作 | R2（外部副作用） |
+| Ruleset 突变/绕过政策变更 | R3（权限/Ruleset 边界变更） |
+| 直接推送 master | forbidden |
 
 **Execution Model**: 手工创建 PR（治理负责人）+ GitHub Actions（CI）+ GitHub App（Cursor 自动化）
 

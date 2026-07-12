@@ -40,7 +40,8 @@ The PR Gate MUST run these checks in order, fail-closed on first failure:
 | D1 | Issue exists and is open | Issue #N not found or closed | `GATE_ISSUE_NOT_OPEN` |
 | D2 | Dispatch envelope exists | No `.github/dispatches/<id>.json` | `GATE_DISPATCH_NOT_FOUND` |
 | D3 | Dispatch state is `active` | State is `superseded` or `expired` | `GATE_DISPATCH_INACTIVE` |
-| D4 | AC hash matches | Envelope `ac_hash` ≠ sha256(Issue AC text) | `GATE_AC_HASH_MISMATCH` |
+| D4 | AC hash matches canonical AC field | Envelope `ac_hash` ≠ sha256(normalized canonical AC field from `## Acceptance Criteria` or `### AC` section) | `GATE_AC_HASH_MISMATCH` |
+| D4a | Canonical acceptance statement well-formed | Versioned canonical statement missing, duplicated, empty, or malformed per Dispatch Envelope normalization contract | `GATE_AC_MALFORMED` |
 
 ### 3. Path Validation
 
@@ -53,7 +54,8 @@ The PR Gate MUST run these checks in order, fail-closed on first failure:
 
 | # | Check | Fail Condition | Fail Code |
 |---|---|---|---|
-| F1 | Base SHA is ancestor of `master` | `git merge-base --is-ancestor` fails | `GATE_BASE_STALE` |
+| F1 | Dispatch base_sha equals authoritative master HEAD | `gh api` master ref SHA ≠ envelope base_sha (never use stale local origin/master) | `GATE_BASE_NOT_AUTHORITATIVE` |
+| F1a | PR head descends from base_sha | `git merge-base --is-ancestor base_sha PR_HEAD` fails | `GATE_BASE_STALE` |
 | F2 | No other open PR for same Issue | Another open PR references same Issue # | `GATE_DUPLICATE_PR` |
 | F3 | Governance version matches | Envelope version ≠ `scripts/governance/version.txt` | `GATE_GOV_VERSION_MISMATCH` |
 
