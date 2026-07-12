@@ -25,5 +25,5 @@ agent routing is [AGENTS.md](./AGENTS.md).
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/058-interview-agent-optimize/plan.md
+at specs/063-derive-page-fill/plan.md
 <!-- SPECKIT END -->

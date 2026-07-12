@@ -1,0 +1,181 @@
+openapi: 3.0.3
+info:
+  title: InterCraft REQ-063 Derive Page Fill
+  version: 0.1.0
+  description: >
+    Additive contracts for real page measure reporting, save-time actual_page_count sync,
+    and page bad-case visibility. Extends resumes_v2 / resume_derive without replacing
+    REQ-055 derive start/poll APIs.
+paths:
+  /api/v1/v2/resumes/{resume_id}:
+    patch:
+      summary: Update resume; derived rows may sync preview page count to actual_page_count
+      parameters:
+        - in: path
+          name: resume_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: object
+                  description: ResumeDataV2 body (existing)
+                preview_page_count:
+                  type: integer
+                  minimum: 1
+                  description: >
+                    Editor-measured page count. When resume_kind=derived and caller is owner,
+                    server MUST set actual_page_count to this value on successful save.
+                expected_version:
+                  type: integer
+      responses:
+        "200":
+          description: Updated resume including target_page_count and actual_page_count
+        "403":
+          description: Not owner
+        "409":
+          description: Version conflict
+  /api/v1/resume-derive/runs/{run_id}:
+    get:
+      summary: Derive run status (existing); page_report shape extended
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Run with artifacts.page_report including fill ratio and decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeriveRunStatus"
+  /api/v1/v2/export/render:
+    post:
+      summary: Existing export; PDF expected_page_count gate unchanged
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resume_id:
+                  type: string
+                  format: uuid
+                format:
+                  type: string
+                  enum: [pdf, png, jpeg]
+                html:
+                  type: string
+                expected_page_count:
+                  type: integer
+                  minimum: 1
+                  maximum: 3
+                preview_page_count:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Binary render
+        "422":
+          description: PAGE_COUNT_MISMATCH — PDF pages != expected; actual_page_count updated when possible
+components:
+  schemas:
+    PageReport:
+      type: object
+      required: [target, measured, last_page_fill_ratio, decision, rounds]
+      properties:
+        target:
+          type: integer
+          enum: [1, 2, 3]
+        measured:
+          type: integer
+          minimum: 1
+        last_page_fill_ratio:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1
+        line_height:
+          type: integer
+        comfort_threshold:
+          type: number
+        sparse_threshold:
+          type: number
+        rounds:
+          type: integer
+          minimum: 0
+        strategies:
+          type: array
+          items:
+            type: string
+        decision:
+          type: string
+          enum:
+            - pass
+            - tighten_line_height
+            - adjust_line_height_for_fill
+            - agent_prune
+            - agent_expand
+            - needs_guidance
+        bad_case_ref:
+          type: string
+          format: uuid
+          nullable: true
+        measure_version:
+          type: string
+    DeriveRunStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        target_page_count:
+          type: integer
+        artifacts:
+          type: object
+          properties:
+            page_report:
+              $ref: "#/components/schemas/PageReport"
+    PageBadCase:
+      type: object
+      required:
+        - id
+        - kind
+        - target_page_count
+        - measured_page_count
+        - last_page_fill_ratio
+        - decision
+        - outcome
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          example: budget_underestimate
+        target_page_count:
+          type: integer
+        measured_page_count:
+          type: integer
+        last_page_fill_ratio:
+          type: number
+        theme_id:
+          type: string
+        decision:
+          type: string
+        outcome:
+          type: string
+        created_at:
+          type: string
+          format: date-time
