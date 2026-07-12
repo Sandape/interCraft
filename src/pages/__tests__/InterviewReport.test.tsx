@@ -6,24 +6,40 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-vi.mock('@/hooks/queries/useInterviewSessions', () => ({
-  useInterviewSession: () => ({
-    data: {
+vi.mock('@/hooks/queries/useInterviewSessions', () => {
+  const session = {
       id: 's-1',
-      user_id: 'u-1',
       branch_id: null,
+      job_id: null,
       position: 'Backend',
       company: 'ACME',
       mode: 'text',
-      status: 'completed',
+      status: 'partially_succeeded',
       overall_score: 7.5,
       score: 7.5,
       duration_seconds: 600,
+      max_questions: null,
+      thread_id: null,
+      started_at: null,
+      ended_at: null,
+      duration_sec: null,
+      interview_plan: null,
+      web_research: null,
       created_at: '2026-06-17T00:00:00Z',
-    },
-    isLoading: false,
-  }),
-}))
+      updated_at: '2026-06-17T00:00:00Z',
+      // REQ-061 runtime projection — proved accessible below
+      task_id: 'task-runtime-1',
+      execution_id: null,
+      available_actions: ['retry_failed_component'],
+      points_summary: { settled: 5, reserved: 3 },
+      milestones: [{ code: 'REPORT', status: 'completed', settle_eligible: true }],
+      failure: { code: 'partial', message: '部分完成', safe: true },
+  } satisfies import('@/repositories/interviewSessionRepo').InterviewSession
+
+  return {
+    useInterviewSession: vi.fn(() => ({ data: session, isLoading: false })),
+  }
+})
 
 vi.mock('@tanstack/react-query', async () => {
   const actual = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query')
@@ -73,5 +89,20 @@ describe('InterviewReport — 0-10 量纲 (018 #8)', () => {
   it('总览卡不出现「满分 100」', async () => {
     renderReport()
     expect(screen.queryByText(/满分 100/)).not.toBeInTheDocument()
+  })
+
+  it('REQ-061 runtime projection fields are accessible and render (type regression)', async () => {
+    renderReport()
+    // Task link renders
+    expect(await screen.findByTestId('interview-report-task-link')).toBeInTheDocument()
+    // Points summary renders
+    expect(screen.getByTestId('interview-report-points')).toHaveTextContent(/5/)
+    expect(screen.getByTestId('interview-report-points')).toHaveTextContent(/3/)
+    // Milestones render
+    expect(screen.getByTestId('interview-report-milestones')).toBeInTheDocument()
+    expect(screen.getByTestId('interview-report-milestone-REPORT')).toBeInTheDocument()
+    // Failure/partial alert renders
+    expect(screen.getByTestId('interview-report-partial-or-failure')).toBeInTheDocument()
+    expect(screen.getByTestId('interview-report-partial-or-failure')).toHaveTextContent(/部分完成/)
   })
 })
