@@ -111,7 +111,11 @@ Each handoff MUST leave the following evidence:
 If a handoff causes issues:
 
 1. MUST NOT reactivate expired or superseded dispatch. Instead, issue a fresh dispatch (new `dispatch_id`) with revalidated `base_sha`, `ac_hash`, and `allowed_paths`, set `state=active`.
-2. If a PR from the new dispatch has already merged and needs reversal: `git revert -m 1 <merge-sha>`
+2. If a PR from the new dispatch has already squash-merged and needs reversal,
+   create a rollback Issue and fresh dispatch/branch from authoritative
+   `master`, then run `git revert <squash-merge-sha>` without `-m`; verify and
+   deliver the inverse change through a new Draft PR. Never push the revert
+   directly to `master`.
 3. Create a new branch or reuse existing branch with the fresh dispatch
 4. PR Gate validates the fresh dispatch — on pass, work can proceed
 
