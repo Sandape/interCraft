@@ -88,6 +88,7 @@ export function FeedbackControl({
           type="button"
           onClick={handleSubmit}
           disabled={submitting}
+          data-testid="feedback-not-helpful-btn"
           className="min-h-10 bg-[#20211f] px-4 text-xs font-medium text-white disabled:opacity-40"
         >
           提交反馈

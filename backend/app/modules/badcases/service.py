@@ -335,6 +335,7 @@ TYPED_ACTION_TYPES = frozenset(
         "PROMOTE_REGRESSION",
         "MARK_UNREPRODUCIBLE",
         "CLOSE",
+        "INTAKE",
     }
 )
 
