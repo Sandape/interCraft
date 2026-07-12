@@ -35,6 +35,11 @@ const wsState = {
   error: null,
   events: [scoreEvent],
   turnPhase: 'awaiting_question' as const,
+  taskId: null,
+  executionId: null,
+  availableActions: [],
+  pointsSummary: null,
+  seenSequences: [],
 }
 
 vi.mock('@/hooks/useInterviewWS', () => ({

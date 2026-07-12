@@ -303,3 +303,247 @@ describe('InterviewLive — production lifecycle (REQ-061 US4)', () => {
     expect(screen.queryByTestId('interview-completed-state')).toBeNull()
   })
 })
+
+describe('InterviewLive — resume data validation (REQ-061 regression)', () => {
+  beforeEach(() => {
+    ;(globalThis as typeof globalThis & { __VITE_USE_MOCK_OVERRIDE__?: string })
+      .__VITE_USE_MOCK_OVERRIDE__ = 'false'
+    wsState = {
+      connected: true,
+      reconnecting: false,
+      reconnectAttempt: 0,
+      currentNode: null,
+      currentQuestion: 1,
+      totalQuestions: 10,
+      streamingText: '',
+      lastCheckpointId: 'ckpt-1',
+      error: null,
+      events: [scoreEvent],
+      turnPhase: 'awaiting_question',
+      availableActions: [],
+      taskId: null,
+      executionId: null,
+      pointsSummary: null,
+      seenSequences: [],
+    }
+    mockGetById.mockResolvedValue({
+      id: 'session-val',
+      status: 'in_progress',
+      mode: 'full',
+      max_questions: 10,
+      position: 'AI PM',
+      company: 'Acme',
+      plan_status: 'ready',
+      degraded: false,
+      interview_plan: null,
+      web_research: null,
+    })
+    mockResume.mockResolvedValue({
+      data: {
+        values: { questions: [], scores: [], messages: [] },
+      },
+    })
+  })
+
+  it('fails safely to empty restored questions when API returns null', async () => {
+    mockResume.mockResolvedValueOnce({
+      data: { values: { questions: null, scores: [], messages: [{ role: 'user', content: '回答' }] } },
+    })
+    renderLive('session-val-null')
+    await waitFor(() => {
+      expect(screen.getByTestId('answer-input')).toBeInTheDocument()
+    })
+  })
+
+  it('fails safely to empty restored questions when API returns a string', async () => {
+    mockResume.mockResolvedValueOnce({
+      data: { values: { questions: 'not-an-array', scores: [], messages: [{ role: 'user', content: '回答' }] } },
+    })
+    renderLive('session-val-str')
+    await waitFor(() => {
+      expect(screen.getByTestId('answer-input')).toBeInTheDocument()
+    })
+  })
+
+  it('fails safely to empty restored scores when API returns an object', async () => {
+    mockResume.mockResolvedValueOnce({
+      data: {
+        values: {
+          questions: [{ question: '正常题', dimension: '技术深度', expected_points: [], hints: [] }],
+          scores: { invalid: 'object' },
+          messages: [{ role: 'user', content: '回答' }],
+        },
+      },
+    })
+    renderLive('session-val-obj')
+    await waitFor(() => {
+      expect(screen.getByTestId('answer-input')).toBeInTheDocument()
+    })
+  })
+
+  it('uses sequence_no as question_no when question_no is 0', async () => {
+    mockResume.mockResolvedValueOnce({
+      data: {
+        values: {
+          questions: [
+            { question: 'Sequence Q', dimension: '技术深度', expected_points: [], hints: [], question_no: 0, sequence_no: 3 },
+          ],
+          scores: [
+            {
+              question_no: 0,
+              sequence_no: 3,
+              score: 6,
+              dimension: '序号回退维度',
+              feedback: '序号回退评分',
+              sub_scores: {},
+            },
+          ],
+          messages: [{ role: 'user', content: '回答' }],
+        },
+      },
+    })
+    renderLive('session-val-seq')
+    await waitFor(() => {
+      expect(screen.getByText('Sequence Q')).toBeInTheDocument()
+    })
+    const restoredScore = screen
+      .getAllByText('序号回退维度')
+      .map((element) => element.parentElement)
+      .find((element) => element?.textContent?.includes('3') && element.textContent.includes('6'))
+    expect(restoredScore).toBeDefined()
+    expect(restoredScore).toHaveTextContent('3')
+    expect(restoredScore).toHaveTextContent('6')
+  })
+
+  it('treats question_no 3 and question_no 0 / sequence_no 3 as the same restored question', async () => {
+    mockResume.mockResolvedValueOnce({
+      data: {
+        values: {
+          questions: [
+            {
+              question_no: 3,
+              question: '第三题主记录',
+              dimension: '技术深度',
+              expected_points: [],
+              hints: [],
+            },
+            {
+              question_no: 0,
+              sequence_no: 3,
+              question: '第三题重复记录',
+              dimension: '技术深度',
+              expected_points: [],
+              hints: [],
+            },
+          ],
+          scores: [],
+          messages: [
+            { role: 'user', content: '回答1' },
+            { role: 'user', content: '回答2' },
+          ],
+        },
+      },
+    })
+
+    renderLive('session-val-effective-question')
+
+    await waitFor(() => {
+      expect(screen.getByText('第三题主记录')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('第三题重复记录')).not.toBeInTheDocument()
+  })
+
+  it('treats question_no 3 and question_no 0 / sequence_no 3 as the same restored score', async () => {
+    mockResume.mockResolvedValueOnce({
+      data: {
+        values: {
+          questions: [],
+          scores: [
+            {
+              question_no: 3,
+              score: 7,
+              dimension: '统一序号评分维度',
+              feedback: '主评分',
+              sub_scores: {},
+            },
+            {
+              question_no: 0,
+              sequence_no: 3,
+              score: 9,
+              dimension: '统一序号评分维度',
+              feedback: '重复评分',
+              sub_scores: {},
+            },
+          ],
+          messages: [],
+        },
+      },
+    })
+
+    renderLive('session-val-effective-score')
+
+    await waitFor(() => {
+      // One dimension-average label plus one retained score-history row.
+      expect(screen.getAllByText('统一序号评分维度')).toHaveLength(2)
+    })
+  })
+
+  it('keeps scores without an effective question number even when feedback and score match', async () => {
+    mockResume.mockResolvedValueOnce({
+      data: {
+        values: {
+          questions: [],
+          scores: [
+            {
+              score: 5,
+              dimension: '无编号维度A',
+              feedback: '相同反馈',
+              sub_scores: {},
+            },
+            {
+              question_no: 0,
+              sequence_no: 0,
+              score: 5,
+              dimension: '无编号维度B',
+              feedback: '相同反馈',
+              sub_scores: {},
+            },
+          ],
+          messages: [],
+        },
+      },
+    })
+
+    renderLive('session-val-unidentified-scores')
+
+    await waitFor(() => {
+      expect(screen.getAllByText('无编号维度A')).toHaveLength(2)
+      expect(screen.getAllByText('无编号维度B')).toHaveLength(2)
+    })
+  })
+
+  it('dedupes restored questions by text when both IDs are absent', async () => {
+    mockResume.mockResolvedValueOnce({
+      data: {
+        values: {
+          questions: [
+            { question: '重复题', dimension: '技术深度', expected_points: [], hints: [] },
+            { question: '重复题', dimension: '技术深度', expected_points: [], hints: [] },
+            { question: '独立题', dimension: '沟通', expected_points: [], hints: [] },
+          ],
+          scores: [],
+          messages: [
+            { role: 'user', content: '回答1' },
+            { role: 'user', content: '回答2' },
+          ],
+        },
+      },
+    })
+    renderLive('session-val-dedup')
+    await waitFor(() => {
+      const elements = screen.getAllByText('重复题')
+      expect(elements).toHaveLength(1)
+      expect(screen.getByText('独立题')).toBeInTheDocument()
+    })
+  })
+})
