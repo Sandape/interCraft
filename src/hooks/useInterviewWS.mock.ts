@@ -80,7 +80,7 @@ export function buildMockEvents(): WSEvent[] {
   return events
 }
 
-/** Returns the initial WS state when running in mock mode. */
+/** Returns the complete initial WS state when running in mock mode. */
 export function mockInitialState(): InterviewWSState {
   return {
     connected: false,
@@ -94,6 +94,11 @@ export function mockInitialState(): InterviewWSState {
     error: null,
     events: [],
     turnPhase: 'idle',
+    taskId: null,
+    executionId: null,
+    availableActions: [],
+    pointsSummary: null,
+    seenSequences: [],
   }
 }
 

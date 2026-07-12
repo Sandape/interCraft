@@ -86,10 +86,118 @@ interface ReportData {
   report_id: string
 }
 
-function uniqueBy<T>(items: T[], keyOf: (item: T) => string): T[] {
+/** Shape of a question entry returned by the resume API. */
+interface RestoredQuestionEntry {
+  question_no?: number | null
+  sequence_no?: number | null
+  question?: string | null
+  dimension?: string | null
+  expected_points?: string[] | null
+  hints?: string[] | null
+}
+
+/** Shape of a score entry returned by the resume API. */
+interface RestoredScoreEntry {
+  question_no?: number | null
+  sequence_no?: number | null
+  score?: number | null
+  dimension?: string | null
+  feedback?: string | null
+  sub_scores?: Record<string, number> | null
+}
+
+/** Shape of a message entry returned by the resume API. */
+interface RestoredMessageEntry {
+  role?: string | null
+  type?: string | null
+  content?: string | null
+}
+
+interface RestoredNumberedEntry {
+  question_no?: number | null
+  sequence_no?: number | null
+}
+
+// ── Runtime-safe resume-data validators ────────────────────────────
+
+/** Narrow unknown to Record<string, unknown> (object & not null & not array). */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
+}
+
+/** Return a positive integer, or null. Rejects 0, negative, NaN, fractional. */
+function toPositiveIntOrNull(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isInteger(v) && v > 0) return v
+  if (typeof v === 'string') {
+    const n = Number(v)
+    if (Number.isInteger(n) && n > 0) return n
+  }
+  return null
+}
+
+/** Return a nullable string. */
+function toNullableString(v: unknown): string | null {
+  return typeof v === 'string' ? v : null
+}
+
+/** Resolve the single identity used by both question and score recovery. */
+function effectiveQuestionNumber(entry: RestoredNumberedEntry): number | null {
+  return entry.question_no ?? entry.sequence_no ?? null
+}
+
+/** Filter unknown to a string array; fails safely to []. */
+function toStringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((item): item is string => typeof item === 'string') : []
+}
+
+/** Safely construct a RestoredQuestionEntry from an unknown record. */
+function toRestoredQuestion(raw: Record<string, unknown>): RestoredQuestionEntry {
+  return {
+    question_no: toPositiveIntOrNull(raw.question_no),
+    sequence_no: toPositiveIntOrNull(raw.sequence_no),
+    question: toNullableString(raw.question),
+    dimension: toNullableString(raw.dimension),
+    expected_points: toStringArray(raw.expected_points),
+    hints: toStringArray(raw.hints),
+  }
+}
+
+/** Safely construct a RestoredScoreEntry from an unknown record. */
+function toRestoredScore(raw: Record<string, unknown>): RestoredScoreEntry {
+  let subScores: Record<string, number> | null = null
+  const rawSub: unknown = raw.sub_scores
+  if (isRecord(rawSub)) {
+    subScores = {}
+    for (const [k, v] of Object.entries(rawSub)) {
+      if (typeof v === 'number' && !Number.isNaN(v)) {
+        subScores[k] = v
+      }
+    }
+    if (Object.keys(subScores).length === 0) subScores = null
+  }
+  return {
+    question_no: toPositiveIntOrNull(raw.question_no),
+    sequence_no: toPositiveIntOrNull(raw.sequence_no),
+    score: typeof raw.score === 'number' && !Number.isNaN(raw.score) ? raw.score : null,
+    dimension: toNullableString(raw.dimension),
+    feedback: toNullableString(raw.feedback),
+    sub_scores: subScores,
+  }
+}
+
+/** Safely construct a RestoredMessageEntry from an unknown record. */
+function toRestoredMessage(raw: Record<string, unknown>): RestoredMessageEntry {
+  return {
+    role: toNullableString(raw.role),
+    type: toNullableString(raw.type),
+    content: toNullableString(raw.content),
+  }
+}
+
+function uniqueBy<T>(items: T[], keyOf: (item: T, index: number) => string): T[] {
   const seen = new Set<string>()
-  return items.filter((item) => {
-    const key = keyOf(item)
+  return items.filter((item, index) => {
+    const key = keyOf(item, index)
     if (!key || seen.has(key)) return false
     seen.add(key)
     return true
@@ -203,9 +311,6 @@ export default function InterviewLive() {
       const qNo = Number(summary.question_no || 0)
       setScores((prev) => {
         if (qNo > 0 && prev.some((s) => Number(s.question_no) === qNo)) return prev
-        if (prev.some((s) => s.feedback === summary.feedback && s.score === summary.score)) {
-          return prev
-        }
         return [...prev, {
           question_no: qNo,
           score: summary.score,
@@ -353,18 +458,29 @@ export default function InterviewLive() {
 
         const resumed = await interviewSessionRepo.resume(routeSessionId)
         const values = resumed.data?.values || {}
-        const restoredQuestions = (values.questions || []) as any[]
-        const restoredScores = (values.scores || []) as any[]
-        const messages = (values.messages || []) as any[]
 
-        const userMessages = messages
-          .filter((m: any) => {
-            if (m && typeof m === 'object') {
-              return m.role === 'user' || m.type === 'human'
-            }
-            return false
-          })
-          .map((m: any) => (typeof m.content === 'string' ? m.content : ''))
+        // ── Safely validate resume collections ──
+        // Treat each collection as unknown at the boundary, require
+        // Array.isArray, filter record entries, and fail-safe to [].
+
+        const rawQuestions: unknown = values.questions
+        const restoredQuestions: RestoredQuestionEntry[] = Array.isArray(rawQuestions)
+          ? rawQuestions.filter(isRecord).map(toRestoredQuestion)
+          : []
+
+        const rawScores: unknown = values.scores
+        const restoredScores: RestoredScoreEntry[] = Array.isArray(rawScores)
+          ? rawScores.filter(isRecord).map(toRestoredScore)
+          : []
+
+        const rawMessages: unknown = values.messages
+        const restoredMessages: RestoredMessageEntry[] = Array.isArray(rawMessages)
+          ? rawMessages.filter(isRecord).map(toRestoredMessage)
+          : []
+
+        const userMessages = restoredMessages
+          .filter((m) => m.role === 'user' || m.type === 'human')
+          .map((m) => (m.content ?? ''))
 
         setPosition(sess.position || '')
         setCompany(sess.company || '')
@@ -372,46 +488,58 @@ export default function InterviewLive() {
         setWebResearch(sess.web_research ?? values.web_research ?? null)
 
         setQuestions((prev) => {
+          // question_no and sequence_no describe the same effective identity.
+          const questionKey = (q: RestoredQuestionEntry, idx: number): string => {
+            const questionNo = effectiveQuestionNumber(q)
+            if (questionNo != null) return `question-${questionNo}`
+            return q.question ? `txt-${q.question}` : `fallback-${idx}`
+          }
           const restored = uniqueBy(
             restoredQuestions,
-            (q: any) => String(q?.question_no || q?.sequence_no || q?.question || ''),
-          ).map((q: any) => ({
-            question_no: q.question_no != null || q.sequence_no != null
-              ? Number(q.question_no || q.sequence_no)
-              : undefined,
-            question: q.question || '',
-            dimension: q.dimension || '',
-            expected_points: q.expected_points || [],
-            hints: q.hints || [],
+            questionKey,
+          ).map((q: RestoredQuestionEntry): QuestionData => ({
+            // Valid positive question_no is authoritative; fall back to
+            // sequence_no (also validated positive int).  Never default
+            // missing/null to 0.
+            question_no: effectiveQuestionNumber(q) ?? undefined,
+            question: q.question ?? '',
+            dimension: q.dimension ?? '',
+            expected_points: q.expected_points ?? [],
+            hints: q.hints ?? [],
           }))
           // Merge WS events already applied before resume resolved (avoid wipe).
           const merged = [...restored]
           for (const q of prev) {
-            const qNo = Number(q.question_no || 0)
-            const exists = qNo > 0
-              ? merged.some((item) => Number(item.question_no) === qNo)
-              : merged.some((item) => item.question === q.question)
+            const exists = merged.some((item) => {
+              if (q.question_no != null && Number.isInteger(q.question_no) && q.question_no > 0 &&
+                  item.question_no != null) {
+                return item.question_no === q.question_no
+              }
+              return item.question === q.question
+            })
             if (!exists) merged.push(q)
           }
           return merged
         })
 
         setScores((prev) => {
+          const scoreKey = (s: RestoredScoreEntry, idx: number): string => {
+            const questionNo = effectiveQuestionNumber(s)
+            return questionNo != null ? `score-${questionNo}` : `fallback-${idx}`
+          }
           const restored = uniqueBy(
             restoredScores,
-            (s: any) => String(s?.question_no || s?.sequence_no || ''),
-          ).map((s: any) => ({
-            question_no: Number(s.question_no || s.sequence_no || 0),
-            score: s.score || 0,
-            dimension: s.dimension || '',
-            feedback: s.feedback || '',
-            sub_scores: s.sub_scores || {},
+            scoreKey,
+          ).map((s: RestoredScoreEntry): ScoreData => ({
+            question_no: effectiveQuestionNumber(s) ?? 0,
+            score: s.score ?? 0,
+            dimension: s.dimension ?? '',
+            feedback: s.feedback ?? '',
+            sub_scores: s.sub_scores ?? {},
           }))
           const merged = [...restored]
           for (const s of prev) {
-            const qNo = Number(s.question_no || 0)
-            if (qNo > 0 && merged.some((item) => Number(item.question_no) === qNo)) continue
-            if (merged.some((item) => item.feedback === s.feedback && item.score === s.score)) continue
+            if (s.question_no > 0 && merged.some((item) => item.question_no === s.question_no)) continue
             merged.push(s)
           }
           return merged
@@ -1412,7 +1540,7 @@ export default function InterviewLive() {
               <div className="space-y-1.5">
                 {scores.map((s, i) => (
                   <div
-                    key={s.question_no}
+                    key={s.question_no > 0 ? `question-${s.question_no}` : `unidentified-${i}`}
                     className="flex items-center gap-2 p-2 rounded-md bg-surface-muted dark:bg-dark-surface-muted text-2xs"
                   >
                     <span

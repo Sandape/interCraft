@@ -48,12 +48,28 @@ describe('mockInterviewStream — event builder (020 D-008)', () => {
     expect(round1Score.payload.summary.score).toBe(8)
   })
 
-  it('mockInitialState matches the real initial state shape', () => {
+  it('mockInitialState returns every required InterviewWSState field', () => {
     const state = mockInitialState()
+    // Connection fields
     expect(state.connected).toBe(false)
+    expect(state.reconnecting).toBe(false)
+    expect(state.reconnectAttempt).toBe(0)
+    // Runtime fields
     expect(state.currentNode).toBeNull()
+    expect(state.currentQuestion).toBe(0)
     expect(state.totalQuestions).toBe(MOCK_ROUNDS.length)
+    expect(state.streamingText).toBe('')
+    expect(state.lastCheckpointId).toBeNull()
+    expect(state.error).toBeNull()
     expect(state.events).toEqual([])
+    expect(state.turnPhase).toBe('idle')
+    // US4 runtime-envelope fields (REQ-061)
+    expect(state.taskId).toBeNull()
+    expect(state.executionId).toBeNull()
+    expect(state.availableActions).toEqual([])
+    expect(state.pointsSummary).toBeNull()
+    // Reconnect-state tracking
+    expect(state.seenSequences).toEqual([])
   })
 })
 
