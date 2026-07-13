@@ -86,6 +86,140 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  worker-readiness:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - '6379:6379'
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Sync locked dependencies
+        working-directory: backend
+        run: uv sync --locked --extra dev
+      - name: Sync frontend dependencies for proxy smoke
+        run: npm ci --no-audit --no-fund
+      - name: Run worker lifecycle readiness gate
+        working-directory: backend
+        env:
+          APP_ENV: test
+          # These lifecycle tests never connect to Postgres. A syntactically
+          # real, unreachable URL avoids the repository-wide integration-dir
+          # placeholder skip guard without sharing a database.
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:1/worker_readiness
+          REDIS_URL: redis://127.0.0.1:6379/15
+          INTERCRAFT_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+          INTERCRAFT_TEST_REDIS_OWNED: '1'
+          INTERCRAFT_PID_EVIDENCE_PATH: test-results/owned-pid-evidence.jsonl
+          JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
+        run: |
+          mkdir -p test-results
+          MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          export MASTER_KEY
+          : > test-results/owned-pid-evidence.jsonl
+          uv run pytest -q \
+            --junitxml=test-results/worker-readiness-junit.xml \
+            tests/unit/test_worker_readiness.py \
+            tests/integration/test_worker_lifecycle.py \
+            2>&1 | tee test-results/worker-readiness.log
+      - name: Verify owned PID evidence
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("test-results/owned-pid-evidence.jsonl")
+          records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+          assert records, "owned PID evidence is empty"
+          by_event = {record["event"]: record for record in records}
+          before = by_event["owned-process-before-stop"]
+          after = by_event["owned-process-after-stop"]
+          assert before["owned_alive"] is True
+          assert before["unrelated_alive"] is True
+          assert after["owned_alive"] is False
+          assert after["unrelated_alive"] is True
+          assert before["native_pid"] == after["native_pid"]
+          assert before["start_fingerprint"] == after["start_fingerprint"]
+          PY
+      - name: Smoke frontend API proxy
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:1/worker_readiness
+          REDIS_URL: redis://127.0.0.1:6379/15
+          JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
+        run: |
+          mkdir -p test-results
+          MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          export MASTER_KEY
+          api_pid=''
+          vite_pid=''
+          cleanup() {
+            [ -z "$vite_pid" ] || kill -TERM -- "-$vite_pid" 2>/dev/null || true
+            [ -z "$api_pid" ] || kill -TERM -- "-$api_pid" 2>/dev/null || true
+            [ -z "$vite_pid" ] || wait "$vite_pid" 2>/dev/null || true
+            [ -z "$api_pid" ] || wait "$api_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          setsid bash -c 'cd backend && exec uv run uvicorn app.main:app --lifespan off --host 127.0.0.1 --port 18000' \
+            > test-results/frontend-proxy-api.log 2>&1 &
+          api_pid=$!
+          VITE_API_TARGET=http://127.0.0.1:18000 \
+            setsid npm run dev -- --host 127.0.0.1 --port 15173 \
+            > test-results/frontend-proxy-vite.log 2>&1 &
+          vite_pid=$!
+          ready=0
+          for _attempt in $(seq 1 80); do
+            kill -0 "$api_pid"
+            kill -0 "$vite_pid"
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:15173/api/v1/openapi.json \
+              > test-results/frontend-proxy-openapi.json; then
+              ready=1
+              break
+            fi
+            sleep 0.25
+          done
+          [ "$ready" = '1' ]
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("test-results/frontend-proxy-openapi.json").read_text())
+          assert payload["info"]["title"] == "InterCraft API"
+          assert any(path.startswith("/api/v1/") for path in payload["paths"])
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: "worker-readiness-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: |
+            backend/test-results/worker-readiness-junit.xml
+            backend/test-results/worker-readiness.log
+            backend/test-results/owned-pid-evidence.jsonl
+            test-results/frontend-proxy-openapi.json
+            test-results/frontend-proxy-api.log
+            test-results/frontend-proxy-vite.log
+          if-no-files-found: error
+          retention-days: 14
+
   frontend-full:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 30

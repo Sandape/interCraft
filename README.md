@@ -5,19 +5,19 @@ AI-assisted resume editor + interview simulator. FastAPI + React + Postgres 15 +
 ## Quickstart (5-minute path)
 
 ```bash
-# 1. Install all deps (uses uv for backend, npm for frontend)
-bash scripts/dev-up.sh
-
-# 2. Edit backend/.env with your real DATABASE_URL + JWT_SECRET + MASTER_KEY
+# 1. Edit backend/.env with your real DATABASE_URL + JWT_SECRET + MASTER_KEY
 #    (the .env.example at repo root is the template; copy it into backend/.env)
 
-# 3. Run all available tests
-bash scripts/run-all-tests.sh
+# 2. Start Redis (when no reachable local Redis exists), API, ARQ worker,
+#    and Vite as one owned lifecycle. Logs and PIDs are under .tmp/intercraft-dev.
+bash scripts/dev-up.sh
 
-# 4. (Optional) Boot the full stack in two terminals
-#    Terminal A: cd backend && uv run uvicorn app.main:app --reload
-#    Terminal B: cd backend && uv run arq app.workers.main.WorkerSettings
-#    Terminal C: npm run dev   # frontend on http://localhost:5173
+# 3. Restart only that managed stack; unrelated Python/Node/Redis processes
+#    are never selected by port, command line, or executable image.
+bash scripts/dev-restart.sh
+
+# 4. Run all available tests
+bash scripts/run-all-tests.sh
 ```
 
 ## What You Need First
@@ -25,13 +25,32 @@ bash scripts/run-all-tests.sh
 | Tool | Version | Check |
 |---|---|---|
 | Python | 3.12.x | `python --version` |
-| Node.js | 20.x or 22.x | `node --version` |
+| Node.js | 24.x | `node --version` |
 | uv | 0.4.x or newer | `uv --version` |
+| Bash on Windows | Git Bash | `D:\Develop\Git\bin\bash.exe --version` |
 | Redis | 7+ on localhost:6379 | `redis-cli -p 6379 PING` |
 | Postgres | 15 (online or local) | reachable per `DATABASE_URL` |
 
-Docker is **not** required. The local dev path uses your host Redis and a
-user-provided online Postgres.
+Docker is optional. `scripts/dev-up.sh` uses a reachable configured Redis or
+starts an ephemeral host Redis that it owns; Postgres remains caller-provided.
+`cd backend && docker compose up` is the equivalent containerized full stack.
+
+On this Windows workspace, Bash is not added to `PATH`; invoke the scripts
+from PowerShell with the exact Git Bash executable:
+
+```powershell
+& 'D:\Develop\Git\bin\bash.exe' scripts/dev-up.sh
+& 'D:\Develop\Git\bin\bash.exe' scripts/dev-restart.sh
+```
+
+The scripts and application both resolve Redis/Postgres through
+`backend/.env` and Pydantic `Settings`; the shell file is never sourced.
+Host ports can be overridden with `INTERCRAFT_API_PORT`,
+`INTERCRAFT_FRONTEND_PORT`, and Compose `INTERCRAFT_REDIS_PORT`. The managed
+host launcher validates the port values, points Vite at the matching API port,
+and safely adds both loopback frontend origins to CORS. For a non-loopback
+browser origin, set `CORS_ALLOWED_ORIGINS` explicitly; a port override alone
+cannot infer a public hostname.
 
 ## Layout
 

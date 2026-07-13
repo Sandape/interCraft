@@ -14,6 +14,42 @@ in `specs/`; this guide only describes where tests live and how to run them.
 | List canonical E2E tests | `npm run e2e -- --list` |
 | Backend tests | `cd backend && uv run pytest -q` |
 | Backend contract tests | `cd backend && uv run pytest tests/contract -q` |
+| Worker readiness unit gate | `cd backend && uv run pytest tests/unit/test_worker_readiness.py -q` |
+| Real worker lifecycle gate | See the isolated-Redis command below |
+
+## Worker Readiness Gate
+
+The PR CI job `worker-readiness` starts an ephemeral Redis 7 service, observes
+multiple real ARQ heartbeats, consumes the registered no-cost `ping` job, and
+verifies graceful removal plus abrupt-loss expiry of the sentinel. It uploads
+JUnit, pytest output, and test-produced owned PID/fingerprint before/after
+evidence even when the gate fails. The evidence intentionally excludes global
+process command lines and unrelated runner arguments.
+The same gate boots the real Vite configuration against FastAPI and requests
+`/api/v1/openapi.json` through the frontend origin, catching a container/host
+proxy target that points back at the frontend itself.
+
+The integration test fails closed against arbitrary Redis instances. It never
+uses `FLUSHDB`: all queue, heartbeat, and job IDs are unique and cleanup names
+only those keys. To run it locally, provide a loopback, non-default Redis DB
+that you explicitly own for the test:
+
+```bash
+cd backend
+INTERCRAFT_TEST_REDIS_URL=redis://127.0.0.1:6379/15 \
+INTERCRAFT_TEST_REDIS_OWNED=1 \
+REDIS_URL=redis://127.0.0.1:6379/15 \
+DATABASE_URL=postgresql+asyncpg://test:test@127.0.0.1:1/worker_readiness \
+uv run pytest tests/integration/test_worker_lifecycle.py -q
+```
+
+The unreachable loopback `DATABASE_URL` is only used to bypass the repository's
+directory-wide placeholder skip guard; this worker lifecycle file never opens
+a PostgreSQL connection.
+
+Do not point these variables at a shared development, staging, or production
+Redis. When an isolated Redis is unavailable, run/collect the unit gate and
+let the CI service execute the real lifecycle lane.
 
 ## Local MCP Setup
 

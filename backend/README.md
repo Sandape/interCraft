@@ -9,19 +9,30 @@ FastAPI + SQLAlchemy 2.0 (async) + PostgreSQL 15 + Redis 7 backend for InterCraf
 uv sync --extra dev
 
 # Configure env
-cp .env.example .env
+cp ../.env.example .env
 # Edit .env with your real DATABASE_URL + JWT_SECRET + MASTER_KEY
 
 # Run migrations (requires reachable Postgres)
 uv run alembic upgrade head
 
-# Boot the API
-uv run uvicorn app.main:app --reload
-# -> http://localhost:8000/docs
+# From the repository root, boot Redis/API/worker/Vite together
+cd ..
+bash scripts/dev-up.sh
+# -> API http://localhost:8000, frontend http://localhost:5173
 
-# Boot the ARQ worker (separate terminal)
-uv run arq app.workers.main.WorkerSettings
+# Containerized equivalent (from backend/)
+cd backend
+docker compose up
 ```
+
+Compose fails before launch when `DATABASE_URL`, `JWT_SECRET`, or `MASTER_KEY`
+is absent. Its API healthcheck uses full `/readyz` readiness, so the frontend
+does not become healthy before Postgres, Redis, and the ARQ worker are ready.
+Override published ports with `INTERCRAFT_API_PORT`,
+`INTERCRAFT_FRONTEND_PORT`, and `INTERCRAFT_REDIS_PORT` when defaults conflict.
+Compose keeps its loopback CORS defaults aligned with the frontend port and
+sets the container-only Vite proxy target to `http://api:8000`. Set
+`CORS_ALLOWED_ORIGINS` yourself for non-loopback browser origins.
 
 ## Modules
 
@@ -62,7 +73,8 @@ uv run python -m app.modules.versions.cli list  --branch-id <UUID> --user-id <UU
 
 ## Health checks
 
-- `GET /healthz` (root) — overall status with `db` + `redis` probes
+- `GET /healthz` (root) — dependency-free API process liveness
+- `GET /readyz` (root) — bounded Postgres + Redis + fresh ARQ heartbeat
 - `GET /metrics` — Prometheus text format
 - `GET /api/v1/openapi.json` — full OpenAPI 3.1 schema
 - `GET /api/v1/docs` — Swagger UI
@@ -71,5 +83,9 @@ uv run python -m app.modules.versions.cli list  --branch-id <UUID> --user-id <UU
 ## Notes
 
 - `DATABASE_URL` placeholder is blocked by an integration-test guard (T008b).
+- A reachable Redis is not enough for derive/analysis readiness: `/readyz`
+  returns 503 unless the registered ARQ worker heartbeat is fresh.
+- `uv run arq --check app.workers.main.WorkerSettings` checks the same sentinel
+  used by `/readyz` and the Compose worker healthcheck.
 - `JWT_SECRET` + `MASTER_KEY` are dev-only dummies — rotate before any production use.
 - See `specs/001-intercraft-product-spec/` for the full plan, data model, and API contracts.
