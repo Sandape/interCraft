@@ -103,6 +103,11 @@ function LegacyResumeEditorRedirect() {
   return <Navigate to={id ? `/resume/${id}` : '/resume'} replace />
 }
 
+export function InterviewNewEntry() {
+  const location = useLocation()
+  return <Navigate to={`/interview/mode${location.search}`} replace />
+}
+
 export function AppRoutes() {
   // Eagerly resolve current user on mount.
   useCurrentUser()
@@ -178,7 +183,7 @@ export function AppRoutes() {
                 <Route path="/resume/:id" element={<ResumeEditorV2 />} />
                 <Route path="/interview" element={<InterviewList />} />
                 <Route path="/interview/mode" element={<InterviewModeSelect />} />
-                <Route path="/interview/new" element={<InterviewLive />} />
+                <Route path="/interview/new" element={<InterviewNewEntry />} />
                 <Route path="/interview/:id/live" element={<InterviewLive />} />
                 <Route path="/interview/:id/report" element={<InterviewReport />} />
                 {/* Legacy Jobs CTA / deep links without /live suffix */}
