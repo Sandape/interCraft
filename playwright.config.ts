@@ -71,7 +71,7 @@ export default defineConfig({
     {
       command: 'uv run uvicorn app.main:app --host 127.0.0.1 --port 8000',
       cwd: 'backend',
-      url: 'http://127.0.0.1:8000/readyz',
+      url: 'http://127.0.0.1:8000/healthz',
       reuseExistingServer: !isCI,
       timeout: 120_000,
       stdout: 'ignore',
