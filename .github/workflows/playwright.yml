@@ -12,7 +12,104 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# Stage-A does not configure required status checks in the GitHub ruleset.
+# For this PR, acceptance adds both jobs below as green gates beyond the canonical SOP gates.
 jobs:
+  migration-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: intercraft_test
+          POSTGRES_USER: intercraft_test
+          POSTGRES_PASSWORD: testpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CI: true
+      APP_ENV: test
+      DATABASE_URL: postgresql+asyncpg://intercraft_test:testpass@localhost:5432/intercraft_test
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-jwt-secret-not-for-production
+      MASTER_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      BCRYPT_COST_ROUNDS: 4
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare migration evidence directory
+        run: |
+          mkdir -p test-results
+          printf 'migration-contracts started at %s\n' "$(date -u +%FT%TZ)" > test-results/job-start.log
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: uv sync --extra dev --locked
+
+      - name: Create migration database roles
+        env:
+          PGPASSWORD: testpass
+        run: >-
+          psql --host localhost --username intercraft_test --dbname intercraft_test
+          --set ON_ERROR_STOP=1
+          --command 'CREATE ROLE appuser NOLOGIN; CREATE ROLE postgres NOLOGIN'
+
+      - name: Run database migrations
+        working-directory: backend
+        run: |
+          set -o pipefail
+          uv run alembic upgrade head 2>&1 | tee ../test-results/alembic-upgrade.log
+
+      - name: Verify notification migration contract
+        working-directory: backend
+        env:
+          REQ072_ALLOW_DATABASE_DDL: '1'
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            --junitxml=../test-results/notifications-migration-junit.xml \
+            tests/integration/account/test_notifications_migration.py \
+            2>&1 | tee ../test-results/notifications-migration.log
+          uv run python -c "import xml.etree.ElementTree as ET; root = ET.parse('../test-results/notifications-migration-junit.xml').getroot(); suites = [root] if root.tag == 'testsuite' else list(root); total = lambda key: sum(int(s.attrib.get(key, 0)) for s in suites); assert total('tests') == 4 and total('failures') == total('errors') == total('skipped') == 0, {key: total(key) for key in ('tests', 'failures', 'errors', 'skipped')}"
+
+      - name: Verify REQ-059 resume intelligence migration contract
+        working-directory: backend
+        env:
+          REQ076_ALLOW_DATABASE_DDL: '1'
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            --junitxml=../test-results/resume-intelligence-migration-junit.xml \
+            tests/integration/resume_intelligence/test_migration_0055.py \
+            2>&1 | tee ../test-results/resume-intelligence-migration.log
+          uv run python -c "import xml.etree.ElementTree as ET; root = ET.parse('../test-results/resume-intelligence-migration-junit.xml').getroot(); suites = [root] if root.tag == 'testsuite' else list(root); total = lambda key: sum(int(s.attrib.get(key, 0)) for s in suites); assert total('tests') == 7 and total('failures') == total('errors') == total('skipped') == 0, {key: total(key) for key in ('tests', 'failures', 'errors', 'skipped')}"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: migration-contract-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: error
+
   playwright-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -64,6 +161,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Prepare browser evidence directory
+        run: |
+          mkdir -p test-results
+          printf 'playwright-smoke started at %s\n' "$(date -u +%FT%TZ)" > test-results/job-start.log
+
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -95,34 +197,31 @@ jobs:
 
       - name: Run database migrations
         working-directory: backend
-        run: uv run alembic upgrade head
-
-      - name: Verify notification migration contract
-        working-directory: backend
-        env:
-          REQ072_ALLOW_DATABASE_DDL: '1'
         run: |
-          mkdir -p ../test-results
-          uv run pytest -q \
-            --junitxml=../test-results/notifications-migration-junit.xml \
-            tests/integration/account/test_notifications_migration.py
-          uv run python -c "import xml.etree.ElementTree as ET; root = ET.parse('../test-results/notifications-migration-junit.xml').getroot(); suites = [root] if root.tag == 'testsuite' else list(root); total = lambda key: sum(int(s.attrib.get(key, 0)) for s in suites); assert total('tests') == 4 and total('failures') == total('errors') == total('skipped') == 0, {key: total(key) for key in ('tests', 'failures', 'errors', 'skipped')}"
+          set -o pipefail
+          uv run alembic upgrade head 2>&1 | tee ../test-results/playwright-alembic-upgrade.log
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Run smoke test
         if: github.event_name == 'pull_request'
-        run: npm run e2e -- --project=chromium tests/e2e/auth-register-login.spec.ts
+        run: |
+          set -o pipefail
+          npm run e2e -- --project=chromium tests/e2e/auth-register-login.spec.ts \
+            2>&1 | tee test-results/playwright-smoke.log
 
       - name: Run full suite
         if: github.event_name == 'workflow_dispatch'
-        run: npm run e2e -- --project=chromium
+        run: |
+          set -o pipefail
+          npm run e2e -- --project=chromium \
+            2>&1 | tee test-results/playwright-full.log
 
       - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         with:
           name: test-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: error
