@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AgentSettings from '../AgentSettings'
 
 const repository = vi.hoisted(() => ({
@@ -20,6 +21,20 @@ vi.mock('@/repositories/AgentRepository', () => ({
   resolveQrcodeSrc: vi.fn(),
 }))
 
+function renderPage() {
+  const qc = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <AgentSettings />
+    </QueryClientProvider>,
+  )
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   repository.fetchPreferences.mockResolvedValue({
@@ -36,7 +51,7 @@ describe('AgentSettings binding state', () => {
   it('does not represent an API failure as an unbound account', async () => {
     repository.fetchBindingStatus.mockRejectedValueOnce(new Error('database unavailable'))
 
-    render(<AgentSettings />)
+    renderPage()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('暂时无法读取微信绑定状态')
     expect(screen.queryByRole('button', { name: '获取绑定二维码' })).not.toBeInTheDocument()
@@ -59,7 +74,7 @@ describe('AgentSettings binding state', () => {
       bound_at: '2026-07-11T00:00:00Z',
     })
 
-    render(<AgentSettings />)
+    renderPage()
 
     expect(await screen.findByText('已绑定微信')).toBeInTheDocument()
     expect(screen.getByText('状态：在线')).toBeInTheDocument()
