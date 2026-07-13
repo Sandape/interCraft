@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import platform
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -18,7 +19,7 @@ from app.core.db import db_ping, dispose_engine
 from app.core.exceptions import install_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import InternalIPMiddleware, MetricsMiddleware, RequestIDMiddleware
-from app.core.redis import close_redis, redis_ping
+from app.core.redis import WorkerHealth, arq_worker_health, close_redis, redis_ping
 from app.modules.agent.runtime.telemetry import emit_event, record_metric
 from app.observability.tracing import TracingConfig, init_tracing, shutdown_tracing
 
@@ -26,11 +27,32 @@ from app.observability.tracing import TracingConfig, init_tracing, shutdown_trac
 # uvicorn's default on Windows is ProactorEventLoop which psycopg rejects.
 # Set the policy unconditionally before any loop is created.
 if platform.system() == "Windows":
-    import asyncio
-
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 log = get_logger("app")
+READINESS_PROBE_TIMEOUT_SECONDS = 1.0
+
+
+async def _bounded_bool_probe(name: str, probe: Callable[[], Awaitable[bool]]) -> bool:
+    try:
+        return bool(await asyncio.wait_for(probe(), timeout=READINESS_PROBE_TIMEOUT_SECONDS))
+    except TimeoutError:
+        log.warning("readiness.probe_timeout", dependency=name)
+        return False
+    except Exception:
+        log.exception("readiness.probe_failed", dependency=name)
+        return False
+
+
+async def _bounded_worker_probe() -> WorkerHealth:
+    try:
+        return await asyncio.wait_for(arq_worker_health(), timeout=READINESS_PROBE_TIMEOUT_SECONDS)
+    except TimeoutError:
+        log.warning("readiness.probe_timeout", dependency="arq_worker")
+        return WorkerHealth("down", "timeout")
+    except Exception:
+        log.exception("readiness.probe_failed", dependency="arq_worker")
+        return WorkerHealth("down", "transport_error")
 
 
 async def start_wechat_consumer(
@@ -165,36 +187,36 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
-        db_ok = await db_ping()
-        redis_ok = await redis_ping()
-        ok = db_ok and redis_ok
+        """Process liveness only; dependency failures belong to /readyz."""
         return JSONResponse(
-            status_code=200 if ok else 503,
+            status_code=200,
             content={
-                "status": "ok" if ok else "down",
-                "db": "ok" if db_ok else "down",
-                "redis": "ok" if redis_ok else "down",
+                "status": "ok",
+                "db": "unchecked",
+                "redis": "unchecked",
                 "version": __version__,
             },
         )
 
     @app.get("/readyz")
     async def readyz() -> JSONResponse:
-        """REQ-056: API + Redis readiness (derive worker heartbeat optional).
-
-        Distinguishes process liveness (/healthz) from dependency readiness.
-        ARQ worker liveness is not fully probed here — see evidence worker-down.md.
-        """
-        db_ok = await db_ping()
-        redis_ok = await redis_ping()
-        ready = db_ok and redis_ok
+        """Bounded readiness for Postgres, Redis, and a fresh ARQ worker."""
+        db_ok, redis_ok, worker = await asyncio.gather(
+            _bounded_bool_probe("db", db_ping),
+            _bounded_bool_probe("redis", redis_ping),
+            _bounded_worker_probe(),
+        )
+        ready = db_ok and redis_ok and worker.state == "up"
         return JSONResponse(
             status_code=200 if ready else 503,
             content={
                 "status": "ready" if ready else "not_ready",
                 "db": "ok" if db_ok else "down",
                 "redis": "ok" if redis_ok else "down",
-                "derive_backend": "redis_ok" if redis_ok else "unavailable",
+                "arq_worker": worker.state,
+                "arq_worker_reason": worker.reason,
+                "arq_worker_age_ms": worker.age_ms,
+                "derive_backend": "ready" if ready else "unavailable",
                 "version": __version__,
             },
         )

@@ -1,11 +1,14 @@
 """Redis async client (singleton) + pub/sub helpers + ARQ enqueue helper."""
+
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import json
+import re
 from collections.abc import AsyncGenerator
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import redis.asyncio as redis
 from arq.connections import RedisSettings, create_pool
@@ -16,6 +19,68 @@ from app.observability.tracing import TraceContext, get_trace_context, inject_tr
 _client: redis.Redis | None = None
 _arq_pool: Any = None
 _arq_pool_lock = asyncio.Lock()
+
+# ARQ 0.26.3 writes this health record with a TTL of interval + one second.
+# API readiness and WorkerSettings intentionally share these constants.
+ARQ_QUEUE_NAME = "arq:queue"
+ARQ_HEALTH_CHECK_KEY = f"{ARQ_QUEUE_NAME}:health-check"
+ARQ_HEALTH_CHECK_INTERVAL_SECONDS = 5.0
+ARQ_HEALTH_CHECK_TTL_MS = int((ARQ_HEALTH_CHECK_INTERVAL_SECONDS + 1) * 1_000)
+ARQ_HEALTH_STALE_AFTER_MS = int(ARQ_HEALTH_CHECK_INTERVAL_SECONDS * 1_000 + 500)
+_ARQ_HEALTH_TTL_TOLERANCE_MS = 1_000
+_ARQ_HEALTH_PATTERN = re.compile(
+    r"^[A-Z][a-z]{2}-\d{2} \d{2}:\d{2}:\d{2} "
+    r"j_complete=\d+ j_failed=\d+ j_retried=\d+ "
+    r"j_ongoing=\d+ queued=\d+$"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerHealth:
+    """Fail-closed interpretation of the ARQ worker heartbeat."""
+
+    state: Literal["up", "down", "stale"]
+    reason: str
+    age_ms: int | None = None
+
+
+def classify_arq_worker_health(
+    payload: str | bytes | None,
+    pttl_ms: int,
+) -> WorkerHealth:
+    """Classify ARQ's health value using both its shape and remaining TTL."""
+    if payload is None or pttl_ms == -2:
+        return WorkerHealth("down", "missing")
+    if isinstance(payload, bytes):
+        try:
+            payload = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return WorkerHealth("down", "malformed")
+    if not _ARQ_HEALTH_PATTERN.fullmatch(payload):
+        return WorkerHealth("down", "malformed")
+    if pttl_ms == -1:
+        return WorkerHealth("stale", "no_ttl")
+    if pttl_ms <= 0:
+        return WorkerHealth("stale", "expired_heartbeat")
+    if pttl_ms > ARQ_HEALTH_CHECK_TTL_MS + _ARQ_HEALTH_TTL_TOLERANCE_MS:
+        return WorkerHealth("stale", "unexpected_ttl")
+
+    age_ms = max(0, ARQ_HEALTH_CHECK_TTL_MS - pttl_ms)
+    if age_ms > ARQ_HEALTH_STALE_AFTER_MS:
+        return WorkerHealth("stale", "expired_heartbeat", age_ms)
+    return WorkerHealth("up", "fresh", age_ms)
+
+
+async def arq_worker_health() -> WorkerHealth:
+    """Read the worker heartbeat value and TTL in one Redis round trip."""
+    try:
+        pipeline = get_redis().pipeline(transaction=False)
+        pipeline.get(ARQ_HEALTH_CHECK_KEY)
+        pipeline.pttl(ARQ_HEALTH_CHECK_KEY)
+        payload, pttl_ms = await pipeline.execute()
+        return classify_arq_worker_health(payload, int(pttl_ms))
+    except Exception:
+        return WorkerHealth("down", "transport_error")
 
 
 def get_redis() -> redis.Redis:
@@ -47,9 +112,7 @@ async def get_arq_pool():
         settings = get_settings()
         async with _arq_pool_lock:
             if _arq_pool is None:
-                _arq_pool = await create_pool(
-                    RedisSettings.from_dsn(settings.redis_url)
-                )
+                _arq_pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     return _arq_pool
 
 
@@ -143,8 +206,15 @@ async def subscribe(channel: str) -> AsyncGenerator[dict[str, Any], None]:
 
 
 __all__ = [
-    "close_redis",
+    "ARQ_HEALTH_CHECK_INTERVAL_SECONDS",
+    "ARQ_HEALTH_CHECK_KEY",
+    "ARQ_HEALTH_CHECK_TTL_MS",
+    "ARQ_QUEUE_NAME",
+    "WorkerHealth",
+    "arq_worker_health",
     "build_arq_trace_metadata",
+    "classify_arq_worker_health",
+    "close_redis",
     "enqueue_job",
     "get_arq_pool",
     "get_redis",

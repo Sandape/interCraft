@@ -1,67 +1,105 @@
-# docker-compose for local dev stack.
-# Note: in this environment Docker is not installed, so services are NOT
-# auto-started. Use `uv run` + the local Redis already on 6379.
-# Run `docker compose up -d` only after Docker is available.
+# Full local application topology. API and worker deliberately consume the
+# same environment surface; secrets remain in the caller's environment/.env.
+x-app-environment: &app-environment
+  APP_ENV: ${APP_ENV:-development}
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in backend/.env or the shell}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in backend/.env or the shell}
+  MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY in backend/.env or the shell}
+  BCRYPT_COST_ROUNDS: ${BCRYPT_COST_ROUNDS:-12}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:${INTERCRAFT_FRONTEND_PORT:-5173},http://127.0.0.1:${INTERCRAFT_FRONTEND_PORT:-5173}}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  WECHAT_AGENT_CONSUMER_ENABLED: ${WECHAT_AGENT_CONSUMER_ENABLED:-false}
+  WECHAT_AGENT_LEASE_TTL_SECONDS: ${WECHAT_AGENT_LEASE_TTL_SECONDS:-30}
+  WECHAT_AGENT_LEASE_RENEW_SECONDS: ${WECHAT_AGENT_LEASE_RENEW_SECONDS:-10}
+  WECHAT_AGENT_MESSAGE_CLAIM_SECONDS: ${WECHAT_AGENT_MESSAGE_CLAIM_SECONDS:-120}
+  WECHAT_AGENT_MAX_ATTEMPTS: ${WECHAT_AGENT_MAX_ATTEMPTS:-5}
+  AGENT_LLM_TIMEOUT_SECONDS: ${AGENT_LLM_TIMEOUT_SECONDS:-45}
+  AGENT_TOOL_TIMEOUT_SECONDS: ${AGENT_TOOL_TIMEOUT_SECONDS:-30}
+  WECHAT_AGENT_API_TIMEOUT_SECONDS: ${WECHAT_AGENT_API_TIMEOUT_SECONDS:-20}
+  AGENT_DB_TIMEOUT_SECONDS: ${AGENT_DB_TIMEOUT_SECONDS:-10}
+  AGENT_MAX_TOOL_TURNS: ${AGENT_MAX_TOOL_TURNS:-8}
+  OTEL_ENABLED: ${OTEL_ENABLED:-false}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+  LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-intercraft}
 
 services:
-  # postgres:
-  #   image: postgres:15-alpine
-  #   environment:
-  #     POSTGRES_USER: intercraft
-  #     POSTGRES_PASSWORD: devpass
-  #     POSTGRES_DB: intercraft
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U intercraft"]
-  #     interval: 5s
-  #     timeout: 3s
-  #     retries: 10
-
-  # redis is intentionally NOT started here — user already runs a local
-  # redis-server on localhost:6379 in this environment.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${INTERCRAFT_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    restart: unless-stopped
 
   api:
     build: .
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      JWT_SECRET: ${JWT_SECRET}
-      MASTER_KEY: ${MASTER_KEY}
-      BCRYPT_COST_ROUNDS: ${BCRYPT_COST_ROUNDS:-12}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      WECHAT_AGENT_CONSUMER_ENABLED: ${WECHAT_AGENT_CONSUMER_ENABLED:-false}
-      WECHAT_AGENT_LEASE_TTL_SECONDS: ${WECHAT_AGENT_LEASE_TTL_SECONDS:-30}
-      WECHAT_AGENT_LEASE_RENEW_SECONDS: ${WECHAT_AGENT_LEASE_RENEW_SECONDS:-10}
-      WECHAT_AGENT_MESSAGE_CLAIM_SECONDS: ${WECHAT_AGENT_MESSAGE_CLAIM_SECONDS:-120}
-      WECHAT_AGENT_MAX_ATTEMPTS: ${WECHAT_AGENT_MAX_ATTEMPTS:-5}
-      AGENT_LLM_TIMEOUT_SECONDS: ${AGENT_LLM_TIMEOUT_SECONDS:-45}
-      AGENT_TOOL_TIMEOUT_SECONDS: ${AGENT_TOOL_TIMEOUT_SECONDS:-30}
-      WECHAT_AGENT_API_TIMEOUT_SECONDS: ${WECHAT_AGENT_API_TIMEOUT_SECONDS:-20}
-      AGENT_DB_TIMEOUT_SECONDS: ${AGENT_DB_TIMEOUT_SECONDS:-10}
-      AGENT_MAX_TOOL_TURNS: ${AGENT_MAX_TOOL_TURNS:-8}
+    init: true
+    environment: *app-environment
     ports:
-      - "8000:8000"
+      - "${INTERCRAFT_API_PORT:-8000}:8000"
     depends_on:
-      # - postgres
-      []
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   worker:
     build: .
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+    init: true
+    environment: *app-environment
     depends_on:
-      []
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
     command: arq app.workers.main.WorkerSettings
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "arq", "--check", "app.workers.main.WorkerSettings"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
-# volumes:
-#   pgdata:
+  frontend:
+    image: node:24-alpine
+    working_dir: /workspace
+    init: true
+    environment:
+      VITE_API_TARGET: http://api:8000
+    volumes:
+      - ..:/workspace
+      - frontend_node_modules:/workspace/node_modules
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "${INTERCRAFT_FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:5173/api/v1/openapi.json"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  frontend_node_modules:
