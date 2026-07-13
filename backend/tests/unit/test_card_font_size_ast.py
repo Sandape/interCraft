@@ -229,11 +229,6 @@ def test_h1_h2_h3_default_constants() -> None:
 
 
 def test_min_inline_default_is_64() -> None:
-    p = _write_tmp_template(
-        tmp_path := __import__("pathlib").Path(),
-        "x.tsx",
-        "",
-    )
     # 64 is AC-21's locked minimum for titles.
     import inspect
 
