@@ -1,4 +1,5 @@
 """Alembic env — async engine + autogenerate off (Phase 1)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,21 +19,22 @@ sys.path.insert(0, str(ROOT))
 
 from app.core.config import get_settings  # noqa: E402
 from app.core.db import Base  # noqa: E402
+from app.modules.ability_profile.models import ExportLog, ProfileShareLink  # noqa: E402,F401
+from app.modules.account.models import ExportTask  # noqa: E402,F401
+from app.modules.account.notification import Notification  # noqa: E402,F401
+from app.modules.admin_console.models import AdminAuditLog, TaskTag, Trace  # noqa: E402,F401
+from app.modules.ai_metering import models as ai_metering_models  # noqa: E402,F401
+from app.modules.ai_metering.usage_cost import models as ai_usage_cost_models  # noqa: E402,F401
+from app.modules.ai_runtime import models as ai_runtime_models  # noqa: E402,F401
+from app.modules.audit.models import AuditLog  # noqa: E402,F401
 
 # Import model modules so their tables register on Base.metadata.
 from app.modules.auth.models import AuthSession, User, UserCredential  # noqa: E402,F401
-from app.modules.resumes.models import ResumeBlock, ResumeBranch  # noqa: E402,F401
-from app.modules.versions.models import ResumeVersion  # noqa: E402,F401
-from app.modules.account.models import ExportTask  # noqa: E402,F401
-from app.modules.audit.models import AuditLog  # noqa: E402,F401
-from app.modules.content.models import Resource, HelpFAQ, SubscriptionPlan  # noqa: E402,F401
-from app.modules.ability_profile.models import ProfileShareLink, ExportLog  # noqa: E402,F401
 from app.modules.avatars.models import UserAvatar  # noqa: E402,F401
-from app.modules.admin_console.models import AdminAuditLog, TaskTag, Trace  # noqa: E402,F401
+from app.modules.content.models import HelpFAQ, Resource, SubscriptionPlan  # noqa: E402,F401
+from app.modules.resumes.models import ResumeBlock, ResumeBranch  # noqa: E402,F401
 from app.modules.telemetry_contracts import models as telemetry_contract_models  # noqa: E402,F401
-from app.modules.ai_runtime import models as ai_runtime_models  # noqa: E402,F401
-from app.modules.ai_metering import models as ai_metering_models  # noqa: E402,F401
-from app.modules.ai_metering.usage_cost import models as ai_usage_cost_models  # noqa: E402,F401
+from app.modules.versions.models import ResumeVersion  # noqa: E402,F401
 
 config = context.config
 if config.config_file_name is not None:
