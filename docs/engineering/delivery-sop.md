@@ -698,8 +698,8 @@ human non-author approval requirement **only** under these conditions:
 
 - NekoDreamSensei is **not** a mandatory reviewer.
 - If NekoDreamSensei's domain expertise is needed, `@mention` in the PR.
-- CODEOWNERS (Phase 6, future) will define automatic review assignments for
-  governance paths.
+- There is no mandatory CODEOWNERS reviewer for governance paths; request
+  optional domain reviewers case by case.
 
 ---
 
@@ -721,7 +721,7 @@ human non-author approval requirement **only** under these conditions:
 |---|---|---|
 | Team Onboarding | [./team-onboarding.md](./team-onboarding.md) | Fresh-clone setup guide referencing this SOP |
 | ADR-001 | [../decisions/ADR-001-multi-client-delivery-governance.md](../decisions/ADR-001-multi-client-delivery-governance.md) | Architecture decisions behind this SOP |
-| AGENTS.md | [../../AGENTS.md](../../AGENTS.md) | Agent routing layer (Phase 5b simplification pending) |
+| AGENTS.md | [../../AGENTS.md](../../AGENTS.md) | Current short agent routing layer |
 | Specs Index | [../../specs/README.md](../../specs/README.md) | Canonical requirements source |
 | REQ-064 Spec | [../../specs/064-delivery-governance/](../../specs/064-delivery-governance/) | Full specification and contracts |
 | Preflight | [../../scripts/governance/preflight.ps1](../../scripts/governance/preflight.ps1) | Pre-commit gate (Phase 3, active) |
