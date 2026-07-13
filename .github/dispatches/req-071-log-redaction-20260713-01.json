@@ -1,0 +1,17 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "29ac7008f7d0276a6d06bfa17b29be142cfe6d3d",
+    "ac_hash":  "722c4a377779c9cf1d39fb0af23388750bec7e7497f3049581bbf23e0888c66b",
+    "spec_task_id":  "ISSUE-071",
+    "driver":  "claude-code",
+    "created_at":  "2026-07-13T13:34:25Z",
+    "state":  "active",
+    "issue_number":  71,
+    "dispatch_id":  "req-071-log-redaction-20260713-01",
+    "allowed_paths":  [
+                          ".github/dispatches/req-071-log-redaction-20260713-01.json",
+                          "backend/app/core/logging.py",
+                          "backend/tests/unit/test_core_logging_redaction.py"
+                      ]
+}
