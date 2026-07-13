@@ -1,12 +1,14 @@
 """Job SQLAlchemy model — per data-model-phase-2.md §7."""
+
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -15,19 +17,23 @@ from app.core.ids import new_uuid_v7
 
 class Job(Base):
     __tablename__ = "jobs"
+    __table_args__ = (UniqueConstraint("user_id", "id", name="uq_jobs_user_id_id"),)
 
-    id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=new_uuid_v7
-    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=new_uuid_v7)
     user_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     company: Mapped[str] = mapped_column(Text, nullable=False)
     position: Mapped[str] = mapped_column(Text, nullable=False)
     jd_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     branch_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="applied")
-    status_history: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    status_history: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
     last_status_changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -35,11 +41,15 @@ class Job(Base):
     # 019 — extended job fields (base_location / requirements_md / employment_type / salary_range_text / headcount)
     base_location: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     requirements_md: Mapped[str | None] = mapped_column(Text, nullable=True)
-    employment_type: Mapped[str] = mapped_column(Text, nullable=False, default="unspecified", server_default="unspecified")
+    employment_type: Mapped[str] = mapped_column(
+        Text, nullable=False, default="unspecified", server_default="unspecified"
+    )
     salary_range_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     headcount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # REQ-053: Interview time for round-based interview states (test/interview_1/2/3)
-    interview_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    interview_time: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

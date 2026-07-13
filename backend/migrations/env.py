@@ -32,7 +32,16 @@ from app.modules.audit.models import AuditLog  # noqa: E402,F401
 from app.modules.auth.models import AuthSession, User, UserCredential  # noqa: E402,F401
 from app.modules.avatars.models import UserAvatar  # noqa: E402,F401
 from app.modules.content.models import HelpFAQ, Resource, SubscriptionPlan  # noqa: E402,F401
+from app.modules.jobs.models import Job  # noqa: E402,F401
+from app.modules.resume_derive.models import ResumeDeriveRun  # noqa: E402,F401
+from app.modules.resume_intelligence.models import (  # noqa: E402,F401
+    ResumeAIChangeSet,
+    ResumeAIFeedback,
+    ResumeAISuggestion,
+    ResumeFitAnalysis,
+)
 from app.modules.resumes.models import ResumeBlock, ResumeBranch  # noqa: E402,F401
+from app.modules.resumes_v2.models import ResumeV2  # noqa: E402,F401
 from app.modules.telemetry_contracts import models as telemetry_contract_models  # noqa: E402,F401
 from app.modules.versions.models import ResumeVersion  # noqa: E402,F401
 

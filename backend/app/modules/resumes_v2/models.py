@@ -30,13 +30,22 @@ declarations of the same table name would raise
 not the ORM, so the model columns below are kept in sync with that
 DDL by hand (verified against ``information_schema`` in Batch 5).
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, SmallInteger, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -54,17 +63,16 @@ class ResumeV2(Base):
     """
 
     __tablename__ = "resumes_v2"
-    __table_args__ = {"extend_existing": True}
+    __table_args__ = (
+        UniqueConstraint("user_id", "id", name="uq_resumes_v2_user_id_id"),
+        {"extend_existing": True},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), index=True, nullable=False
-    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     slug: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    tags: Mapped[list[str]] = mapped_column(
-        ARRAY(String), nullable=False, default=list
-    )
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -74,16 +82,12 @@ class ResumeV2(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # REQ-055 — root / derived / standard
     resume_kind: Mapped[str] = mapped_column(Text, nullable=False, default="standard")
-    root_resume_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    root_resume_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     root_version_at_derive: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_page_count: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     actual_page_count: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    derive_meta: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict
-    )
+    derive_meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
@@ -108,16 +112,12 @@ class ResumeStatisticsV2(Base):
     """
 
     __tablename__ = "resume_statistics_v2"
-    __table_args__ = {"extend_existing": True}
+    __table_args__: ClassVar[dict[str, bool]] = {"extend_existing": True}
 
-    resume_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True
-    )
+    resume_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     views: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     downloads: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_viewed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_downloaded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -133,11 +133,9 @@ class ResumeAnalysisV2(Base):
     """
 
     __tablename__ = "resume_analysis_v2"
-    __table_args__ = {"extend_existing": True}
+    __table_args__: ClassVar[dict[str, bool]] = {"extend_existing": True}
 
-    resume_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True
-    )
+    resume_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     analysis: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="success")
     failure_reason: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -146,4 +144,4 @@ class ResumeAnalysisV2(Base):
     )
 
 
-__all__ = ["ResumeV2", "ResumeStatisticsV2", "ResumeAnalysisV2"]
+__all__ = ["ResumeAnalysisV2", "ResumeStatisticsV2", "ResumeV2"]
