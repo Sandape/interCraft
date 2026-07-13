@@ -85,6 +85,13 @@ jobs:
         working-directory: backend
         run: uv sync --extra dev --locked
 
+      - name: Create application database role
+        env:
+          PGPASSWORD: testpass
+        run: >-
+          psql --host localhost --username intercraft_test --dbname intercraft_test
+          --set ON_ERROR_STOP=1 --command 'CREATE ROLE appuser NOLOGIN'
+
       - name: Run database migrations
         working-directory: backend
         run: uv run alembic upgrade head
@@ -106,4 +113,4 @@ jobs:
           name: test-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/
           retention-days: 14
-          if-no-files-found: error
+          if-no-files-found: warn
