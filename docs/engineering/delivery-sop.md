@@ -6,7 +6,7 @@
 |---|---|
 | Document | `docs/engineering/delivery-sop.md` |
 | Governance version | `stage-a-owner-pr-bypass-v1` |
-| Status | Phase 5a — normative; Gate automation (Phase 6) pending |
+| Status | SOP v1 — normative; Dispatch, PR Gate, and core CI active |
 | Issue | [REQ-064 — 跨应用交付治理](../../specs/064-delivery-governance/) |
 | ADR | [ADR-001: Multi-Client Delivery Governance](../decisions/ADR-001-multi-client-delivery-governance.md) |
 
@@ -24,7 +24,7 @@
 4. [Step Details](#4-step-details)
 5. [Dispatch Envelope & AC Normalization](#5-dispatch-envelope--ac-normalization)
 6. [Preflight Gate (Phase 3, Active)](#6-preflight-gate-phase-3-active)
-7. [PR Gate (Phase 6, Future)](#7-pr-gate-phase-6-future)
+7. [PR Gate (Active)](#7-pr-gate-active)
 8. [Failure Codes & Stop Rules](#8-failure-codes--stop-rules)
 9. [Rollback Procedure](#9-rollback-procedure)
 10. [Break-Glass & Drift Evidence](#10-break-glass--drift-evidence)
@@ -107,7 +107,7 @@ graph LR
 | Preflight → Change | Preflight passed | Changes authored | Allowed paths respected; no dirty root |
 | Change → Commit | Changes ready | Committed | Intentional commit message with `Refs #N` |
 | Commit → Draft PR | Pushed branch | Draft PR opened | PR body contains dispatch_id, base_sha, AC hash, allowed paths |
-| Draft PR → CI | PR opened | CI jobs complete | Frontend, backend-lint, backend-unit, summary (Phase 7 target) |
+| Draft PR → CI | PR opened | CI jobs complete | `frontend-core`, `backend-core`, and `playwright-smoke` pass; full suites remain manual/scheduled |
 | CI → Review | CI green (or known-fail documented) | Review requested | At least one human non-author reviewer assigned |
 | Review → Squash Merge | Approved | Merged to master | Non-author approval; or Owner PR-only bypass with evidence |
 | Squash Merge → Master Verify | Merged | `master` HEAD verified | `gh api` confirms merge SHA is ancestor of `master` |
@@ -126,7 +126,8 @@ graph LR
 
 ### 4.2 Issue
 
-- Created using the appropriate Issue Form (Phase 6, future).
+- Created using the appropriate Issue Form when available; otherwise use the
+  same canonical headings directly in the Issue body.
 - Minimum fields: `dispatch_id`, `base_sha`, `AC hash`, `allowed_paths`.
 - If no Issue Form exists yet, include these fields in the Issue body as
   structured YAML frontmatter or a table.
@@ -137,10 +138,9 @@ graph LR
 
 ### 4.3 Dispatch
 
-- Codex creates a dispatch envelope stored in `.github/dispatches/` (Phase 6,
-  future).
-- Until dispatch automation exists, the dispatch is declared in the Issue via a
-  structured comment or the Issue body itself.
+- Codex creates and validates a dispatch envelope with
+  `scripts/governance/dispatch.ps1`. The envelope is stored in
+  `.github/dispatches/` for the bounded delivery and supplied to the PR Gate.
 - A dispatch MUST include all fields defined in [§5.1](#51-dispatch-envelope-fields).
 - At most one active dispatch per Issue. A new dispatch supersedes the old one.
 
@@ -261,11 +261,22 @@ gh pr create \
 ### 4.10 CI
 
 - CI runs automatically when the PR is opened or synchronized.
-- **Current status (Phase 5a)**: CI is not yet fully green. Pipeline repair is
-  Phase 7. Reviewers should verify changes manually until CI is reliable.
-- Required check enforcement (Stage-B) is not yet active.
-- Future layers (Phase 7): frontend → backend-lint → backend-unit → summary →
-  contract/integration → E2E → eval.
+- **Current required MVP checks**:
+  - `frontend-core`: AI-contract parity, typecheck, production build, and the
+    named reliable unit smoke set.
+  - `backend-core`: locked dependency sync and the named reliable unit smoke
+    set.
+  - `playwright-smoke`: PostgreSQL/Redis service orchestration, migrations,
+    frontend/backend startup and health waits, the core browser path, and
+    retained failure artifacts.
+- Full frontend/backend suites run on `workflow_dispatch` and schedule without
+  `continue-on-error`; full Playwright E2E runs on `workflow_dispatch`. Their
+  failures stay visible without blocking every PR while legacy failures are
+  repaired.
+- Stage-A currently requires PR delivery and one review, with Sandape's
+  documented PR-only owner bypass. Required status-check names may be promoted
+  in a later ruleset stage after their stability window; until then, the
+  merge checklist and PR evidence require all three MVP checks to pass.
 
 ### 4.11 Review
 
@@ -427,20 +438,22 @@ Exit code 0 = pass. Any non-zero exit = stop and fix.
 
 ---
 
-## 7. PR Gate (Phase 6, Future)
+## 7. PR Gate (Active)
 
-The PR Gate is an automated CI check that validates each PR against its
-dispatch. **Not yet implemented** — this section describes the planned design.
+The PR Gate is an implemented, fail-closed local acceptance command that
+validates a GitHub PR against its dispatch before review or owner-bypass merge.
+It uses authenticated GitHub API reads and does not mutate repository state.
 
-**Location**: `scripts/governance/gate.ps1` (Phase 6, future)
+**Location**: `scripts/governance/gate.ps1`
 
-### Planned Checks
+### Enforced Checks
 
 **General (always run):**
 | Code | Check |
 |---|---|
 | `GATE_INVALID_TARGET` | PR base ref must be `master` |
 | `GATE_MISSING_ISSUE_REF` | PR body must contain `Refs #N` |
+| `GATE_MISSING_EVIDENCE` | PR body must contain a substantive `## Evidence` section |
 
 **Dispatch Validation:**
 | Code | Check |
@@ -448,6 +461,8 @@ dispatch. **Not yet implemented** — this section describes the planned design.
 | `GATE_ISSUE_NOT_OPEN` | Referenced Issue must exist and be open |
 | `GATE_DISPATCH_NOT_FOUND` | Dispatch envelope must exist |
 | `GATE_DISPATCH_INACTIVE` | Dispatch state must be `active` |
+| `GATE_DISPATCH_REF_MALFORMED` | PR dispatch metadata must be canonical and unambiguous |
+| `GATE_DISPATCH_CORRUPT` / `GATE_DISPATCH_VALIDATION_FAILED` | Dispatch store and child validation must succeed |
 | `GATE_AC_HASH_MISMATCH` | AC hash must match canonical statement |
 | `GATE_AC_MALFORMED` | Canonical AC statement must be well-formed |
 
@@ -455,7 +470,6 @@ dispatch. **Not yet implemented** — this section describes the planned design.
 | Code | Check |
 |---|---|
 | `GATE_PATH_ESCAPE` | All changed paths within `allowed_paths` |
-| `GATE_SINGLETON_VIOLATION` | Singleton paths require governance Issue |
 
 **Freshness & Uniqueness:**
 | Code | Check |
@@ -464,6 +478,13 @@ dispatch. **Not yet implemented** — this section describes the planned design.
 | `GATE_BASE_STALE` | PR HEAD must descend from `base_sha` |
 | `GATE_DUPLICATE_PR` | No other open PR for same Issue |
 | `GATE_GOV_VERSION_MISMATCH` | Governance version must match active version |
+
+**Transport & Response Integrity:**
+| Code | Check |
+|---|---|
+| `GATE_TRANSPORT_FAILURE` | Authenticated GitHub API reads must succeed |
+| `GATE_JSON_PARSE_FAILED` | GitHub responses must contain the required valid JSON shape |
+| `GATE_PAGINATION_AMBIGUOUS` | Paginated results must complete within the safety cap |
 
 ---
 
@@ -482,7 +503,7 @@ dispatch. **Not yet implemented** — this section describes the planned design.
 | `DIRTY_WORKTREE` | Worktree is dirty in clean-required mode | Classify every dirty path; use scoped mode only for fully allowlisted intended edits |
 | `DIRTY_PATH_ESCAPE` | Scoped dirty path is outside the allowlist | Stop and preserve unowned work; do not commit, stash, or delete it |
 
-### Gate Failure Codes (Phase 6, future)
+### Gate Failure Codes
 
 | Code | Meaning | Action |
 |---|---|---|
@@ -491,19 +512,23 @@ dispatch. **Not yet implemented** — this section describes the planned design.
 | `GATE_ISSUE_NOT_OPEN` | Issue closed or not found | Reopen or new Issue |
 | `GATE_DISPATCH_NOT_FOUND` | No dispatch for this Issue | Contact Codex |
 | `GATE_DISPATCH_INACTIVE` | Dispatch superseded or expired | Request new dispatch |
+| `GATE_DISPATCH_REF_MALFORMED` | PR dispatch metadata is missing, duplicated, or malformed | Correct the PR body |
+| `GATE_DISPATCH_CORRUPT` / `GATE_DISPATCH_VALIDATION_FAILED` | Dispatch store or child validation failed | Stop and repair the dispatch boundary |
 | `GATE_AC_HASH_MISMATCH` | Canonical AC hash changed | Expire the old dispatch and issue a fresh one after revalidation |
 | `GATE_AC_MALFORMED` | AC statement malformed | Fix Issue AC section |
 | `GATE_PATH_ESCAPE` | Changes outside allowed paths | Stop and preserve unowned work; narrow the branch or issue a reviewed fresh dispatch |
-| `GATE_SINGLETON_VIOLATION` | Changed singleton without governance Issue | Create governance Issue |
 | `GATE_BASE_NOT_AUTHORITATIVE` | base_sha != remote master | Rebase and new dispatch |
 | `GATE_BASE_STALE` | PR not derived from base_sha | Rebase PR |
 | `GATE_DUPLICATE_PR` | Another PR exists for same Issue | Close duplicate or supersede |
 | `GATE_GOV_VERSION_MISMATCH` | Governance version mismatch | Update dispatch |
+| `GATE_MISSING_EVIDENCE` | PR body lacks substantive evidence | Add exact test, review, and artifact evidence |
+| `GATE_TRANSPORT_FAILURE` | GitHub transport or authentication failed | Stop; restore authenticated access and retry |
+| `GATE_JSON_PARSE_FAILED` / `GATE_PAGINATION_AMBIGUOUS` | Remote response is malformed or enumeration is incomplete | Stop and investigate; never assume a partial pass |
 
 ### Stop Rules
 
 - **Any preflight failure**: STOP. Fix before proceeding.
-- **Any gate failure (future)**: STOP. PR cannot proceed until resolved.
+- **Any gate failure**: STOP. PR cannot proceed until resolved.
 - **Direct push to master detected**: STOP. Ruleset blocks it. If somehow
   bypassed, file a governance incident immediately.
 - **Dirty primary worktree found during external clone work**: STOP. Do not
