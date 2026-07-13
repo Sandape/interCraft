@@ -1,0 +1,19 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "f2bcc26baea3c131aa9cc737e55dbe14b3d8a5e7",
+    "ac_hash":  "432b58ca3246a5b45be2d0e9e4d796d4c636829f6cabb461989d5f58afea8a84",
+    "spec_task_id":  "ISSUE-076",
+    "driver":  "codex",
+    "created_at":  "2026-07-13T15:48:27Z",
+    "state":  "superseded",
+    "issue_number":  76,
+    "dispatch_id":  "req-076-resume-intelligence-schema-20260713-01",
+    "allowed_paths":  [
+                          ".github/dispatches/req-076-resume-intelligence-schema-20260713-01.json",
+                          ".github/workflows/playwright.yml",
+                          "backend/migrations/env.py",
+                          "backend/migrations/versions/0055_059_ai_resume_intelligence.py",
+                          "backend/tests/integration/resume_intelligence/test_migration_0055.py"
+                      ]
+}
