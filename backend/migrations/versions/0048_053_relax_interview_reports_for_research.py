@@ -29,7 +29,6 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-
 revision = "0048_053_relax_interview_reports_for_research"
 down_revision = "0047_053_fix_jobs_status_chk"
 branch_labels = None
@@ -48,6 +47,14 @@ _MOCK_ONLY_COLUMNS = (
 
 
 def upgrade() -> None:
+    # Widen alembic_version.version_num to accommodate this migration's
+    # 45-character revision identifier, which exceeds the default VARCHAR(32).
+    op.alter_column(
+        "alembic_version",
+        "version_num",
+        type_=sa.String(255),
+        existing_type=sa.String(32),
+    )
     for col in _MOCK_ONLY_COLUMNS:
         # session_id is UUID; the others vary by type but the operation
         # is type-agnostic. alembic inspects existing_type from DB catalog.
@@ -59,6 +66,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Deliberately do NOT narrow alembic_version.version_num.
+    # Future migrations may carry similarly long revision identifiers;
+    # narrowing to VARCHAR(32) would risk truncation on later upgrades.
     # Back-fill any null values with safe defaults before restoring NOT NULL.
     op.execute("UPDATE interview_reports SET session_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE session_id IS NULL")
     op.execute("UPDATE interview_reports SET overall_score = 0 WHERE overall_score IS NULL")
