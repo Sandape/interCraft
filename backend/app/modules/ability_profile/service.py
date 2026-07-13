@@ -37,7 +37,11 @@ class AbilityProfileService:
     # ── Dashboard ────────────────────────────────────────────────────────────
 
     async def get_dashboard(self, user_id: UUID) -> dict:
-        """Aggregate ability dimensions into dashboard response with trends."""
+        """Aggregate ability dimensions into dashboard response with trends.
+
+        REQ-061 T094 — verified_score_status is derived only from valid
+        deterministic dimensions; AI insight task is independently projected.
+        """
         dimensions = await self._fetch_ability_dimensions(user_id)
         history = await self._fetch_dimension_history(user_id)
 
@@ -66,9 +70,14 @@ class AbilityProfileService:
                 ],
             })
 
+        verified_score_status = self._derive_verified_score_status(dimensions)
+        ai_insight = await self._fetch_latest_insight_task(user_id)
+
         return {
             "dimensions": result_dims,
             "generated_at": datetime.now(timezone.utc),
+            "verified_score_status": verified_score_status,
+            "ai_insight": ai_insight,
         }
 
     def _calculate_trend(self, history: list[dict]) -> str:
@@ -139,6 +148,57 @@ class AbilityProfileService:
             }
             for r in rows
         ]
+
+    def _derive_verified_score_status(self, dimensions: list[dict]) -> str:
+        """REQ-061 T094 — ready when ≥1 active deterministic dimension exists.
+
+        Deterministic sources: interview, coach (including score 0).
+        Manual-only dimensions remain unavailable. Insight failure never downgrades.
+        """
+        for dim in dimensions:
+            source = str(dim.get("source", "")).strip().lower()
+            if source in {"interview", "coach"}:
+                return "ready"
+        return "unavailable"
+
+    async def _fetch_latest_insight_task(self, user_id: UUID) -> dict | None:
+        """REQ-061 T094 — current user's latest ability_insight AITask.
+
+        Ordered by accepted_at DESC then id DESC; never exposes another user.
+        Projects id/status/user_summary/available_actions/failure_category.
+        """
+        from sqlalchemy import text
+
+        result = await self.repo.session.execute(
+            text(
+                """
+                SELECT id, status, user_summary, available_actions, failure_category
+                FROM ai_tasks
+                WHERE user_id = :user_id
+                  AND capability_code = 'ability_insight'
+                ORDER BY accepted_at DESC, id DESC
+                LIMIT 1
+                """
+            ),
+            {"user_id": user_id},
+        )
+        row = result.fetchone()
+        if row is None:
+            return None
+
+        raw_actions = row[3] if row[3] is not None else []
+        actions: list[str] = (
+            [str(a) for a in raw_actions]
+            if isinstance(raw_actions, list)
+            else []
+        )
+        return {
+            "task_id": str(row[0]),
+            "status": str(row[1]),
+            "user_summary": str(row[2]) if row[2] is not None else None,
+            "available_actions": actions,
+            "failure_category": str(row[4]) if row[4] is not None else None,
+        }
 
     # ── Self-Assessment (delegates to abilities module) ──────────────────────
 

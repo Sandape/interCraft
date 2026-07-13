@@ -6,6 +6,7 @@ PIN removed per Feature 024 US5.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -30,9 +31,24 @@ class DashboardDimension(BaseModel):
     history: list[DimensionHistoryPoint] = []
 
 
+class AbilityInsightProjection(BaseModel):
+    """REQ-061 T094 — canonical ability_insight task projection.
+
+    Never exposes another user's task — the service selects by owner.
+    """
+
+    task_id: UUID
+    status: str
+    user_summary: str | None = None
+    available_actions: list[str] = Field(default_factory=list)
+    failure_category: str | None = None
+
+
 class DashboardResponse(BaseModel):
     dimensions: list[DashboardDimension]
     generated_at: datetime
+    verified_score_status: Literal["ready", "unavailable"]
+    ai_insight: AbilityInsightProjection | None = None
 
 
 class DashboardOut(BaseModel):
@@ -151,6 +167,7 @@ class AdminDashboardOut(BaseModel):
 
 
 __all__ = [
+    "AbilityInsightProjection",
     "AdminDashboardOut",
     "AdminDashboardResponse",
     "DashboardDimension",

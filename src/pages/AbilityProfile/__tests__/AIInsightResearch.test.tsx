@@ -27,10 +27,11 @@ vi.mock('@/pages/AbilityProfile/hooks/queries/useAbilityProfile', () => ({
         ],
         generated_at: '2026-07-11T00:00:00Z',
         ai_insight: {
-          status: 'failed',
           task_id: 'task-insight-1',
-          message: '洞察生成失败，已验证评分不受影响。',
+          status: 'failed',
+          user_summary: '洞察生成失败，已验证评分不受影响。',
           available_actions: ['system_failure_retry'],
+          failure_category: 'insight_generation_failed',
         },
         verified_score_status: 'ready',
       },

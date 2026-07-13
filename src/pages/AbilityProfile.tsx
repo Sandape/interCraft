@@ -108,25 +108,20 @@ export default function AbilityProfile() {
             来自面试/自评等确定性结果，不依赖 AI 洞察任务状态。
           </p>
           <p className="mt-2 text-sm text-ink-2">
-            状态：{(data as { data?: { verified_score_status?: string } } | undefined)?.data?.verified_score_status || (isEmpty ? '暂无' : 'ready')}
+            状态：{data?.data?.verified_score_status === 'ready' ? '就绪' : '暂无'}
           </p>
         </Card>
         <Card className="p-4" data-testid="ai-insight-panel">
           <h3 className="text-sm font-semibold text-ink-1">AI 洞察</h3>
           {(() => {
-            const insight = (data as { data?: { ai_insight?: {
-              status?: string
-              task_id?: string
-              message?: string
-              available_actions?: string[]
-            } } } | undefined)?.data?.ai_insight
+            const insight = data?.data?.ai_insight
             if (!insight) {
               return <p className="mt-1 text-xs text-ink-3">暂无 AI 洞察任务。</p>
             }
             return (
               <div className="mt-2 space-y-2 text-sm">
                 <p>状态：{insight.status}</p>
-                {insight.message && <p className="text-amber-800">{insight.message}</p>}
+                {insight.user_summary && <p className="text-amber-800">{insight.user_summary}</p>}
                 {insight.task_id && (
                   <Link
                     to={`/ai-tasks/${encodeURIComponent(insight.task_id)}`}
@@ -136,12 +131,12 @@ export default function AbilityProfile() {
                     查看洞察任务
                   </Link>
                 )}
-                {(insight.available_actions ?? []).includes('system_failure_retry') && (
+                {insight.available_actions.includes('system_failure_retry') && (
                   <Button
                     variant="secondary"
                     size="sm"
                     data-testid="ai-insight-retry"
-                    onClick={() => navigate(`/ai-tasks/${encodeURIComponent(insight.task_id || '')}`)}
+                    onClick={() => navigate(`/ai-tasks/${encodeURIComponent(insight.task_id)}`)}
                   >
                     重试洞察
                   </Button>
