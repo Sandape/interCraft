@@ -130,6 +130,7 @@ jobs:
           INTERCRAFT_PID_EVIDENCE_PATH: test-results/owned-pid-evidence.jsonl
           JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
         run: |
+          set -o pipefail
           mkdir -p test-results
           MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
           export MASTER_KEY

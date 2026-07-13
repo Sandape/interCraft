@@ -63,6 +63,10 @@ async def _wait_until(
     raise AssertionError("condition did not become true before the deadline")
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="ARQ Worker.close requires POSIX SIGUSR1; CI lifecycle contract runs on Ubuntu",
+)
 @pytest.mark.asyncio
 async def test_real_worker_heartbeat_job_consumption_and_shutdown() -> None:
     redis_url = _owned_test_redis_url()
@@ -95,13 +99,30 @@ async def test_real_worker_heartbeat_job_consumption_and_shutdown() -> None:
         result = await job.result(timeout=3, poll_delay=0.03)
         assert result == {"pong": True, "ts": 1}
 
-        await _wait_until(lambda: _ttl_below(producer, health_key, 900))
-        low_ttl = await producer.pttl(health_key)
-        await _wait_until(lambda: _ttl_above(producer, health_key, low_ttl + 100))
+        # Deterministic renewal evidence. The ARQ worker rewrites the health
+        # key via psetex with TTL = int((health_check_interval + 1) * 1000)
+        # ms; for the 0.15s interval above that's 1150ms. Capture that
+        # initial TTL, then wait clearly past the original expiration window.
+        # If the worker were not renewing, Redis would expire the key by then
+        # and `exists` would return 0. Asserting existence past the original
+        # deadline is deterministic proof that the worker renewed the key —
+        # it does not depend on catching a narrow sub-second TTL interval.
+        initial_ttl_ms = await producer.pttl(health_key)
+        assert initial_ttl_ms > 0, (
+            f"health key has no positive TTL after startup: {initial_ttl_ms}ms"
+        )
+        await asyncio.sleep(initial_ttl_ms / 1000 + 1.0)
+        assert await producer.exists(health_key) == 1, (
+            f"ARQ worker did not renew health key past its original {initial_ttl_ms}ms TTL window"
+        )
+        refreshed_ttl_ms = await producer.pttl(health_key)
+        assert refreshed_ttl_ms > 0, "health key TTL must be positive after the renewal window"
 
         await worker.close()
         await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), timeout=2)
-        assert await producer.exists(health_key) == 0
+        assert await producer.exists(health_key) == 0, (
+            "Worker.close() did not remove the health key"
+        )
     finally:
         if not runner.done():
             runner.cancel()
@@ -155,15 +176,6 @@ async def _key_exists(pool: object, key: str) -> bool:
 
 async def _key_missing(pool: object, key: str) -> bool:
     return not await _key_exists(pool, key)
-
-
-async def _ttl_below(pool: object, key: str, threshold: int) -> bool:
-    ttl = await pool.pttl(key)  # type: ignore[attr-defined]
-    return 0 < ttl < threshold
-
-
-async def _ttl_above(pool: object, key: str, threshold: int) -> bool:
-    return await pool.pttl(key) > threshold  # type: ignore[attr-defined]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX process ownership contract")
