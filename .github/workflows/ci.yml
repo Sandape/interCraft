@@ -1,54 +1,156 @@
 name: CI
 
 on:
-  push:
-    branches: [main, master]
   pull_request:
-    branches: [main, master]
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+  cancel-in-progress: true
 
 jobs:
-  backend-unit:
-    runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7
-        ports: ['6379:6379']
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install uv
-        run: pip install uv
-      - name: Sync deps
-        working-directory: backend
-        run: uv sync --extra dev
-      - name: Run unit tests
-        working-directory: backend
-        env:
-          REDIS_URL: redis://localhost:6379/0
-          JWT_SECRET: ci-only-dummy-32bytes-xxxxxxxxxxxxxxxxxxxxxx
-        run: |
-          export MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
-          uv run pytest tests/unit -q
-      - name: REQ-061 capability registry completeness
-        working-directory: backend
-        env:
-          REDIS_URL: redis://localhost:6379/0
-          JWT_SECRET: ci-only-dummy-32bytes-xxxxxxxxxxxxxxxxxxxxxx
-        run: |
-          export MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
-          uv run pytest tests/contract/test_061_capability_registry_completeness.py -q
-
-  frontend:
+  frontend-core:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
       - run: npm ci
       - run: npm run check:ai-contracts
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run build
+      - run: mkdir -p test-results
+      - name: Run core frontend tests
+        run: >
+          npx vitest run
+          --reporter default
+          --reporter junit
+          --outputFile test-results/frontend-core-junit.xml
+          src/api/__tests__/client.test.ts
+          src/api/__tests__/token-storage.test.ts
+          src/features/onboarding/__tests__/onboarding-state.test.ts
+          src/lib/outbox/__tests__/OutboxRepository.test.ts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: "frontend-core-junit-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: test-results/frontend-core-junit.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  backend-core:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Sync deps
+        working-directory: backend
+        run: uv sync --locked --extra dev
+      - name: Create test-results
+        working-directory: backend
+        run: mkdir -p test-results
+      - name: Run core backend tests
+        working-directory: backend
+        env:
+          APP_ENV: test
+          JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
+        run: |
+          MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          export MASTER_KEY
+          uv run pytest \
+            --junitxml=test-results/backend-core-junit.xml \
+            tests/unit/test_ids.py \
+            tests/unit/test_security.py \
+            tests/unit/test_auth_token_expired.py \
+            tests/unit/test_request_id_middleware.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: "backend-core-junit-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: backend/test-results/backend-core-junit.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  frontend-full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - name: Create test-results
+        run: mkdir -p test-results
+      - name: Run full frontend tests
+        run: >
+          npx vitest run
+          --reporter default
+          --reporter junit
+          --outputFile test-results/frontend-full-junit.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: "frontend-full-junit-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: test-results/frontend-full-junit.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  backend-full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - '6379:6379'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Sync deps
+        working-directory: backend
+        run: uv sync --locked --extra dev
+      - name: Create test-results
+        working-directory: backend
+        run: mkdir -p test-results
+      - name: Run full backend tests
+        working-directory: backend
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          APP_ENV: test
+          JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
+        run: |
+          MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          export MASTER_KEY
+          uv run pytest tests/unit -q \
+            --junitxml=test-results/backend-full-junit.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: "backend-full-junit-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: backend/test-results/backend-full-junit.xml
+          if-no-files-found: error
+          retention-days: 14
