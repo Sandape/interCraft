@@ -50,6 +50,14 @@ def _mock_settings(
     )
 
 
+@pytest.fixture(autouse=True)
+def _clear_tavily_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear TAVILY_* env vars before each test so they don't leak."""
+    monkeypatch.delenv("TAVILY_MOCK_MODE", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_MOCK_SCENARIO_PATH", raising=False)
+
+
 # ===================================================================
 # Acceptance scenario 1: scenario loading
 # ===================================================================
@@ -172,11 +180,15 @@ class TestSearchResults:
 # ===================================================================
 
 class TestEnvToggle:
-    """``TAVILY_MOCK_MODE=1`` activates mock in ``tavily_search``."""
+    """``TAVILY_MOCK_MODE=1`` activates mock in ``tavily_search``.
+
+    All tests use ``.ainvoke`` (LangChain StructuredTool contract) and assert
+    structured ``list[dict]`` results (REQ-053).
+    """
 
     @pytest.mark.asyncio
-    async def test_mock_mode_returns_formatted_results(self, tmp_path: Path):
-        """Mock mode returns formatted results matching real Tavily output."""
+    async def test_mock_mode_returns_structured_results(self, tmp_path: Path) -> None:
+        """Mock mode returns structured list[dict] via ainvoke."""
         f = tmp_path / "s.json"
         f.write_text(_scenario_json([
             {"query": "python programming", "results": [
@@ -186,13 +198,19 @@ class TestEnvToggle:
         settings = _mock_settings(tavily_mock_mode=True)
         with patch("app.agents.tools.tavily_search.get_settings", return_value=settings), \
              patch.dict(os.environ, {"TAVILY_MOCK_SCENARIO_PATH": str(f)}):
-            result = await tavily_search(query="python programming")
-        assert "1. Mock Py" in result
-        assert "Source: https://mock.dev/py" in result
+            result = await tavily_search.ainvoke(
+                {"queries": ["python programming"], "max_results": 5}
+            )
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["title"] == "Mock Py"
+        assert result[0]["url"] == "https://mock.dev/py"
 
     @pytest.mark.asyncio
-    async def test_mock_mode_unknown_query_returns_empty(self, tmp_path: Path):
-        """Unknown query in mock mode returns empty string."""
+    async def test_mock_mode_unknown_query_returns_empty_list(
+        self, tmp_path: Path
+    ) -> None:
+        """Unknown query in mock mode returns empty list."""
         f = tmp_path / "s.json"
         f.write_text(_scenario_json([
             {"query": "known", "results": [_make_result(title="Known")]},
@@ -200,11 +218,13 @@ class TestEnvToggle:
         settings = _mock_settings(tavily_mock_mode=True)
         with patch("app.agents.tools.tavily_search.get_settings", return_value=settings), \
              patch.dict(os.environ, {"TAVILY_MOCK_SCENARIO_PATH": str(f)}):
-            result = await tavily_search(query="unknown")
-        assert result == ""
+            result = await tavily_search.ainvoke(
+                {"queries": ["unknown"], "max_results": 5}
+            )
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_mock_mode_no_api_key_still_works(self, tmp_path: Path):
+    async def test_mock_mode_no_api_key_still_works(self, tmp_path: Path) -> None:
         """Mock mode does NOT require TAVILY_API_KEY."""
         f = tmp_path / "s.json"
         f.write_text(_scenario_json([
@@ -213,21 +233,28 @@ class TestEnvToggle:
         settings = _mock_settings(tavily_mock_mode=True, tavily_api_key="")
         with patch("app.agents.tools.tavily_search.get_settings", return_value=settings), \
              patch.dict(os.environ, {"TAVILY_MOCK_SCENARIO_PATH": str(f)}):
-            result = await tavily_search(query="test")
-        assert "No Key OK" in result
+            result = await tavily_search.ainvoke(
+                {"queries": ["test"], "max_results": 5}
+            )
+        assert len(result) == 1
+        assert result[0]["title"] == "No Key OK"
 
     @pytest.mark.asyncio
-    async def test_mock_mode_without_scenario_file_returns_empty(self):
-        """Mock mode with no scenario file returns empty."""
+    async def test_mock_mode_without_scenario_file_returns_empty(self) -> None:
+        """Mock mode with no scenario file returns empty list."""
         settings = _mock_settings(tavily_mock_mode=True)
         with patch("app.agents.tools.tavily_search.get_settings", return_value=settings), \
              patch.dict(os.environ, {"TAVILY_MOCK_SCENARIO_PATH": ""}):
-            result = await tavily_search(query="anything")
-        assert result == ""
+            result = await tavily_search.ainvoke(
+                {"queries": ["anything"], "max_results": 5}
+            )
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_mock_mode_output_format_matches_real(self, tmp_path: Path):
-        """Formatted mock output has same structure as real output."""
+    async def test_mock_mode_output_structure_matches_real(
+        self, tmp_path: Path
+    ) -> None:
+        """Mock output via ainvoke has same structured shape as real output."""
         f = tmp_path / "s.json"
         f.write_text(_scenario_json([
             {
@@ -241,24 +268,33 @@ class TestEnvToggle:
         settings = _mock_settings(tavily_mock_mode=True)
         with patch("app.agents.tools.tavily_search.get_settings", return_value=settings), \
              patch.dict(os.environ, {"TAVILY_MOCK_SCENARIO_PATH": str(f)}):
-            result = await tavily_search(query="test topic")
+            result = await tavily_search.ainvoke(
+                {"queries": ["test topic"], "max_results": 5}
+            )
 
-        assert "1. R1" in result
-        assert "C1" in result
-        assert "Source: https://a.com" in result
-        assert "Relevance: 0.9" in result
-        assert "2. R2" in result
-        assert "C2" in result
-        assert "Source: https://b.com" in result
-        assert "Relevance: 0.8" in result
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["title"] == "R1"
+        assert result[0]["content"] == "C1"
+        assert result[0]["url"] == "https://a.com"
+        assert result[0]["score"] == 0.9
+        assert result[1]["title"] == "R2"
+        assert result[1]["content"] == "C2"
+        assert result[1]["url"] == "https://b.com"
+        assert result[1]["score"] == 0.8
 
     @pytest.mark.asyncio
-    async def test_mock_mode_false_uses_real_client(self):
+    async def test_mock_mode_false_uses_real_client(self) -> None:
         """tavily_mock_mode=False falls through to normal flow (no crash)."""
+        from unittest.mock import AsyncMock
+
         settings = _mock_settings(tavily_mock_mode=False)
         with patch("app.agents.tools.tavily_search.get_settings", return_value=settings), \
-             patch("tavily.TavilyClient") as mock_cls:
-            result = await tavily_search(query="test")
-            mock_cls.assert_called_once()
-        # With no API key set above, this should return empty string
-        assert result == ""
+             patch("app.agents.tools.tavily_search.TavilyClient") as mock_cls:
+            mock_instance = mock_cls.return_value
+            mock_instance.search = AsyncMock(return_value=[])
+            result = await tavily_search.ainvoke(
+                {"queries": ["test"], "max_results": 5}
+            )
+            mock_cls.assert_called_once_with(api_key="test-key")
+        assert result == []

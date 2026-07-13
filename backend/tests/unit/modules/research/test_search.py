@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -90,57 +90,148 @@ async def test_t036_four_dimensions_collected_concurrently_with_real_tavily() ->
 async def test_t037_retry_succeeds_on_third_attempt_with_real_tavily() -> None:
     """When Tavily fails twice, retry with 2s/4s backoff, then succeed.
 
-    The service does `from app.agents.tools.tavily_search import tavily_search`
-    INSIDE `_search_with_retry`. We patch the `tavily_search` symbol in the
-    `app.agents.tools.tavily_search` module so the re-import rebinds to our
-    stub coroutine.
+    Integration-style test across the real StructuredTool boundary:
+    wraps the real tavily_search tool, replaces only the I/O boundaries
+    (TavilyClient, settings, env), and asserts every recording detail.
     """
+    from types import SimpleNamespace
+
+    from app.agents.tools.tavily_search import tavily_search as real_tavily_search
     from app.modules.research.service import ResearchService
 
-    call_log: list[float] = []
+    # Fake TavilyClient — records (query, max_results), fails 2x, succeeds 3rd
+    client_calls: list[tuple[str, int]] = []
 
-    async def fake_tavily_call(*args, **kwargs):
-        from time import monotonic
-        call_log.append(monotonic())
-        if len(call_log) <= 2:
-            raise RuntimeError("simulated Tavily 5xx")
-        return [{"title": "hit", "url": "https://x", "content": "y"}]
+    class _FakeTavilyClient:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
 
-    # Patch the symbol the service module imports lazily.
-    with patch("app.agents.tools.tavily_search.tavily_search", fake_tavily_call):
+        async def search(self, query: str, max_results: int) -> list[dict]:
+            client_calls.append((query, max_results))
+            if len(client_calls) <= 2:
+                raise RuntimeError("simulated Tavily 5xx")
+            return [{"title": "hit", "url": "https://x", "content": "y"}]
+
+    # Thin recording wrapper — copies payload, delegates to real tool
+    recorded_payloads: list[dict] = []
+
+    class _RecordingWrapper:
+        async def ainvoke(self, payload: dict) -> list[dict]:
+            recorded_payloads.append(dict(payload))
+            return await real_tavily_search.ainvoke(payload)
+
+    wrapper = _RecordingWrapper()
+    sleep_mock = AsyncMock()
+
+    fake_settings = SimpleNamespace(
+        tavily_api_key="test-key",
+        tavily_mock_mode=False,
+    )
+
+    with patch("app.agents.tools.tavily_search.tavily_search", wrapper), \
+         patch("app.agents.tools.tavily_search.TavilyClient", _FakeTavilyClient), \
+         patch("app.agents.tools.tavily_search.get_settings", return_value=fake_settings), \
+         patch.dict(os.environ, {
+             "TAVILY_API_KEY": "",
+             "TAVILY_MOCK_MODE": "",
+             "TAVILY_MOCK_SCENARIO_PATH": "",
+         }), \
+         patch("app.modules.research.service.asyncio.sleep", sleep_mock):
         svc = ResearchService(MagicMock())
         svc.result_repo.create = AsyncMock()
 
-        started = __import__("time").monotonic()
         hits = await svc._search_with_retry(
             task_id=MagicMock(),
             dimension="interview_experience",
             queries=["字节跳动 面试 面经"],
             company="字节跳动",
         )
-        elapsed = __import__("time").monotonic() - started
 
+    # -- assertions --
     assert len(hits) == 1, f"should have 1 hit after retry, got {hits}"
-    assert len(call_log) == 3, f"should have made 3 calls, got {len(call_log)}"
 
-    # Backoff between calls should be ~2s and ~4s (totaling ≥6s)
-    gap1 = call_log[1] - call_log[0]
-    gap2 = call_log[2] - call_log[1]
-    assert gap1 >= 1.8, f"first backoff should be ~2s, got {gap1:.2f}s"
-    assert gap2 >= 3.8, f"second backoff should be ~4s, got {gap2:.2f}s"
-    assert elapsed >= 6.0, f"total elapsed should be ≥6s, got {elapsed:.2f}s"
+    expected_payload = {"queries": ["字节跳动 面试 面经"], "max_results": 5}
+    assert len(recorded_payloads) == 3, (
+        f"should have 3 payloads, got {len(recorded_payloads)}"
+    )
+    for i, p in enumerate(recorded_payloads):
+        assert p == expected_payload, f"payload {i}: {p} != {expected_payload}"
+
+    expected_call = ("字节跳动 面试 面经", 5)
+    assert len(client_calls) == 3, (
+        f"should have 3 client calls, got {len(client_calls)}"
+    )
+    for i, c in enumerate(client_calls):
+        assert c == expected_call, f"client call {i}: {c} != {expected_call}"
+
+    assert sleep_mock.await_args_list == [call(2), call(4)], (
+        f"expected sleep(2) then sleep(4), got {sleep_mock.await_args_list}"
+    )
+
+    assert svc.result_repo.create.await_count == 1, (
+        f"should persist once, got {svc.result_repo.create.await_count}"
+    )
+    call_kwargs = svc.result_repo.create.await_args.kwargs
+    assert call_kwargs["results"] == hits, (
+        f"persisted results {call_kwargs['results']} != returned {hits}"
+    )
+    assert "error" not in call_kwargs or call_kwargs.get("error") is None, (
+        f"should not have error key, got {call_kwargs.get('error')}"
+    )
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_t037_all_retries_exhausted_returns_empty() -> None:
-    """When Tavily fails all 3 attempts, the method returns [] and logs the error."""
+    """When Tavily fails all 3 attempts across the real StructuredTool boundary,
+    the method returns [] and persists the error.
+
+    Uses the real tavily_search StructuredTool wrapped by a recording proxy;
+    fakes only the I/O boundaries (TavilyClient always raises, settings/env
+    stubbed).  Assertions verify every payload, every client call, sleep
+    backoffs, and the single persistence row with results==[] and the error.
+    """
+    from types import SimpleNamespace
+
+    from app.agents.tools.tavily_search import tavily_search as real_tavily_search
     from app.modules.research.service import ResearchService
 
-    async def always_fail_call(*args, **kwargs):
-        raise RuntimeError("simulated 500")
+    # Fake TavilyClient — records (query, max_results), always raises
+    client_calls: list[tuple[str, int]] = []
 
-    with patch("app.agents.tools.tavily_search.tavily_search", always_fail_call):
+    class _FakeTavilyClient:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+
+        async def search(self, query: str, max_results: int) -> list[dict]:
+            client_calls.append((query, max_results))
+            raise RuntimeError("simulated 500")
+
+    # Thin recording wrapper — copies payload, delegates to real tool
+    recorded_payloads: list[dict] = []
+
+    class _RecordingWrapper:
+        async def ainvoke(self, payload: dict) -> list[dict]:
+            recorded_payloads.append(dict(payload))
+            return await real_tavily_search.ainvoke(payload)
+
+    wrapper = _RecordingWrapper()
+    sleep_mock = AsyncMock()
+
+    fake_settings = SimpleNamespace(
+        tavily_api_key="test-key",
+        tavily_mock_mode=False,
+    )
+
+    with patch("app.agents.tools.tavily_search.tavily_search", wrapper), \
+         patch("app.agents.tools.tavily_search.TavilyClient", _FakeTavilyClient), \
+         patch("app.agents.tools.tavily_search.get_settings", return_value=fake_settings), \
+         patch.dict(os.environ, {
+             "TAVILY_API_KEY": "",
+             "TAVILY_MOCK_MODE": "",
+             "TAVILY_MOCK_SCENARIO_PATH": "",
+         }), \
+         patch("app.modules.research.service.asyncio.sleep", sleep_mock):
         svc = ResearchService(MagicMock())
         svc.result_repo.create = AsyncMock()
 
@@ -151,14 +242,37 @@ async def test_t037_all_retries_exhausted_returns_empty() -> None:
             company="X",
         )
 
-    assert hits == [], "should return empty list when all retries fail"
-    assert svc.result_repo.create.await_count == 1, (
-        "should still persist a failure marker row"
+    # -- assertions --
+    assert hits == [], f"should return empty list when all retries fail, got {hits}"
+
+    expected_payload = {"queries": ["后端 面试 知识点"], "max_results": 5}
+    assert len(recorded_payloads) == 3, (
+        f"should have 3 payloads, got {len(recorded_payloads)}"
     )
-    # The error kwarg should be set on the failure row
+    for i, p in enumerate(recorded_payloads):
+        assert p == expected_payload, f"payload {i}: {p} != {expected_payload}"
+
+    expected_call = ("后端 面试 知识点", 5)
+    assert len(client_calls) == 3, (
+        f"should have 3 client calls, got {len(client_calls)}"
+    )
+    for i, c in enumerate(client_calls):
+        assert c == expected_call, f"client call {i}: {c} != {expected_call}"
+
+    assert sleep_mock.await_args_list == [call(2), call(4)], (
+        f"expected sleep(2) then sleep(4), got {sleep_mock.await_args_list}"
+    )
+
+    assert svc.result_repo.create.await_count == 1, (
+        f"should persist once, got {svc.result_repo.create.await_count}"
+    )
     call_kwargs = svc.result_repo.create.await_args.kwargs
-    assert call_kwargs["error"] is not None
-    assert "simulated 500" in call_kwargs["error"]
+    assert call_kwargs["results"] == hits, (
+        f"persisted results {call_kwargs['results']} != returned {hits}"
+    )
+    assert "simulated 500" in call_kwargs["error"], (
+        f"should contain 'simulated 500' in error, got {call_kwargs.get('error')}"
+    )
 
 
 # ---------------------------------------------------------------------------

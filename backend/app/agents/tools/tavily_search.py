@@ -7,14 +7,20 @@ as the typed :class:`TavilyAPIKeyMissingError` per AC-4.1a.
 from __future__ import annotations
 
 import os
+from typing import Annotated
 
 from langchain_core.tools import tool
+from pydantic import Field, StringConstraints
 
 from app.agents.tools._clients import (
     TavilyAPIKeyMissingError,
     TavilyClient,
 )
 from app.core.config import get_settings
+
+NonBlankStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+QueryList = Annotated[list[NonBlankStr], Field(min_length=1)]
+MaxResults = Annotated[int, Field(ge=1, le=5)]
 
 
 def _truthy(value: str | None) -> bool:
@@ -52,8 +58,8 @@ def _resolve_mock_mode() -> bool:
 
 @tool
 async def tavily_search(
-    queries: list[str],
-    max_results: int = 5,
+    queries: QueryList,
+    max_results: MaxResults = 5,
 ) -> list[dict]:
     """Search the web for company / product / research data via Tavily.
 
@@ -70,6 +76,8 @@ async def tavily_search(
 
     Raises:
         TavilyAPIKeyMissingError: when TAVILY_API_KEY is not configured.
+        Exception: client search exceptions are logged then re-raised unchanged
+            for caller retry handling.
     """
     import structlog
 
@@ -98,9 +106,9 @@ async def tavily_search(
     for query in queries:
         try:
             results = await client.search(query, max_results=max_results)
-        except Exception as exc:  # surface as runtime error for @node_error_handler
+        except Exception as exc:
             logger.warning("tavily_search.query_failed", query=query, error=str(exc))
-            continue
+            raise
         aggregated.extend(results)
     return aggregated
 
