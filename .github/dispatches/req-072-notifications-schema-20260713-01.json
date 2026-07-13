@@ -1,0 +1,18 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "29ac7008f7d0276a6d06bfa17b29be142cfe6d3d",
+    "ac_hash":  "2d0b3af319546dda855f1685f92ad32f8704235718c9b532225489420af7f7a7",
+    "spec_task_id":  "ISSUE-072",
+    "driver":  "claude-code",
+    "created_at":  "2026-07-13T13:45:48Z",
+    "state":  "superseded",
+    "issue_number":  72,
+    "dispatch_id":  "req-072-notifications-schema-20260713-01",
+    "allowed_paths":  [
+                          ".github/dispatches/req-072-notifications-schema-20260713-01.json",
+                          "backend/migrations/env.py",
+                          "backend/migrations/versions/0054_account_notifications.py",
+                          "backend/tests/integration/account/test_notifications_migration.py"
+                      ]
+}
