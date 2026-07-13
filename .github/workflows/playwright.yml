@@ -85,12 +85,13 @@ jobs:
         working-directory: backend
         run: uv sync --extra dev --locked
 
-      - name: Create application database role
+      - name: Create migration database roles
         env:
           PGPASSWORD: testpass
         run: >-
           psql --host localhost --username intercraft_test --dbname intercraft_test
-          --set ON_ERROR_STOP=1 --command 'CREATE ROLE appuser NOLOGIN'
+          --set ON_ERROR_STOP=1
+          --command 'CREATE ROLE appuser NOLOGIN; CREATE ROLE postgres NOLOGIN'
 
       - name: Run database migrations
         working-directory: backend
