@@ -14,7 +14,7 @@
       "args": [
         "-y",
         "@modelcontextprotocol/server-postgres",
-        "postgresql://appuser:123ABCMYSQL@81.71.152.210:5432/interCraft"
+        "${INTERCRAFT_TEST_DATABASE_URL}"
       ]
     }
   }

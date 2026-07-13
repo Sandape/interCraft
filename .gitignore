@@ -79,9 +79,6 @@ Thumbs.db
 /playwright/.cache/
 /playwright/.auth/
 
-# Local MCP config (may contain tokens)
-.mcp.json
-
 # Claude runtime/local artifacts — tracked removals per REQ-064 Phase 5c
 .claude/settings.local.json
 .claude/state.json
