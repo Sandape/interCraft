@@ -15,6 +15,35 @@ in `specs/`; this guide only describes where tests live and how to run them.
 | Backend tests | `cd backend && uv run pytest -q` |
 | Backend contract tests | `cd backend && uv run pytest tests/contract -q` |
 
+## Local MCP Setup
+
+The tracked `.mcp.json` is a shareable project topology file. It must contain
+server commands and environment-variable references only — never database
+passwords, tokens, cookies, or complete credential-bearing connection strings.
+
+Set the test database URL outside the repository before starting Claude Code.
+Claude Code supports this environment-variable expansion in its
+[MCP configuration](https://code.claude.com/docs/en/mcp). For example, in
+PowerShell:
+
+```powershell
+$env:INTERCRAFT_TEST_DATABASE_URL = 'postgresql://<user>:<password>@<host>:<port>/<database>'
+claude mcp list
+```
+
+Claude Code expands `${INTERCRAFT_TEST_DATABASE_URL}` when it starts the
+project-scoped PostgreSQL MCP server. `claude mcp list` must report `postgres`
+as connected after the project MCP configuration is approved and before a
+database-backed acceptance run begins. If the variable is absent, treat
+PostgreSQL evidence lanes as blocked; do not replace MCP evidence with copied
+SQL output or application logs.
+
+Use a test-only database and synthetic tenant/user identifiers. Never paste a
+real connection string into Git, an Issue, a PR, screenshots, evidence, or
+agent prompts. If a credential is ever committed, remove the literal value and
+rotate/revoke it; deleting it from the current tree does not remove it from Git
+history.
+
 ## Test Roots
 
 | Root | Status | Purpose |
