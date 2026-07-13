@@ -1,0 +1,852 @@
+openapi: 3.1.0
+info:
+  title: InterCraft AI Operations API
+  version: 1.0.0
+  description: Role-scoped task, policy, point, cost, reconciliation and evidence operations. All mutations require a reason and append an admin audit event.
+servers:
+  - url: /api/v1/admin-console/ai
+security:
+  - bearerAuth: []
+paths:
+  /tasks:
+    get:
+      operationId: searchOperationalAITasks
+      parameters:
+        - {name: task_id, in: query, schema: {type: string, format: uuid}}
+        - {name: user_id, in: query, schema: {type: string, format: uuid}}
+        - {name: capability, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {type: string}}
+        - {name: policy_version, in: query, schema: {type: string}}
+        - {name: release_batch, in: query, schema: {type: string}}
+        - {name: grant_config_version, in: query, schema: {type: string}}
+        - {name: cursor, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: Redacted task summaries with data freshness and coverage
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OperationalTaskPage'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /tasks/{taskId}:
+    get:
+      operationId: getOperationalAITask
+      summary: Get the complete redacted operational view of one AI task
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Task overview, lineage, milestones, settlement, versions and related quality records
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OperationalTaskDetail'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Task not found within the caller's operational scope}
+  /tasks/{taskId}/timeline:
+    get:
+      operationId: getOperationalTaskTimeline
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - {name: kind, in: query, schema: {type: string, enum: [task_event, execution, stage, model_attempt, search_attempt, tool_attempt, milestone, point_event, cost_event, feedback, evaluation, badcase, audit_access]}}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+      responses:
+        '200':
+          description: Ordered task, execution, stage, attempt, milestone, point and cost events
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Timeline'}
+  /tasks/{taskId}/attempts:
+    get:
+      operationId: listOperationalAIExternalAttempts
+      summary: List every model, search and tool attempt, including failures and retries
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - {name: attempt_kind, in: query, schema: {type: string, enum: [model, embedding, rerank, search, tool, channel]}}
+        - {name: status, in: query, schema: {type: string, enum: [created, sent, succeeded, failed, timed_out, unknown]}}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        '200':
+          description: Cursor page of attempt-level usage, cost and side-effect evidence
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExternalAttemptPage'}
+  /tasks/{taskId}/evidence-replay:
+    get:
+      operationId: replayAITaskEvidence
+      summary: Read-only evidence reconstruction; must not enqueue providers, tools or ledger writes
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Redacted causal replay plus completeness statement
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvidenceReplay'}
+  /tasks/{taskId}/re-executions:
+    post:
+      operationId: operatorReexecuteAITask
+      summary: High-risk mutation distinct from evidence replay
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OperatorReexecution'}
+      responses:
+        '202':
+          description: New execution accepted and audit event returned
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MutationReceipt'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /metrics:
+    get:
+      operationId: getAIOperationalMetrics
+      parameters:
+        - {name: from, in: query, required: true, schema: {type: string, format: date-time}}
+        - {name: to, in: query, required: true, schema: {type: string, format: date-time}}
+        - {name: capability, in: query, schema: {type: string}}
+        - {name: service_tier, in: query, schema: {type: string, enum: [standard, quality]}}
+        - {name: policy_version, in: query, schema: {type: string}}
+        - {name: release_batch, in: query, schema: {type: string}}
+        - {name: grant_config_version, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: Stability, quality, latency, point and real-cost metrics; beta revenue is always zero
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MetricsResponse'}
+  /point-configs:
+    get:
+      operationId: listDailyPointConfigs
+      responses:
+        '200':
+          description: Effective-dated configuration history
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/PointConfig'}}
+    post:
+      operationId: createDailyPointConfig
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [points, effective_at, reason, expected_current_version]
+              properties:
+                points: {type: integer, minimum: 0}
+                effective_at: {type: string, format: date-time}
+                reason: {type: string, minLength: 1, maxLength: 1000}
+                expected_current_version: {type: string}
+      responses:
+        '201':
+          description: New version; already-issued buckets are unchanged
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PointConfig'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /cost-rates:
+    get:
+      operationId: listCostRates
+      responses:
+        '200':
+          description: Versioned provider/model/tool rates
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/CostRate'}}
+    post:
+      operationId: createCostRate
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateCostRate'}
+      responses:
+        '201':
+          description: New effective-dated rate version
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CostRate'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /budgets:
+    get:
+      operationId: listAICostBudgets
+      responses:
+        '200':
+          description: Site/capability/policy/config/user budgets and consumption
+    post:
+      operationId: createAICostBudget
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BudgetCommand'}
+      responses:
+        '201': {description: Versioned budget created}
+  /reconciliations:
+    get:
+      operationId: listAIReconciliations
+      responses:
+        '200':
+          description: Daily and invoice reconciliation runs and issues
+    post:
+      operationId: startAIReconciliation
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [run_type, period_start, period_end, reason]
+              properties:
+                run_type: {type: string, enum: [point_conservation, attempt_coverage, cost_rate_coverage, provider_usage, provider_invoice, projection_rebuild]}
+                period_start: {type: string, format: date-time}
+                period_end: {type: string, format: date-time}
+                reason: {type: string, minLength: 1}
+      responses:
+        '202':
+          description: Run accepted
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MutationReceipt'}
+  /model-policies:
+    get:
+      operationId: listModelPolicies
+      responses:
+        '200':
+          description: Candidate/current policies, allocation, evidence and rollback state
+    post:
+      operationId: createModelPolicyVersion
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ModelPolicyCommand'}
+      responses:
+        '201': {description: Draft or candidate policy version created}
+  /model-policies/{policyVersion}/release:
+    post:
+      operationId: releaseModelPolicyVersion
+      parameters:
+        - {name: policyVersion, in: path, required: true, schema: {type: string}}
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [target_status, traffic_percent, eval_evidence_ref, rollback_target, reason]
+              properties:
+                target_status: {type: string, enum: [gray, stable, stopped, retired]}
+                traffic_percent: {type: number, minimum: 0, maximum: 100}
+                eval_evidence_ref: {type: string}
+                rollback_target: {type: string}
+                reason: {type: string, minLength: 1}
+      responses:
+        '202':
+          description: Audited release transition accepted
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MutationReceipt'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /badcases:
+    get:
+      operationId: listOperationalBadcases
+      summary: Search persistent Bad Cases and their current affected scope
+      parameters:
+        - {name: status, in: query, schema: {type: string, enum: [OPEN, TRIAGED, IN_PROGRESS, AWAITING_VALIDATION, CLOSED, REJECTED]}}
+        - {name: severity, in: query, schema: {type: string, enum: [P0, P1, P2, P3]}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: capability, in: query, schema: {type: string}}
+        - {name: owner, in: query, schema: {type: string}}
+        - {name: source, in: query, schema: {type: string}}
+        - {name: policy_version, in: query, schema: {type: string}}
+        - {name: privacy_class, in: query, schema: {type: string, enum: [metadata, redacted, restricted]}}
+        - {name: point_treatment_status, in: query, schema: {type: string, enum: [not_required, pending, completed, disputed, unknown]}}
+        - {name: sla_status, in: query, schema: {type: string, enum: [within_sla, at_risk, breached]}}
+        - {name: first_seen_from, in: query, schema: {type: string, format: date-time}}
+        - {name: last_seen_to, in: query, schema: {type: string, format: date-time}}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: Cursor page with freshness, coverage and unknown counts
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BadcasePage'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /badcases/{badcaseId}:
+    get:
+      operationId: getOperationalBadcase
+      summary: Read classification, scope, privacy, fix, regression and user-treatment evidence
+      parameters:
+        - $ref: '#/components/parameters/BadcaseId'
+      responses:
+        '200':
+          description: Persistent Bad Case detail
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BadcaseDetail'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Bad Case not found within the caller's scope}
+  /badcases/{badcaseId}/timeline:
+    get:
+      operationId: listOperationalBadcaseTimeline
+      parameters:
+        - $ref: '#/components/parameters/BadcaseId'
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+      responses:
+        '200':
+          description: Ordered intake, classification, impact, assignment, privacy, fix, evaluation, point and notification events
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BadcaseTimeline'}
+  /badcases/{badcaseId}/impacts:
+    get:
+      operationId: listOperationalBadcaseImpacts
+      parameters:
+        - $ref: '#/components/parameters/BadcaseId'
+        - {name: impact_kind, in: query, schema: {type: string, enum: [task, user, behavior_version, point_event, cost_event]}}
+        - {name: confidence, in: query, schema: {type: string, enum: [confirmed, possible, excluded, unknown]}}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        '200':
+          description: Versioned affected-scope links; unknown scope is never represented as zero
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BadcaseImpactPage'}
+  /badcases/{badcaseId}/actions:
+    get:
+      operationId: listOperationalBadcaseActions
+      parameters:
+        - $ref: '#/components/parameters/BadcaseId'
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+      responses:
+        '200':
+          description: Immutable reviewer and system action history
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BadcaseActionPage'}
+    post:
+      operationId: createOperationalBadcaseAction
+      summary: Append a version-checked Bad Case command; never overwrites prior review evidence
+      parameters:
+        - $ref: '#/components/parameters/BadcaseId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BadcaseActionCommand'}
+      responses:
+        '201':
+          description: Action appended and projection updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BadcaseActionReceipt'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    TaskId: {name: taskId, in: path, required: true, schema: {type: string, format: uuid}}
+    BadcaseId: {name: badcaseId, in: path, required: true, schema: {type: string}}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 128}
+  responses:
+    Forbidden: {description: Missing named operational capability; resource existence is not revealed}
+    Conflict: {description: Version, state, traffic gate or data-quality conflict}
+  schemas:
+    DecimalMoney:
+      type: object
+      additionalProperties: false
+      required: [amount, currency]
+      properties:
+        amount: {type: string, pattern: '^-?[0-9]+(\.[0-9]+)?$'}
+        currency: {type: string, minLength: 3, maxLength: 3}
+    DataQuality:
+      type: object
+      additionalProperties: false
+      required: [fresh_at, coverage_percent, unknown_count, seed_or_mock_count]
+      properties:
+        fresh_at: {type: string, format: date-time}
+        coverage_percent: {type: number, minimum: 0, maximum: 100}
+        unknown_count: {type: integer, minimum: 0}
+        seed_or_mock_count: {type: integer, const: 0}
+    OperationalTask:
+      type: object
+      additionalProperties: false
+      required: [task_id, user_ref, capability, status, service_tier, accepted_at, point_settled, current_cost_rmb, cost_status, evidence_completeness]
+      properties:
+        task_id: {type: string, format: uuid}
+        user_ref: {type: string, description: Pseudonymous unless caller has user-support scope}
+        capability: {type: string}
+        status: {type: string}
+        service_tier: {type: string, enum: [standard, quality]}
+        accepted_at: {type: string, format: date-time}
+        point_settled: {type: integer, minimum: 0}
+        current_cost_rmb: {$ref: '#/components/schemas/DecimalMoney'}
+        cost_status: {type: string, enum: [estimated, provider_confirmed, reconciled, reversed, mixed, unknown]}
+        evidence_completeness: {type: string, enum: [complete, incomplete, unknown]}
+    OperationalTaskPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, data_quality]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/OperationalTask'}}
+        next_cursor: {type: [string, 'null']}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    OperationalTaskDetail:
+      type: object
+      additionalProperties: false
+      required: [task, executions, milestones, versions, point_summary, cost_summary, related_feedback, related_evaluations, related_badcases, data_quality]
+      properties:
+        task: {$ref: '#/components/schemas/OperationalTask'}
+        executions: {type: array, items: {type: object, additionalProperties: true}}
+        milestones: {type: array, items: {type: object, additionalProperties: true}}
+        versions: {type: object, additionalProperties: true}
+        point_summary: {type: object, additionalProperties: true}
+        cost_summary: {type: object, additionalProperties: true}
+        related_feedback: {type: array, items: {type: object, additionalProperties: true}}
+        related_evaluations: {type: array, items: {type: object, additionalProperties: true}}
+        related_badcases: {type: array, items: {type: object, additionalProperties: true}}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    ExternalAttempt:
+      type: object
+      additionalProperties: false
+      required: [attempt_id, task_id, execution_id, attempt_kind, operation_name, attempt_no, status, started_at, provider_code, route_code, policy_version, latency_ms, usage, cost, cost_status, retry_decision, side_effect_evidence, privacy_class]
+      properties:
+        attempt_id: {type: string, format: uuid}
+        task_id: {type: string, format: uuid}
+        execution_id: {type: string, format: uuid}
+        stage_attempt_id: {type: [string, 'null'], format: uuid}
+        attempt_kind: {type: string, enum: [model, embedding, rerank, search, tool, channel]}
+        operation_name: {type: string}
+        attempt_no: {type: integer, minimum: 1}
+        status: {type: string, enum: [created, sent, succeeded, failed, timed_out, unknown]}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+        latency_ms: {type: [integer, 'null'], minimum: 0}
+        provider_code: {type: string}
+        route_code: {type: string}
+        provider_request_id: {type: [string, 'null']}
+        policy_version: {type: string}
+        behavior_versions: {type: object, additionalProperties: true}
+        usage: {type: object, additionalProperties: true}
+        cost: {$ref: '#/components/schemas/DecimalMoney'}
+        cost_status: {type: string, enum: [estimated, provider_confirmed, reconciled, reversed, unknown]}
+        cost_rate_version: {type: [string, 'null']}
+        failure_category: {type: [string, 'null']}
+        fallback_from: {type: [string, 'null']}
+        retry_decision: {type: string, enum: [none, retry, degrade, reconcile, stop]}
+        side_effect_evidence: {type: string, enum: [not_applicable, not_started, committed, unknown]}
+        trace_id: {type: [string, 'null']}
+        langsmith_ref: {type: [string, 'null']}
+        privacy_class: {type: string, enum: [metadata, redacted, restricted]}
+    ExternalAttemptPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, data_quality]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/ExternalAttempt'}}
+        next_cursor: {type: [string, 'null']}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    TimelineItem:
+      type: object
+      additionalProperties: false
+      required: [sequence, kind, occurred_at, recorded_at, root_task_id, summary, privacy_class]
+      properties:
+        sequence: {type: integer, minimum: 1}
+        kind: {type: string, enum: [task_event, execution, stage, model_attempt, search_attempt, tool_attempt, milestone, point_event, cost_event, feedback, evaluation]}
+        occurred_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        root_task_id: {type: string, format: uuid}
+        execution_id: {type: [string, 'null'], format: uuid}
+        parent_ref: {type: [string, 'null']}
+        summary: {type: object, additionalProperties: true}
+        privacy_class: {type: string, enum: [metadata, redacted, restricted]}
+    Timeline:
+      type: object
+      additionalProperties: false
+      required: [task_id, items, next_cursor, completeness, data_quality]
+      properties:
+        task_id: {type: string, format: uuid}
+        items: {type: array, items: {$ref: '#/components/schemas/TimelineItem'}}
+        next_cursor: {type: [string, 'null']}
+        completeness: {type: string, enum: [complete, incomplete, unknown]}
+        missing_evidence: {type: array, items: {type: string}}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    EvidenceReplay:
+      type: object
+      additionalProperties: false
+      required: [task_id, replay_mode, timeline, provider_calls_created, ledger_events_created]
+      properties:
+        task_id: {type: string, format: uuid}
+        replay_mode: {type: string, const: evidence_only}
+        timeline: {$ref: '#/components/schemas/Timeline'}
+        provider_calls_created: {type: integer, const: 0}
+        ledger_events_created: {type: integer, const: 0}
+    OperatorReexecution:
+      type: object
+      additionalProperties: false
+      required: [input_mode, behavior_mode, point_treatment, reason, expected_task_version]
+      properties:
+        input_mode: {type: string, enum: [original_snapshot, latest_snapshot]}
+        behavior_mode: {type: string, enum: [original_locked, current_stable]}
+        point_treatment: {type: string, enum: [normal_user_charge, platform_compensation, no_user_charge]}
+        reason: {type: string, minLength: 1, maxLength: 1000}
+        expected_task_version: {type: integer, minimum: 1}
+    MutationReceipt:
+      type: object
+      additionalProperties: false
+      required: [operation_id, status, audit_event_id, accepted_at]
+      properties:
+        operation_id: {type: string, format: uuid}
+        status: {type: string, enum: [accepted, completed]}
+        audit_event_id: {type: string, format: uuid}
+        accepted_at: {type: string, format: date-time}
+    MetricsResponse:
+      type: object
+      additionalProperties: false
+      required: [stability, quality, latency, points, cost, revenue_rmb, data_quality]
+      properties:
+        stability: {type: object, additionalProperties: true}
+        quality: {type: object, additionalProperties: true}
+        latency: {type: object, additionalProperties: true}
+        points: {type: object, additionalProperties: true}
+        cost: {type: object, additionalProperties: true}
+        revenue_rmb:
+          allOf:
+            - $ref: '#/components/schemas/DecimalMoney'
+            - type: object
+              properties: {amount: {const: '0'}}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    PointConfig:
+      type: object
+      additionalProperties: false
+      required: [version, points, timezone, effective_at, actor, reason, created_at]
+      properties:
+        version: {type: string}
+        points: {type: integer, minimum: 0}
+        timezone: {type: string, const: Asia/Shanghai}
+        effective_at: {type: string, format: date-time}
+        actor: {type: string}
+        reason: {type: string}
+        created_at: {type: string, format: date-time}
+    CostRate:
+      type: object
+      additionalProperties: false
+      required: [version, provider_code, route_code, unit, rate, effective_at, source, status]
+      properties:
+        version: {type: string}
+        provider_code: {type: string}
+        route_code: {type: string}
+        unit: {type: string}
+        rate: {$ref: '#/components/schemas/DecimalMoney'}
+        effective_at: {type: string, format: date-time}
+        source: {type: string}
+        status: {type: string, enum: [draft, active, retired]}
+    CreateCostRate:
+      type: object
+      additionalProperties: false
+      required: [provider_code, route_code, unit, rate, effective_at, source, reason, expected_current_version]
+      properties:
+        provider_code: {type: string}
+        route_code: {type: string}
+        unit: {type: string}
+        rate: {$ref: '#/components/schemas/DecimalMoney'}
+        effective_at: {type: string, format: date-time}
+        source: {type: string}
+        reason: {type: string, minLength: 1}
+        expected_current_version: {type: [string, 'null']}
+    BudgetCommand:
+      type: object
+      additionalProperties: false
+      required: [scope_type, scope_ref, period, amount_rmb, warning_percent, reason]
+      properties:
+        scope_type: {type: string, enum: [site, capability, model_policy, point_config, user]}
+        scope_ref: {type: string}
+        period: {type: string, enum: [day, month]}
+        amount_rmb: {$ref: '#/components/schemas/DecimalMoney'}
+        warning_percent: {type: number, const: 80}
+        reason: {type: string, minLength: 1}
+    ModelPolicyCommand:
+      type: object
+      additionalProperties: false
+      required: [capability, subscenario, service_tier, primary_route, allowed_fallbacks, quality_gate_ref, latency_target_ms, cost_ceiling_rmb, rollback_target, owner, reason]
+      properties:
+        capability: {type: string}
+        subscenario: {type: string}
+        service_tier: {type: string, enum: [standard, quality]}
+        primary_route: {type: string}
+        allowed_fallbacks: {type: array, items: {type: string}}
+        quality_gate_ref: {type: string}
+        latency_target_ms: {type: integer, minimum: 1}
+        cost_ceiling_rmb: {$ref: '#/components/schemas/DecimalMoney'}
+        rollback_target: {type: string}
+        owner: {type: string}
+        reason: {type: string, minLength: 1}
+    BadcaseSummary:
+      type: object
+      additionalProperties: false
+      required: [badcase_id, status, severity, category, capabilities, owner, privacy_class, first_seen_at, last_seen_at, task_count, user_count_status, point_treatment_status, sla_status, version, data_completeness]
+      properties:
+        badcase_id: {type: string}
+        status: {type: string, enum: [OPEN, TRIAGED, IN_PROGRESS, AWAITING_VALIDATION, CLOSED, REJECTED]}
+        severity: {type: string, enum: [P0, P1, P2, P3]}
+        category: {type: string}
+        capabilities: {type: array, items: {type: string}}
+        owner: {type: [string, 'null']}
+        privacy_class: {type: string, enum: [metadata, redacted, restricted]}
+        first_seen_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+        task_count: {type: integer, minimum: 0}
+        user_count: {type: [integer, 'null'], minimum: 0}
+        user_count_status: {type: string, enum: [confirmed, possible, unknown]}
+        point_treatment_status: {type: string, enum: [not_required, pending, completed, disputed, unknown]}
+        sla_status: {type: string, enum: [within_sla, at_risk, breached]}
+        version: {type: integer, minimum: 1}
+        data_completeness: {type: string, enum: [complete, partial, legacy_partial, unknown]}
+    BadcasePage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, data_quality]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/BadcaseSummary'}}
+        next_cursor: {type: [string, 'null']}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    BadcaseDetail:
+      type: object
+      additionalProperties: false
+      required: [badcase, user_visible_status, root_cause, reproduction, affected_scope_summary, related_tasks, related_feedback, behavior_versions, privacy, owner_and_sla, fix, regression, point_treatment, user_notifications, related_incidents, data_quality]
+      properties:
+        badcase: {$ref: '#/components/schemas/BadcaseSummary'}
+        user_visible_status: {type: string}
+        root_cause: {type: object, additionalProperties: true}
+        reproduction: {type: object, additionalProperties: true}
+        affected_scope_summary: {type: object, additionalProperties: true}
+        related_tasks: {type: array, items: {type: object, additionalProperties: true}}
+        related_feedback: {type: array, items: {type: object, additionalProperties: true}}
+        behavior_versions: {type: object, additionalProperties: true}
+        privacy: {type: object, additionalProperties: true}
+        owner_and_sla: {type: object, additionalProperties: true}
+        fix: {type: object, additionalProperties: true}
+        regression: {type: object, additionalProperties: true}
+        point_treatment: {type: object, additionalProperties: true}
+        user_notifications: {type: array, items: {type: object, additionalProperties: true}}
+        related_incidents: {type: array, items: {type: object, additionalProperties: true}}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    BadcaseTimelineItem:
+      type: object
+      additionalProperties: false
+      required: [action_id, action_type, occurred_at, recorded_at, actor, reason, from_status, to_status, expected_version, resulting_version, evidence_refs, privacy_class]
+      properties:
+        action_id: {type: string, format: uuid}
+        action_type: {type: string}
+        occurred_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        actor: {type: string}
+        reason: {type: string}
+        from_status: {type: [string, 'null']}
+        to_status: {type: [string, 'null']}
+        expected_version: {type: integer, minimum: 1}
+        resulting_version: {type: integer, minimum: 1}
+        evidence_refs: {type: array, items: {$ref: '#/components/schemas/EvidenceRef'}}
+        privacy_class: {type: string, enum: [metadata, redacted, restricted]}
+    BadcaseTimeline:
+      type: object
+      additionalProperties: false
+      required: [badcase_id, items, next_cursor, data_quality]
+      properties:
+        badcase_id: {type: string}
+        items: {type: array, items: {$ref: '#/components/schemas/BadcaseTimelineItem'}}
+        next_cursor: {type: [string, 'null']}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    BadcaseImpact:
+      type: object
+      additionalProperties: false
+      required: [impact_id, impact_kind, subject_ref, confidence, first_seen_at, last_updated_at, evidence_refs, version]
+      properties:
+        impact_id: {type: string, format: uuid}
+        impact_kind: {type: string, enum: [task, user, behavior_version, point_event, cost_event]}
+        subject_ref: {type: string}
+        confidence: {type: string, enum: [confirmed, possible, excluded, unknown]}
+        first_seen_at: {type: string, format: date-time}
+        last_updated_at: {type: string, format: date-time}
+        evidence_refs: {type: array, items: {$ref: '#/components/schemas/EvidenceRef'}}
+        version: {type: integer, minimum: 1}
+    BadcaseImpactPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, data_quality]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/BadcaseImpact'}}
+        next_cursor: {type: [string, 'null']}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}
+    EvidenceRef:
+      type: object
+      additionalProperties: false
+      required: [kind, id, privacy_class, available]
+      properties:
+        kind: {type: string}
+        id: {type: string}
+        href: {type: [string, 'null']}
+        privacy_class: {type: string, enum: [metadata, redacted, restricted]}
+        available: {type: boolean}
+    BadcaseActionCommand:
+      oneOf:
+        - $ref: '#/components/schemas/BadcaseClassifyCommand'
+        - $ref: '#/components/schemas/BadcaseAssignCommand'
+        - $ref: '#/components/schemas/BadcaseMergeCommand'
+        - $ref: '#/components/schemas/BadcaseNoteCommand'
+        - $ref: '#/components/schemas/BadcaseEscalateCommand'
+        - $ref: '#/components/schemas/BadcasePointTreatmentCommand'
+        - $ref: '#/components/schemas/BadcasePromoteRegressionCommand'
+        - $ref: '#/components/schemas/BadcaseUnreproducibleCommand'
+        - $ref: '#/components/schemas/BadcaseCloseCommand'
+      discriminator:
+        propertyName: action_type
+    BadcaseActionBase:
+      type: object
+      required: [expected_version, reason]
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 1, maxLength: 2000}
+        evidence_refs: {type: array, items: {$ref: '#/components/schemas/EvidenceRef'}}
+    BadcaseClassifyCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, category, severity]
+          properties:
+            action_type: {type: string, const: CLASSIFY}
+            category: {type: string}
+            severity: {type: string, enum: [P0, P1, P2, P3]}
+    BadcaseAssignCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, owner]
+          properties:
+            action_type: {type: string, const: ASSIGN}
+            owner: {type: string}
+    BadcaseMergeCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, canonical_badcase_id, root_cause_match_evidence]
+          properties:
+            action_type: {type: string, const: MERGE}
+            canonical_badcase_id: {type: string}
+            root_cause_match_evidence: {$ref: '#/components/schemas/EvidenceRef'}
+    BadcaseNoteCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, note]
+          properties:
+            action_type: {type: string, const: ADD_NOTE}
+            note: {type: string, minLength: 1, maxLength: 4000}
+    BadcaseEscalateCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, incident_ref]
+          properties:
+            action_type: {type: string, const: ESCALATE_INCIDENT}
+            incident_ref: {type: string}
+    BadcasePointTreatmentCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, treatment_status, affected_user_scope, point_event_refs]
+          properties:
+            action_type: {type: string, const: RECORD_POINT_TREATMENT}
+            treatment_status: {type: string, enum: [not_required, pending, completed, disputed]}
+            affected_user_scope: {type: string}
+            point_event_refs: {type: array, items: {type: string, format: uuid}}
+            notification_ref: {type: [string, 'null']}
+    BadcasePromoteRegressionCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, regression_case_ref, redaction_audit_ref]
+          properties:
+            action_type: {type: string, const: PROMOTE_REGRESSION}
+            regression_case_ref: {type: string}
+            redaction_audit_ref: {type: string}
+    BadcaseUnreproducibleCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, attempted_reproduction_ref, required_user_information, user_visible_message]
+          properties:
+            action_type: {type: string, const: MARK_UNREPRODUCIBLE}
+            attempted_reproduction_ref: {type: string}
+            required_user_information: {type: array, items: {type: string}}
+            user_visible_message: {type: string, minLength: 1}
+    BadcaseCloseCommand:
+      allOf:
+        - $ref: '#/components/schemas/BadcaseActionBase'
+        - type: object
+          unevaluatedProperties: false
+          required: [action_type, closure_reason, fix_or_policy_version, regression_case_ref, passing_evaluation_ref, point_treatment_ref, user_notification_ref]
+          properties:
+            action_type: {type: string, const: CLOSE}
+            closure_reason: {type: string, minLength: 1}
+            fix_or_policy_version: {type: string}
+            regression_case_ref: {type: string}
+            passing_evaluation_ref: {type: string}
+            point_treatment_ref: {type: string}
+            user_notification_ref: {type: string}
+    BadcaseActionReceipt:
+      type: object
+      additionalProperties: false
+      required: [badcase_id, action, resulting_badcase, audit_event_id]
+      properties:
+        badcase_id: {type: string}
+        action: {$ref: '#/components/schemas/BadcaseTimelineItem'}
+        resulting_badcase: {$ref: '#/components/schemas/BadcaseSummary'}
+        audit_event_id: {type: string, format: uuid}
+    BadcaseActionPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, data_quality]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/BadcaseTimelineItem'}}
+        next_cursor: {type: [string, 'null']}
+        data_quality: {$ref: '#/components/schemas/DataQuality'}

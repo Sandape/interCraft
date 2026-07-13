@@ -1,0 +1,386 @@
+openapi: 3.1.0
+info:
+  title: InterCraft AI Runtime User API
+  version: 1.0.0
+  description: Canonical cross-capability AI task control plane. Capability-specific inputs and results remain on their domain APIs.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /ai-task-quotes:
+    post:
+      operationId: createAITaskQuote
+      summary: Quote a capability action before acceptance
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteRequest'
+      responses:
+        '201':
+          description: Immutable quote
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PointQuote'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /ai-tasks:
+    get:
+      operationId: listAITasks
+      summary: List the current user's AI tasks from the last 90 days
+      parameters:
+        - {name: capability, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/TaskStatus'}}
+        - {name: settlement, in: query, schema: {type: string, enum: [unsettled, zero, partial, full, reversed]}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: Cursor page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskPage'
+  /ai-tasks/{taskId}:
+    get:
+      operationId: getAITask
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Task detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ai-tasks/{taskId}/events:
+    get:
+      operationId: listAITaskEvents
+      summary: Retrieve ordered events after a known sequence for reconnect/polling
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - {name: after_sequence, in: query, schema: {type: integer, minimum: 0, default: 0}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        '200':
+          description: Ordered, deduplicable task events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, events, next_sequence, terminal]
+                properties:
+                  task_id: {type: string, format: uuid}
+                  events: {type: array, items: {$ref: '#/components/schemas/TaskEvent'}}
+                  next_sequence: {type: integer}
+                  terminal: {type: boolean}
+                  next_poll_after_ms: {type: integer, minimum: 250, maximum: 30000}
+  /ai-tasks/{taskId}/cancel:
+    post:
+      operationId: cancelAITask
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskActionRequest'
+      responses:
+        '202':
+          description: Cancellation accepted; cancelled is shown only after server confirmation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskAccepted'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /ai-tasks/{taskId}/resume:
+    post:
+      operationId: resumeAITask
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResumeRequest'}
+      responses:
+        '202':
+          description: Resume accepted at a trusted checkpoint
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskAccepted'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /ai-tasks/{taskId}/system-failure-retry:
+    post:
+      operationId: retrySystemFailedAITask
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TaskActionRequest'}
+      responses:
+        '202':
+          description: New execution in the same charge lineage
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskAccepted'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /ai-tasks/{taskId}/re-executions:
+    post:
+      operationId: reexecuteAITask
+      summary: Create a new execution; this is not evidence replay
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReexecutionRequest'}
+      responses:
+        '202':
+          description: New lineage execution and quote/reservation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskAccepted'}
+        '409': {$ref: '#/components/responses/Conflict'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    TaskId: {name: taskId, in: path, required: true, schema: {type: string, format: uuid}}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 128}
+  responses:
+    Conflict:
+      description: State/version/idempotency conflict; current task and actions are returned
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    Invalid:
+      description: Invalid input or deterministic policy rejection
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    NotFound:
+      description: Not found within the authenticated user's scope
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+  schemas:
+    TaskStatus:
+      type: string
+      enum: [accepted, queued, running, waiting_user, retry_wait, cancelling, result_confirming, succeeded, partially_succeeded, failed, cancelled, expired]
+    ServiceTier: {type: string, enum: [standard, quality]}
+    AvailableAction:
+      type: string
+      enum: [open_result, provide_input, confirm, cancel, resume, retry_failed_component, system_failure_retry, reexecute, submit_feedback, dispute_points]
+    QuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [capability, action, service_tier, input_snapshot_ref, allow_degrade]
+      properties:
+        capability: {type: string}
+        action: {type: string}
+        service_tier: {$ref: '#/components/schemas/ServiceTier'}
+        input_snapshot_ref: {type: string}
+        allow_degrade: {type: boolean}
+    MilestoneQuote:
+      type: object
+      additionalProperties: false
+      required: [code, label, weight_basis_points, max_points]
+      properties:
+        code: {type: string}
+        label: {type: string}
+        weight_basis_points: {type: integer, minimum: 0, maximum: 10000}
+        max_points: {type: integer, minimum: 0}
+    PointQuote:
+      type: object
+      additionalProperties: false
+      required: [quote_id, price_table_version, service_tier, max_points, milestones, balance_before, projected_available_after_reservation, expires_at]
+      properties:
+        quote_id: {type: string, format: uuid}
+        price_table_version: {type: string}
+        service_tier: {$ref: '#/components/schemas/ServiceTier'}
+        max_points: {type: integer, minimum: 0}
+        milestones: {type: array, items: {$ref: '#/components/schemas/MilestoneQuote'}}
+        balance_before: {type: integer, minimum: 0}
+        projected_available_after_reservation: {type: integer, minimum: 0}
+        expires_at: {type: string, format: date-time}
+    TaskAccepted:
+      type: object
+      additionalProperties: false
+      required: [task_id, execution_id, status, stage, task_version, quote, reservation_id, accepted_at, status_url, events_url, available_actions, terminal]
+      properties:
+        task_id: {type: string, format: uuid}
+        execution_id: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+        stage: {$ref: '#/components/schemas/Stage'}
+        task_version: {type: integer, minimum: 1}
+        quote: {$ref: '#/components/schemas/PointQuote'}
+        reservation_id: {type: string, format: uuid}
+        accepted_at: {type: string, format: date-time}
+        status_url: {type: string}
+        events_url: {type: string}
+        available_actions: {type: array, items: {$ref: '#/components/schemas/AvailableAction'}}
+        terminal: {type: boolean}
+        next_poll_after_ms: {type: integer, minimum: 250, maximum: 30000}
+    Stage:
+      type: object
+      additionalProperties: false
+      required: [code, label]
+      properties:
+        code: {type: string}
+        label: {type: string}
+        progress_percent: {type: integer, minimum: 0, maximum: 100}
+    TaskSummary:
+      type: object
+      additionalProperties: false
+      required: [task_id, capability, action, status, stage, service_tier, accepted_at, terminal, available_actions, point_summary]
+      properties:
+        task_id: {type: string, format: uuid}
+        capability: {type: string}
+        action: {type: string}
+        title: {type: string}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+        stage: {$ref: '#/components/schemas/Stage'}
+        service_tier: {$ref: '#/components/schemas/ServiceTier'}
+        accepted_at: {type: string, format: date-time}
+        terminal_at: {type: [string, 'null'], format: date-time}
+        terminal: {type: boolean}
+        available_actions: {type: array, items: {$ref: '#/components/schemas/AvailableAction'}}
+        point_summary: {$ref: '#/components/schemas/PointSummary'}
+    PointSummary:
+      type: object
+      additionalProperties: false
+      required: [quoted_max, reserved, settled, released, settlement_status]
+      properties:
+        quoted_max: {type: integer, minimum: 0}
+        reserved: {type: integer, minimum: 0}
+        settled: {type: integer, minimum: 0}
+        released: {type: integer, minimum: 0}
+        settlement_status: {type: string, enum: [unsettled, zero, partial, full, reversed]}
+    TaskPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/TaskSummary'}}
+        next_cursor: {type: [string, 'null']}
+    Milestone:
+      type: object
+      additionalProperties: false
+      required: [code, label, status, settle_eligible, points_settled]
+      properties:
+        code: {type: string}
+        label: {type: string}
+        status: {type: string, enum: [pending, running, delivered, failed, cancelled, invalidated]}
+        result_ref: {type: [string, 'null']}
+        settle_eligible: {type: boolean}
+        points_settled: {type: integer, minimum: 0}
+        delivered_at: {type: [string, 'null'], format: date-time}
+    ExecutionRef:
+      type: object
+      additionalProperties: false
+      required: [execution_id, execution_no, trigger_kind, status, started_at]
+      properties:
+        execution_id: {type: string, format: uuid}
+        execution_no: {type: integer, minimum: 1}
+        trigger_kind: {type: string, enum: [initial, system_failure_retry, user_resume, user_reexecute, operator_reexecute]}
+        source_execution_id: {type: [string, 'null'], format: uuid}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+    FailurePresentation:
+      type: object
+      additionalProperties: false
+      required: [category, what_happened, what_was_saved, point_effect, system_next_step, user_next_steps, support_ref]
+      properties:
+        category: {type: string}
+        what_happened: {type: string}
+        what_was_saved: {type: string}
+        point_effect: {type: string}
+        system_next_step: {type: string}
+        user_next_steps: {type: array, items: {type: string}}
+        support_ref: {type: string}
+    TaskDetail:
+      allOf:
+        - $ref: '#/components/schemas/TaskSummary'
+        - type: object
+          required: [task_version, input_summary, executions, milestones, degraded, automatic_retry_count]
+          properties:
+            task_version: {type: integer, minimum: 1}
+            input_summary: {type: object, additionalProperties: true}
+            executions: {type: array, items: {$ref: '#/components/schemas/ExecutionRef'}}
+            milestones: {type: array, items: {$ref: '#/components/schemas/Milestone'}}
+            result_ref: {type: [string, 'null']}
+            failure: {oneOf: [{$ref: '#/components/schemas/FailurePresentation'}, {type: 'null'}]}
+            degraded: {type: boolean}
+            degradation_summary: {type: [string, 'null']}
+            automatic_retry_count: {type: integer, minimum: 0}
+    TaskEvent:
+      type: object
+      additionalProperties: false
+      required: [event_id, sequence, event_type, occurred_at, recorded_at, status, stage, message]
+      properties:
+        event_id: {type: string, format: uuid}
+        sequence: {type: integer, minimum: 1}
+        event_type: {type: string}
+        occurred_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+        stage: {$ref: '#/components/schemas/Stage'}
+        message: {type: string}
+    TaskActionRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_task_version]
+      properties:
+        expected_task_version: {type: integer, minimum: 1}
+        reason: {type: string, maxLength: 500}
+    ResumeRequest:
+      allOf:
+        - $ref: '#/components/schemas/TaskActionRequest'
+        - type: object
+          properties:
+            user_input_ref: {type: [string, 'null']}
+    ReexecutionRequest:
+      allOf:
+        - $ref: '#/components/schemas/TaskActionRequest'
+        - type: object
+          required: [input_mode, behavior_mode, quote_id]
+          properties:
+            input_mode: {type: string, enum: [original_snapshot, latest_snapshot]}
+            behavior_mode: {type: string, enum: [original_locked, current_stable]}
+            quote_id: {type: string, format: uuid}
+    Problem:
+      type: object
+      required: [type, title, status, code, correlation_id]
+      properties:
+        type: {type: string}
+        title: {type: string}
+        status: {type: integer}
+        code: {type: string}
+        detail: {type: string}
+        correlation_id: {type: string}
+        current_task: {$ref: '#/components/schemas/TaskSummary'}
+

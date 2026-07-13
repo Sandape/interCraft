@@ -1,0 +1,181 @@
+openapi: 3.1.0
+info:
+  title: InterCraft AI Points API
+  version: 1.0.0
+  description: Beta entitlement and user-visible point accounting. No RMB price, purchase, recharge, renewal or payment operation belongs to this API.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /ai-points/account:
+    get:
+      operationId: getAIPointAccount
+      responses:
+        '200':
+          description: Current beta entitlement, balances and expiry
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PointAccount'}
+  /ai-points/ledger:
+    get:
+      operationId: listAIPointLedger
+      parameters:
+        - {name: event_type, in: query, schema: {$ref: '#/components/schemas/PointEventType'}}
+        - {name: task_id, in: query, schema: {type: string, format: uuid}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: Owner-scoped point events
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LedgerPage'}
+  /ai-points/ledger/export:
+    post:
+      operationId: exportAIPointLedger
+      summary: Request an owner-scoped export covering at most the last 24 months
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [from, to]
+              properties:
+                from: {type: string, format: date-time}
+                to: {type: string, format: date-time}
+      responses:
+        '202':
+          description: Export job accepted
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExportJob'}
+  /ai-points/budget:
+    get:
+      operationId: getAIPointBudget
+      responses:
+        '200':
+          description: Effective personal and risk limits
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PointBudget'}
+    patch:
+      operationId: updateAIPointBudget
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [daily_limit, expected_version]
+              properties:
+                daily_limit: {type: integer, minimum: 0}
+                expected_version: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: Updated limit, capped by balance and risk policy
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PointBudget'}
+        '409':
+          description: Version conflict
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 128}
+  schemas:
+    PointEventType:
+      type: string
+      enum: [grant, expire, reserve, settle, release, refund, compensate, reverse]
+    PointBucket:
+      type: object
+      additionalProperties: false
+      required: [bucket_id, bucket_type, available, reserved, expires_at]
+      properties:
+        bucket_id: {type: string, format: uuid}
+        bucket_type: {type: string, enum: [daily_experience, compensation]}
+        available: {type: integer, minimum: 0}
+        reserved: {type: integer, minimum: 0}
+        expires_at: {type: string, format: date-time}
+        business_date: {type: [string, 'null'], format: date}
+        grant_config_version: {type: [string, 'null']}
+    PointAccount:
+      type: object
+      additionalProperties: false
+      required: [plan_label, experience_badge, is_paid, business_date, timezone, available, reserved, buckets, next_expiry, daily_grant_amount, grant_config_version, parallel_ai_task_limit, history_days]
+      properties:
+        plan_label: {type: string, const: Pro}
+        experience_badge: {type: string, const: 新用户体验}
+        is_paid: {type: boolean, const: false}
+        business_date: {type: string, format: date}
+        timezone: {type: string, const: Asia/Shanghai}
+        available: {type: integer, minimum: 0}
+        reserved: {type: integer, minimum: 0}
+        buckets: {type: array, items: {$ref: '#/components/schemas/PointBucket'}}
+        next_expiry: {type: [string, 'null'], format: date-time}
+        daily_grant_amount: {type: integer, minimum: 0, default: 2000}
+        grant_config_version: {type: string}
+        parallel_ai_task_limit: {type: integer, const: 2}
+        history_days: {type: integer, const: 90}
+    LedgerEntry:
+      type: object
+      additionalProperties: false
+      required: [event_id, event_type, occurred_at, recorded_at, available_delta, reserved_delta, available_after, reserved_after, reason]
+      properties:
+        event_id: {type: string, format: uuid}
+        event_type: {$ref: '#/components/schemas/PointEventType'}
+        occurred_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        available_delta: {type: integer}
+        reserved_delta: {type: integer}
+        available_after: {type: integer, minimum: 0}
+        reserved_after: {type: integer, minimum: 0}
+        task_id: {type: [string, 'null'], format: uuid}
+        execution_id: {type: [string, 'null'], format: uuid}
+        milestone_code: {type: [string, 'null']}
+        capability: {type: [string, 'null']}
+        service_tier: {type: [string, 'null'], enum: [standard, quality, null]}
+        expires_at: {type: [string, 'null'], format: date-time}
+        reason: {type: string}
+    LedgerPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/LedgerEntry'}}
+        next_cursor: {type: [string, 'null']}
+    PointBudget:
+      type: object
+      additionalProperties: false
+      required: [daily_limit, consumed_today, available, risk_limit, effective_limit, version]
+      properties:
+        daily_limit: {type: integer, minimum: 0}
+        consumed_today: {type: integer, minimum: 0}
+        available: {type: integer, minimum: 0}
+        risk_limit: {type: integer, minimum: 0}
+        effective_limit: {type: integer, minimum: 0}
+        version: {type: integer, minimum: 1}
+    ExportJob:
+      type: object
+      additionalProperties: false
+      required: [export_id, status, created_at, expires_at]
+      properties:
+        export_id: {type: string, format: uuid}
+        status: {type: string, enum: [queued, running, ready, failed, expired]}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+

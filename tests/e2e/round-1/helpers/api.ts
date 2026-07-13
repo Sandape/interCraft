@@ -129,6 +129,21 @@ export async function createSessionFromJob(
   return ('data' in body ? body.data : body) as SessionFixture
 }
 
+export async function createSession(
+  request: APIRequestContext,
+  token: string,
+  position = 'FE',
+  company = 'TestCo',
+): Promise<SessionFixture> {
+  const res = await request.post(`${API_BASE}/api/v1/interview-sessions`, {
+    headers: authHeader(token),
+    data: { position, company },
+  })
+  expect(res.status()).toBe(201)
+  const body = (await res.json()) as { data: SessionFixture }
+  return body.data
+}
+
 export async function createErrorQuestion(
   request: APIRequestContext,
   token: string,
