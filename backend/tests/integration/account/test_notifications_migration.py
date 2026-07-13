@@ -322,7 +322,7 @@ async def test_fresh_upgrade_has_exact_notification_schema(
             foreign_key = (
                 await conn.execute(
                     text(
-                        "SELECT confrelid::regclass::text AS target, confdeltype "
+                        "SELECT confrelid::regclass::text AS target, confdeltype::text AS confdeltype "
                         "FROM pg_constraint "
                         "WHERE conname = 'notifications_user_id_fkey'"
                     )
