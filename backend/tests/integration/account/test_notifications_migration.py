@@ -189,7 +189,7 @@ async def fresh_database(
     role = f"req072_role_{suffix}"
     url = await _create_database(database_url, database)
     try:
-        _run_alembic(url, "head")
+        _run_alembic(url, "0054_account_notifications")
         await _create_test_role(database_url, role)
         engine = create_async_engine(url)
         try:
@@ -347,7 +347,7 @@ async def test_genuine_0053_upgrade_preserves_existing_users(database_url: str) 
         finally:
             await engine.dispose()
 
-        _run_alembic(url, "head")
+        _run_alembic(url, "0054_account_notifications")
         engine = create_async_engine(url)
         try:
             async with engine.connect() as conn:
