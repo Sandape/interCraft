@@ -238,18 +238,21 @@ description: "Dependency-ordered implementation tasks for REQ-061"
 
 ### Tests first
 
-- [X] T091 [P] [US6] Add failing adapter tests for deterministic-profile vs AI-insight separation, research opt-in quote, source sufficiency, cancellation, and result milestones in `backend/tests/contract/test_061_profile_research_adapters.py`
-- [X] T092 [P] [US6] Add failing integration tests proving insight failure preserves verified score and research does not consume points before explicit opt-in/acceptance in `backend/tests/integration/test_061_profile_research_flow.py`
+- [ ] T091 [P] [US6] Add failing adapter tests for deterministic-profile vs AI-insight separation, research opt-in quote, source sufficiency, cancellation, and result milestones in `backend/tests/contract/test_061_profile_research_adapters.py`
+- [ ] T092 [P] [US6] Add failing integration tests proving insight failure preserves verified score and research does not consume points before explicit opt-in/acceptance in `backend/tests/integration/test_061_profile_research_flow.py`
 - [X] T093 [P] [US6] Add failing frontend tests for separate score/insight states, research job/tier/point preview, disable control, sources, and failed delivery in `src/pages/AbilityProfile/__tests__/AIInsightResearch.test.tsx`
 
 ### Implementation
 
 - [X] T094 [P] [US6] Implement the ability-insight adapter and separate deterministic score updates from AI task/milestone evidence in `backend/app/modules/ai_runtime/adapters/ability_insight.py` and `backend/app/modules/ability_profile/service.py`
+    - 2026-07-13 codex/064: DashboardResponse now has typed `verified_score_status` (`"ready"|"unavailable"`) and `AbilityInsightProjection` (`task_id`/`status`/`user_summary`/`available_actions`/`failure_category`) fields; service queries canonical AITask ordered by `accepted_at DESC, id DESC` with owner isolation; score 0 from interview/coach qualifies as ready.
 - [X] T095 [P] [US6] Implement the proactive-research adapter with opt-in, job/input snapshot, quote, source sufficiency gate, cancellation, and report milestone in `backend/app/modules/ai_runtime/adapters/research.py`
-- [X] T096 [US6] Connect interview diagnosis and research workers to canonical acceptance, execution context, point settlement, and failure categories in `backend/app/workers/tasks/diagnose_after_interview.py` and `backend/app/workers/tasks/interview_research.py`
+- [ ] T096 [US6] Connect interview diagnosis and research workers to canonical acceptance, execution context, point settlement, and failure categories in `backend/app/workers/tasks/ability_diagnose.py` and `backend/app/workers/tasks/interview_research.py`
+    - 2026-07-13 codex/064: Both workers are real registered files — `ability_diagnose.py` and `interview_research.py` — but **neither is fully connected** to the canonical lifecycle. Zero-point settlement, lifecycle integration, and fencing gaps remain for a follow-up governed Issue.
 - [X] T097 [P] [US6] Render deterministic score and AI insight as independent states with task/retry links in `src/pages/AbilityProfile.tsx` and `src/pages/AbilityProfileDetail.tsx`
+    - 2026-07-13 codex/064: Pages consume typed `DashboardResponse.ai_insight` (`task_id`/`user_summary`/`available_actions`/`failure_category`) and `verified_score_status` directly — no `any`, `@ts-ignore`, double assertions, or fabricated ready fallback.
 - [X] T098 [P] [US6] Implement proactive research opt-in, quote/point preview, source display, cancellation, and result/task links in `src/components/interview/InterviewResearchControl.tsx`
-- [X] T099 [US6] Add Playwright acceptance for score preservation, insight failure/retry, research opt-in/cancel/failure, sources, and point outcomes in `tests/e2e/061-profile-research.spec.ts`
+- [ ] T099 [US6] Add Playwright acceptance for score preservation, insight failure/retry, research opt-in/cancel/failure, sources, and point outcomes in `tests/e2e/061-profile-research.spec.ts`
 
 **Checkpoint**: US6 can be validated without other capability UIs beyond the shared task/point foundation.
 

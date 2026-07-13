@@ -24,9 +24,19 @@ export interface DashboardDimension {
   history: DimensionHistoryPoint[]
 }
 
+export interface AbilityInsightProjection {
+  task_id: string
+  status: string
+  user_summary: string | null
+  available_actions: string[]
+  failure_category: string | null
+}
+
 export interface DashboardResponse {
   dimensions: DashboardDimension[]
   generated_at: string
+  verified_score_status: 'ready' | 'unavailable'
+  ai_insight: AbilityInsightProjection | null
 }
 
 export interface ShareLinkResponse {

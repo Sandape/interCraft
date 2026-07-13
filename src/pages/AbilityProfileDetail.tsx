@@ -19,6 +19,7 @@ export default function AbilityProfileDetail() {
 
   const dimensions = data?.data?.dimensions ?? []
   const dim = dimensions.find((d) => d.key === abilityKey)
+  const insightTaskId = data?.data?.ai_insight?.task_id ?? null
 
   if (isLoading) {
     return (
@@ -57,16 +58,14 @@ export default function AbilityProfileDetail() {
         <Card className="p-4" data-testid="ai-insight-panel">
           <h3 className="text-sm font-semibold">AI 洞察</h3>
           <p className="mt-1 text-xs text-ink-3">与确定性评分独立；失败不影响已验证分。</p>
-          {(data as { data?: { ai_insight?: { task_id?: string; status?: string } } } | undefined)?.data?.ai_insight?.task_id && (
+          {insightTaskId && (
             <button
               type="button"
               className="mt-2 text-xs text-brand-600 underline"
               data-testid="ai-insight-task-link"
               onClick={() =>
                 navigate(
-                  `/ai-tasks/${encodeURIComponent(
-                    (data as { data: { ai_insight: { task_id: string } } }).data.ai_insight.task_id,
-                  )}`,
+                  `/ai-tasks/${encodeURIComponent(insightTaskId)}`,
                 )
               }
             >
