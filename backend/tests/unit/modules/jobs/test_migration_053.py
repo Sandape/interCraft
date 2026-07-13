@@ -229,4 +229,82 @@ def test_t013_revision_id_format() -> None:
     assert mod.down_revision == "0045_llm_ops_eval_workflow"
 
 
+# ---------------------------------------------------------------------------
+# T053 — alembic_version.version_num width
+# ---------------------------------------------------------------------------
+
+
+def test_t053_version_num_widened_before_alterations(monkeypatch) -> None:
+    """0048 migration must widen alembic_version.version_num BEFORE recording
+    its own revision identifier.
+
+    The 0048 revision identifier is 45 characters, which exceeds the
+    Alembic default VARCHAR(32) for alembic_version.version_num.
+    Generates offline SQL and verifies ordering.
+    """
+    import io
+    from importlib import import_module
+
+    from alembic import command
+    from alembic.config import Config
+
+    mod = import_module(
+        "migrations.versions.0048_053_relax_interview_reports_for_research"
+    )
+
+    # Revision length must justify the widen
+    assert len(mod.revision) > 32, (
+        f"Revision {mod.revision!r} is {len(mod.revision)} chars — "
+        f"no wider version_num needed for <= 32 chars"
+    )
+
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost:5432/dummy",
+    )
+
+    # --- upgrade offline SQL ---
+    buffer = io.StringIO()
+    config = Config("alembic.ini", output_buffer=buffer)
+    command.upgrade(
+        config,
+        "0047_053_fix_jobs_status_chk:0048_053_relax_interview_reports_for_research",
+        sql=True,
+    )
+    upgrade_sql = buffer.getvalue()
+
+    widen_pos = upgrade_sql.find(
+        "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)"
+    )
+    record_pos = upgrade_sql.find(
+        "UPDATE alembic_version SET version_num="
+    )
+    assert widen_pos >= 0, (
+        "upgrade SQL must contain ALTER TABLE alembic_version ALTER COLUMN "
+        "version_num TYPE VARCHAR(255)"
+    )
+    assert record_pos >= 0, (
+        "upgrade SQL must record the new revision in alembic_version"
+    )
+    assert widen_pos < record_pos, (
+        f"version_num widen (pos {widen_pos}) must occur BEFORE "
+        f"revision record (pos {record_pos})"
+    )
+
+    # --- downgrade offline SQL ---
+    buffer = io.StringIO()
+    config = Config("alembic.ini", output_buffer=buffer)
+    command.downgrade(
+        config,
+        "0048_053_relax_interview_reports_for_research:0047_053_fix_jobs_status_chk",
+        sql=True,
+    )
+    downgrade_sql = buffer.getvalue()
+
+    # Downgrade must NOT contain any ALTER on alembic_version
+    assert "ALTER TABLE alembic_version" not in downgrade_sql, (
+        "downgrade SQL must NOT narrow alembic_version.version_num"
+    )
+
+
 __all__ = []
