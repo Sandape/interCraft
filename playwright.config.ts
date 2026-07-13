@@ -8,6 +8,9 @@ import { defineConfig, devices } from '@playwright/test';
 // import path from 'path';
 // dotenv.config({ path: path.resolve(__dirname, '.env') });
 
+const isCI = !!process.env.CI;
+const BASE_URL = process.env.E2E_BASE_URL || 'http://127.0.0.1:5173';
+
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
@@ -16,28 +19,32 @@ export default defineConfig({
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
-  forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  forbidOnly: isCI,
+  /* Retry once on CI, zero locally */
+  retries: isCI ? 1 : 0,
   /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  workers: isCI ? 1 : undefined,
+  /* Bound failure amplification in CI */
+  maxFailures: isCI ? 20 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: [['list'], ['json', { outputFile: 'test-results/round-1-results.json' }], ['html', { outputFolder: 'test-results/html-report', open: 'never' }]],
+  reporter: [
+    ['list'],
+    ['json', { outputFile: 'test-results/round-1-results.json' }],
+    ['html', { outputFolder: 'test-results/html-report', open: 'never' }],
+  ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL for `page.goto('/login')` and friends. */
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
+    baseURL: BASE_URL,
 
-    /* Collect trace, video, and screenshot for every test (preserved for evidence) */
-    trace: 'on',
+    /* Failure-focused evidence */
+    trace: 'on-first-retry',
     video: 'retain-on-failure',
-    screenshot: 'on',
+    screenshot: 'only-on-failure',
   },
 
-  /* Preserve test output even on success (for evidence/audit) */
+  /* Preserve test output */
   outputDir: './test-results/output',
-  /* Video dir under tests/e2e/ (per spec: D:\Project\eGGG\tests\e2e\videos) */
-  // video path is configured via use.video; default location is test-results/
 
   /* Configure projects for major browsers */
   projects: [
@@ -45,42 +52,38 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-
-    /* Test against mobile viewports. */
-    // {
-    //   name: 'Mobile Chrome',
-    //   use: { ...devices['Pixel 5'] },
-    // },
-    // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
-
-    /* Test against branded browsers. */
-    // {
-    //   name: 'Microsoft Edge',
-    //   use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    // },
-    // {
-    //   name: 'Google Chrome',
-    //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    // },
+    ...(!isCI
+      ? [
+          {
+            name: 'firefox',
+            use: { ...devices['Desktop Firefox'] },
+          },
+          {
+            name: 'webkit',
+            use: { ...devices['Desktop Safari'] },
+          },
+        ]
+      : []),
   ],
 
-  /* Run your local dev server before starting the tests.
-     REQ-048 verification: backend (8001) + frontend (5173) already running
-     externally (started via ``uvicorn`` and Vite). Playwright skips its own
-     webServer startup by commenting this block out; tests use the existing
-     frontend on http://127.0.0.1:5173. */
-  // webServer: { ... disabled for REQ-048 manual verification ... },
+  /* Managed dev servers */
+  webServer: [
+    {
+      command: 'uv run uvicorn app.main:app --host 127.0.0.1 --port 8000',
+      cwd: 'backend',
+      url: 'http://127.0.0.1:8000/readyz',
+      reuseExistingServer: !isCI,
+      timeout: 120_000,
+      stdout: 'ignore',
+      stderr: 'pipe',
+    },
+    {
+      command: 'npm run dev -- --host 127.0.0.1 --port 5173',
+      url: BASE_URL,
+      reuseExistingServer: !isCI,
+      timeout: 120_000,
+      stdout: 'ignore',
+      stderr: 'pipe',
+    },
+  ],
 });
