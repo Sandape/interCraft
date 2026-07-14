@@ -1,7 +1,7 @@
 {
   "case_id": "interview_score_05_short_answer",
   "node": "interview.score",
-  "label": "边缘 case — 候选人回答非常简短（5 字），LLM 返回 score=4 + 中文 feedback（验证短回答场景下 fidelity 正确）",
+  "label": "边缘 case — 候选人回答非常简短（5 字），LLM 返回 score=2 + 中文 feedback（验证短回答场景下 fidelity 正确）",
   "source": "manual",
   "input_state": {
     "questions": [
@@ -22,10 +22,10 @@
     "user_id": "00000000-0000-0000-0000-000000000001",
     "thread_id": "00000000-0000-0000-0000-000000000002"
   },
-  "llm_response": "{\"score\": 4, \"dimension\": \"tech_depth\", \"feedback\": \"候选人表示对题目不清楚，未展示相关知识。建议先掌握虚拟 DOM 与 diff 的基础概念，再深入学习 React 性能优化。\", \"sub_scores\": {\"clarity\": 5, \"depth\": 3, \"relevance\": 4}}",
+  "llm_response": "{\"score\": 2, \"dimension\": \"tech_depth\", \"feedback\": \"候选人表示对题目不清楚，未展示相关知识。建议先掌握虚拟 DOM 与 diff 的基础概念，再深入学习 React 性能优化。\", \"sub_scores\": {\"clarity\": 5, \"depth\": 3, \"relevance\": 4}}",
   "expected_language": "zh-CN",
   "expected_contains": ["diff"],
-  "expected_score_range": [4, 4],
+  "expected_score_range": [2, 2],
   "expected_fidelity_pass": true,
   "status": "active"
 }
