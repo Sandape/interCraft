@@ -104,7 +104,7 @@ jobs:
           JWT_SECRET: ci-only-dummy-32bytes-xxxxxxxxxxxxxxxxxxxxxx
           MASTER_KEY: ${{ secrets.MASTER_KEY || 'ZGV2LW9ubHktZHVtbXktMzJiLWJhc2U2NC0xMjM0NTY3ODkwYWI=' }}
         run: |
-          set -e
+          set -euo pipefail
           RUN_ID="run-${{ github.event.pull_request.number }}-$(date -u +%Y%m%dT%H%M%S)"
           OUT_DIR="docs/evidence/${RUN_ID}"
           mkdir -p "${OUT_DIR}"
@@ -118,6 +118,14 @@ jobs:
           echo "[033-eval-gate] run_id=${RUN_ID}"
           echo "[033-eval-gate] source_revision=${SOURCE_REV}"
           echo "[033-eval-gate] branch=${BRANCH}"
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "run_id=${RUN_ID}"
+            echo "source_revision=${SOURCE_REV}"
+            echo "branch=${BRANCH}"
+            echo "environment=CI"
+          } > "${OUT_DIR}/run-metadata.txt"
 
           uv run python -m app.eval.cli run \
             --suite golden \
@@ -128,15 +136,13 @@ jobs:
             --markdown-out "${REPORT_MD}" \
             --json | tee "${OUT_DIR}/cli-output.json"
 
-          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
-
       - name: Upload eval report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: 033-eval-report-${{ steps.eval_cli.outputs.run_id }}
-          path: docs/evidence/${{ steps.eval_cli.outputs.run_id }}/
-          if-no-files-found: warn
+          path: backend/docs/evidence/${{ steps.eval_cli.outputs.run_id }}/
+          if-no-files-found: error
           retention-days: 30
 
       - name: Summarize

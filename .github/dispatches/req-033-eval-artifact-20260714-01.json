@@ -1,0 +1,16 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "f209e7047a8c0bb7d013b7270bea4269d379b643",
+    "ac_hash":  "ac50ca3ca69f61cc6c3c627d326449552ca04db6645deabe77507719b8d9aabc",
+    "spec_task_id":  "ISSUE-089",
+    "driver":  "codex",
+    "created_at":  "2026-07-14T08:06:06Z",
+    "state":  "active",
+    "issue_number":  89,
+    "dispatch_id":  "req-033-eval-artifact-20260714-01",
+    "allowed_paths":  [
+                          ".github/dispatches/req-033-eval-artifact-20260714-01.json",
+                          ".github/workflows/033-eval-gate.yml"
+                      ]
+}
