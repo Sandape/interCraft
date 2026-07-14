@@ -1,15 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultResumeDataV2 } from "@/modules/resume/v2/schema/defaults";
 import ResumeEditorV2 from "../ResumeEditorV2";
 
 const getResumeMock = vi.fn();
+const updateResumeMock = vi.fn();
 
 vi.mock("@/modules/resume/v2/api", () => ({
   getResume: (...args: unknown[]) => getResumeMock(...args),
-  updateResume: vi.fn(),
+  updateResume: (...args: unknown[]) => updateResumeMock(...args),
 }));
 
 vi.mock("@/modules/resume/v2/hooks/useResumeSse", () => ({
@@ -50,6 +51,16 @@ function renderRoute() {
 }
 
 describe("ResumeEditorV2 Markdown cutover", () => {
+  beforeEach(() => {
+    getResumeMock.mockReset();
+    updateResumeMock.mockReset();
+  });
+
+  afterEach(() => {
+    // Ensure no leaked mocks or DOM artifacts across combined runs.
+    getResumeMock.mockClear();
+    updateResumeMock.mockClear();
+  });
   it("hydrates existing Markdown source and settings", async () => {
     getResumeMock.mockResolvedValue({
       id: "r1",
@@ -118,5 +129,49 @@ describe("ResumeEditorV2 Markdown cutover", () => {
       "legacy@example.com",
     );
     expect(screen.queryByTestId("legacy-open-v1")).not.toBeInTheDocument();
+  });
+
+  it("preserves an explicitly empty v2 Markdown document (blank onboarding root)", async () => {
+    // Brand-new blank root: structured fields are empty, sourceMarkdown is
+    // empty, no data_format_version tag. The editor must NOT fabricate
+    // "# Untitled Resume" — it must keep the empty sourceMarkdown and mark
+    // the legacy conversion as "not_needed".
+    getResumeMock.mockResolvedValue({
+      id: "r1",
+      slug: "blank-root",
+      is_public: false,
+      password_set: false,
+      version: 1,
+      data: {
+        ...defaultResumeDataV2,
+        basics: { ...defaultResumeDataV2.basics },
+        summary: { ...defaultResumeDataV2.summary },
+        sections: {
+          experience: { ...defaultResumeDataV2.sections.experience, items: [] },
+          education: { ...defaultResumeDataV2.sections.education, items: [] },
+          projects: { ...defaultResumeDataV2.sections.projects, items: [] },
+          skills: { ...defaultResumeDataV2.sections.skills, items: [] },
+        },
+        customSections: [],
+        metadata: {
+          ...defaultResumeDataV2.metadata,
+          markdown: {
+            ...defaultResumeDataV2.metadata.markdown,
+            sourceMarkdown: "",
+          },
+        },
+      },
+    });
+
+    renderRoute();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("markdown-source-editor")).toHaveValue(""),
+    );
+    expect(screen.getByTestId("legacy-status")).toHaveTextContent("not_needed");
+    // No fabricated heading.
+    expect(
+      (screen.getByTestId("markdown-source-editor") as HTMLTextAreaElement).value,
+    ).not.toMatch(/Untitled/i);
   });
 });
