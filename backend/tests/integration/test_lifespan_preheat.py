@@ -1,6 +1,6 @@
 """023 US6 — Lifespan checkpointer preheat success path.
 
-Verifies FR-022 / FR-023 / FR-024 / FR-025:
+Verifies FR-022 / FR-023 / FR-024 / FR-025 + REQ-081 readiness:
 
 - ``preheat()`` emits a ``checkpointer.preheat ok`` structlog event
   (asserted via ``structlog.testing.capture_logs`` — the previous test
@@ -9,11 +9,14 @@ Verifies FR-022 / FR-023 / FR-024 / FR-025:
 - The pool is built with the explicit ``_POOL_CONFIG`` (FR-023/024/025)
   and ``pool.get_stats()`` reflects the configured ``min_size`` / ``max_size``.
 - ``checkpoints`` table exists in ``pg_tables`` after preheat.
-
-Per spec 023 US6 acceptance scenarios 2 & 3:
-  - "可见 checkpointer.preheat ok 日志, 证明 checkpointer 在 lifespan 阶段已初始化"
-  - "查询 pg_tables WHERE tablename LIKE 'checkpoint%', checkpointer 表已存在"
+- REQ-081: ``preheat()`` is typed — it ALWAYS returns a
+  ``CheckpointerReadiness`` (no longer ``None``) so the worker startup
+  can gate ``intercraft_worker_started`` on ``state == "up"`` and
+  /readyz can surface a redacted reason without exposing exception
+  text.  The previous ``test_preheat_returns_none_on_success`` was
+  replaced with a typed-readiness contract.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -32,6 +35,10 @@ async def test_preheat_logs_ok_and_creates_checkpoint_tables(db_session):
     function itself crashed at the ``cp.list()`` probe (TypeError on
     sync generator).  We now assert the structured log event directly so a
     runtime crash in ``preheat`` cannot masquerade as a success.
+
+    REQ-081: preheat must return a typed ``CheckpointerReadiness`` whose
+    state is ``up`` and reason is ``ok`` so the worker can flip
+    ``intercraft_worker_started = True``.
     """
     from app.agents.checkpointer import _force_rebuild, preheat
 
@@ -39,7 +46,11 @@ async def test_preheat_logs_ok_and_creates_checkpoint_tables(db_session):
     await _force_rebuild()
 
     with capture_logs() as logs:
-        await preheat()
+        readiness = await preheat()
+
+    # REQ-081: typed readiness snapshot.
+    assert readiness.state == "up", readiness.as_dict()
+    assert readiness.reason == "ok", readiness.as_dict()
 
     ok_events = [e for e in logs if e.get("event") == "checkpointer.preheat ok"]
     assert ok_events, (
@@ -54,8 +65,7 @@ async def test_preheat_logs_ok_and_creates_checkpoint_tables(db_session):
     # Verify checkpoint_* tables exist in pg_tables
     result = await db_session.execute(
         text(
-            "SELECT tablename FROM pg_tables "
-            "WHERE tablename LIKE 'checkpoint%' ORDER BY tablename"
+            "SELECT tablename FROM pg_tables WHERE tablename LIKE 'checkpoint%' ORDER BY tablename"
         )
     )
     tables = [row[0] for row in result.fetchall()]
@@ -63,12 +73,19 @@ async def test_preheat_logs_ok_and_creates_checkpoint_tables(db_session):
 
 
 @pytest.mark.asyncio
-async def test_preheat_returns_none_on_success():
-    """023 US6 — preheat() never raises on success."""
-    from app.agents.checkpointer import preheat
+async def test_preheat_returns_typed_readiness_on_success():
+    """023 US6 + REQ-081 — preheat() never raises and returns ``CheckpointerReadiness``.
 
-    result = await preheat()
-    assert result is None
+    Replaces the round-1 ``test_preheat_returns_none_on_success`` which
+    was stale once preheat was made typed. Workers depend on the
+    snapshot to fail-closed before ARQ consumes graph-backed jobs.
+    """
+    from app.agents.checkpointer import CheckpointerReadiness, preheat
+
+    readiness = await preheat()
+    assert isinstance(readiness, CheckpointerReadiness)
+    assert readiness.state == "up"
+    assert readiness.reason == "ok"
 
 
 @pytest.mark.asyncio

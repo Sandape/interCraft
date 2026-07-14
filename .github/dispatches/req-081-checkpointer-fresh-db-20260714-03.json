@@ -1,0 +1,29 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "9858c8d5b8778c966c028e4046fb93577ff5c4a6",
+    "ac_hash":  "9cafd9766f58634390882636c46fcebb0cc4936636241b1fce3bcf165d7ccd53",
+    "spec_task_id":  "ISSUE-081",
+    "driver":  "codex",
+    "created_at":  "2026-07-14T05:55:13Z",
+    "state":  "active",
+    "issue_number":  81,
+    "dispatch_id":  "req-081-checkpointer-fresh-db-20260714-03",
+    "allowed_paths":  [
+                          ".github/dispatches/req-081-checkpointer-fresh-db-20260714-01.json",
+                          ".github/dispatches/req-081-checkpointer-fresh-db-20260714-02.json",
+                          ".github/dispatches/req-081-checkpointer-fresh-db-20260714-03.json",
+                          ".github/workflows/ci.yml",
+                          "backend/app/agents/checkpointer.py",
+                          "backend/app/agents/checkpointer_pool.py",
+                          "backend/app/agents/tests/test_043_checkpoint_pool.py",
+                          "backend/app/main.py",
+                          "backend/app/workers/main.py",
+                          "backend/tests/integration/test_checkpointer_fresh_database.py",
+                          "backend/tests/integration/test_lifespan_preheat.py",
+                          "backend/tests/integration/test_lifespan_preheat_failure.py",
+                          "backend/tests/unit/test_checkpointer_retry.py",
+                          "backend/tests/unit/test_worker_readiness.py",
+                          "docs/testing/README.md"
+                      ]
+}

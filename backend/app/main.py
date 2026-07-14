@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app import __version__
+from app.agents.checkpointer import CheckpointerReadiness, get_checkpointer_readiness
 from app.core.config import Settings, get_settings
 from app.core.db import db_ping, dispose_engine
 from app.core.exceptions import install_exception_handlers
@@ -53,6 +54,18 @@ async def _bounded_worker_probe() -> WorkerHealth:
     except Exception:
         log.exception("readiness.probe_failed", dependency="arq_worker")
         return WorkerHealth("down", "transport_error")
+
+
+def _checkpointer_probe_snapshot() -> CheckpointerReadiness:
+    """Return the current checkpointer readiness (sync, in-process state).
+
+    The checkpointer init state is captured in-process by
+    ``app.agents.checkpointer.preheat()``; this probe just reads the
+    snapshot so /readyz does not need to re-open a connection. The
+    snapshot reason is a redacted tag (never a URL or exception
+    message) so the probe response cannot leak secrets.
+    """
+    return get_checkpointer_readiness()
 
 
 async def start_wechat_consumer(
@@ -125,6 +138,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from app.agents.checkpointer import close_checkpointer
 
         await close_checkpointer()
+        # REQ-081: also close every sharded per-user pool exactly once,
+        # tolerating already-closed pools. Never touches ARQ's Redis pool.
+        try:
+            from app.agents.checkpointer_pool import close_all_pools
+
+            await close_all_pools()
+        except Exception:
+            log.exception("shard_pool.shutdown_failed")
         if wechat_consumer is not None:
             try:
                 await wechat_consumer.stop()  # type: ignore[attr-defined]
@@ -200,13 +221,19 @@ def create_app() -> FastAPI:
 
     @app.get("/readyz")
     async def readyz() -> JSONResponse:
-        """Bounded readiness for Postgres, Redis, and a fresh ARQ worker."""
+        """Bounded readiness for Postgres, Redis, ARQ worker, checkpointer."""
         db_ok, redis_ok, worker = await asyncio.gather(
             _bounded_bool_probe("db", db_ping),
             _bounded_bool_probe("redis", redis_ping),
             _bounded_worker_probe(),
         )
-        ready = db_ok and redis_ok and worker.state == "up"
+        checkpointer = _checkpointer_probe_snapshot()
+        # /readyz must remain fail-closed (REQ-081): a missing or failed
+        # checkpointer setup turns ready=false even when DB/Redis/ARQ
+        # are healthy. The "uninitialised" state is also not-ready —
+        # the API may report liveness but never consume graph-backed
+        # work until the checkpointer reports up.
+        ready = db_ok and redis_ok and worker.state == "up" and checkpointer.state == "up"
         return JSONResponse(
             status_code=200 if ready else 503,
             content={
@@ -216,6 +243,8 @@ def create_app() -> FastAPI:
                 "arq_worker": worker.state,
                 "arq_worker_reason": worker.reason,
                 "arq_worker_age_ms": worker.age_ms,
+                "checkpointer": checkpointer.state,
+                "checkpointer_reason": checkpointer.reason,
                 "derive_backend": "ready" if ready else "unavailable",
                 "version": __version__,
             },

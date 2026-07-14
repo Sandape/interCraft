@@ -9,8 +9,21 @@ uses a single ``AsyncConnection.connect`` under the hood (verified
 against langgraph-checkpoint-postgres 1.0.9 ``aio.py``; verified
 same API surface in 3.1.0 (T183).
 
+Connection semantics (REQ-081):
+- Shared singleton + every sharded per-user pool share ONE tested
+  ``build_checkpointer_connection_kwargs()`` builder so the lock-free
+  ``autocommit=True`` / ``prepare_threshold=0`` / ``dict_row`` semantics
+  match the locked saver's ``from_conn_string`` contract exactly.
+- Without ``autocommit=True`` a fresh database's ``CREATE INDEX
+  CONCURRENTLY`` migration runs inside an implicit transaction block and
+  fails before ``setup()`` completes.
+
 Singleton access with asyncio.Lock + double-check for concurrent safety.
+First-time init is fail-closed: any pool-open or saver-setup failure
+closes the partial pool, leaves the singleton uninitialised, preserves
+the original exception, and allows a clean retry on the next call.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,9 +33,10 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from psycopg.rows import dict_row
 
-from app.agents.exceptions import CheckpointerUnavailableError
 from app.agents.checkpointer_controls import checkpointer_control_status
+from app.agents.exceptions import CheckpointerUnavailableError
 from app.observability.tracing import record_req035_capture_event
 
 if TYPE_CHECKING:
@@ -94,6 +108,36 @@ async def _check_connection(conn: AsyncConnection[Any]) -> None:
         await cur.execute("SELECT 1")
 
 
+def build_checkpointer_connection_kwargs() -> dict[str, Any]:
+    """Return the single tested connection-kwargs builder for saver pools.
+
+    Both the shared singleton ``get_checkpointer()`` and every sharded
+    ``get_checkpointer_pool(user_id)`` MUST funnel through this function so
+    the saver's connection semantics match the locked
+    ``AsyncPostgresSaver.from_conn_string`` contract exactly:
+
+    - ``autocommit=True`` — required for ``CREATE INDEX CONCURRENTLY``
+      migrations on a fresh database. Without it the migration runs in
+      an implicit transaction block and fails before ``setup()`` completes.
+    - ``prepare_threshold=0`` — skip server-side prepared statements so
+      autocommit transactions stay cheap (matches ``from_conn_string``).
+    - ``row_factory=dict_row`` — return rows as dicts (matches
+      ``from_conn_string`` and what ``AsyncPostgresSaver._cursor`` uses).
+
+    Plus the existing FR-024 keepalive settings so TCP keepalives survive
+    pool checkout. Public so unit tests can lock the contract.
+    """
+    return {
+        "autocommit": True,
+        "prepare_threshold": 0,
+        "row_factory": dict_row,
+        "keepalives": _POOL_CONFIG["keepalives"],
+        "keepalives_idle": _POOL_CONFIG["keepalives_idle"],
+        "keepalives_interval": _POOL_CONFIG["keepalives_interval"],
+        "keepalives_count": _POOL_CONFIG["keepalives_count"],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Singleton state
 # ---------------------------------------------------------------------------
@@ -102,12 +146,71 @@ _pool: AsyncConnectionPool[Any] | None = None
 _init_lock = asyncio.Lock()
 
 
+# ---------------------------------------------------------------------------
+# Readiness snapshot (REQ-081 — fail-closed preheat)
+# ---------------------------------------------------------------------------
+class CheckpointerReadiness:
+    """Snapshot of the singleton checkpointer's init state for /readyz.
+
+    ``state`` is one of ``"up"`` / ``"down"`` / ``"uninitialised"``.
+    ``reason`` is a redacted, short tag (``"ok"`` / ``"pool_open_failed"``
+    / ``"saver_setup_failed"`` / ``"not_initialised"``); never logs the
+    raw exception, URL, or user payload.
+    """
+
+    __slots__ = ("reason", "state")
+
+    def __init__(self, state: str, reason: str) -> None:
+        self.state = state
+        self.reason = reason
+
+    def as_dict(self) -> dict[str, str]:
+        return {"state": self.state, "reason": self.reason}
+
+
+_READINESS_UP = CheckpointerReadiness("up", "ok")
+_READINESS_UNINITIALISED = CheckpointerReadiness("uninitialised", "not_initialised")
+_READINESS_POOL_OPEN_FAILED = CheckpointerReadiness("down", "pool_open_failed")
+_READINESS_SAVER_SETUP_FAILED = CheckpointerReadiness("down", "saver_setup_failed")
+_readiness: CheckpointerReadiness = _READINESS_UNINITIALISED
+
+
+def get_checkpointer_readiness() -> CheckpointerReadiness:
+    """Return the current readiness snapshot (redacted, no secrets).
+
+    Used by /readyz and worker startup to fail closed when the
+    checkpointer cannot be initialised.
+    """
+    return _readiness
+
+
 async def get_checkpointer() -> AsyncPostgresSaver:
     """Return the singleton AsyncPostgresSaver with asyncio.Lock + double-check.
 
-    Builds an explicit ``AsyncConnectionPool`` (FR-023/024/025) and wraps
-    it in ``AsyncPostgresSaver(pool)``.  ``setup()`` is called once on
-    first init — it is idempotent per LangGraph contract.
+    Builds an explicit ``AsyncConnectionPool`` (FR-023/024/025) using the
+    shared ``build_checkpointer_connection_kwargs`` so the saver's
+    connection semantics match the locked contract. ``setup()`` is called
+    once on first init — it is idempotent per LangGraph contract.
+
+    REQ-081 staged fail-closed handling — every stage from pool ctor
+    through ``pool.open()`` through ``AsyncPostgresSaver(pool)`` through
+    ``saver.setup()`` is individually covered:
+
+    - Pre-pool stages (imports, URL, kwargs, pool ctor):  propagate
+      the original exception — there is no pool to close yet, and the
+      readiness stays ``uninitialised`` because we never reached a
+      stage that could produce a typed reason.
+    - ``pool.open()`` failure: closes the partial pool, publishes
+      ``_READINESS_POOL_OPEN_FAILED``, and re-raises the original
+      exception.
+    - ``AsyncPostgresSaver(pool)`` failure: closes the open pool,
+      publishes ``_READINESS_SAVER_SETUP_FAILED``, re-raises.
+    - ``saver.setup()`` failure: closes the open pool, publishes
+      ``_READINESS_SAVER_SETUP_FAILED``, re-raises.
+
+    Single-flight per process: concurrent first callers serialise on
+    ``_init_lock``; subsequent callers after a successful init return
+    the cached saver.
 
     Enforces ``LANGGRAPH_STRICT_MSGPACK=true`` before importing the
     checkpointer so that deserialisation rejects unknown module payloads
@@ -116,44 +219,91 @@ async def get_checkpointer() -> AsyncPostgresSaver:
     import os
 
     os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
-    global _checkpointer, _pool
+    global _checkpointer, _pool, _readiness
 
     if _checkpointer is not None:
         return _checkpointer
 
     async with _init_lock:
-        if _checkpointer is not None:  # double-check
+        if _checkpointer is not None:  # double-check after acquiring the lock
             return _checkpointer
 
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-        from psycopg_pool import AsyncConnectionPool
+        # Stage 1 — imports, URL, kwargs, pool ctor.
+        # No pool to close here — just propagate the original exception
+        # and leave _readiness as _READINESS_UNINITIALISED.
+        try:
+            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+            from psycopg_pool import AsyncConnectionPool
 
-        sync_url = _stripped_db_url()
-        # Build the pool ourselves so FR-023 (sizing), FR-024 (keepalive)
-        # and FR-025 (check callback) actually take effect.  open=False
-        # then await pool.open() so we can surface init errors here
-        # instead of in the first graph op.
-        pool = AsyncConnectionPool(
-            conninfo=sync_url,
-            min_size=_POOL_CONFIG["min_size"],
-            max_size=_POOL_CONFIG["max_size"],
-            max_idle=_POOL_CONFIG["max_idle"],
-            reconnect_timeout=_POOL_CONFIG["reconnect_timeout"],
-            timeout=_POOL_CONFIG["timeout"],
-            kwargs={
-                "keepalives": _POOL_CONFIG["keepalives"],
-                "keepalives_idle": _POOL_CONFIG["keepalives_idle"],
-                "keepalives_interval": _POOL_CONFIG["keepalives_interval"],
-                "keepalives_count": _POOL_CONFIG["keepalives_count"],
-            },
-            check=_check_connection,  # FR-025
-            open=False,
-        )
-        await pool.open(wait=True)
-        saver = AsyncPostgresSaver(pool)
-        await saver.setup()
+            sync_url = _stripped_db_url()
+            connection_kwargs = build_checkpointer_connection_kwargs()
+            pool = AsyncConnectionPool(
+                conninfo=sync_url,
+                min_size=_POOL_CONFIG["min_size"],
+                max_size=_POOL_CONFIG["max_size"],
+                max_idle=_POOL_CONFIG["max_idle"],
+                reconnect_timeout=_POOL_CONFIG["reconnect_timeout"],
+                timeout=_POOL_CONFIG["timeout"],
+                kwargs=connection_kwargs,
+                check=_check_connection,  # FR-025
+                open=False,
+            )
+        except Exception:
+            # No pool allocated — nothing to close.
+            raise
+
+        # Stage 2 — pool.open()
+        try:
+            await pool.open(wait=True)
+        except Exception:
+            # REQ-081: staged fail-closed — close the partial pool,
+            # publish typed ``pool_open_failed``, re-raise original.
+            with contextlib.suppress(Exception):
+                await pool.close()
+            _readiness = _READINESS_POOL_OPEN_FAILED
+            logger.warning(
+                "checkpointer.init_failed",
+                state=_readiness.state,
+                reason=_readiness.reason,
+            )
+            raise
+
+        # Stage 3 — saver construction
+        try:
+            saver = AsyncPostgresSaver(pool)
+        except Exception:
+            with contextlib.suppress(Exception):
+                await pool.close()
+            _readiness = _READINESS_SAVER_SETUP_FAILED
+            logger.warning(
+                "checkpointer.init_failed",
+                state=_readiness.state,
+                reason=_readiness.reason,
+            )
+            raise
+
+        # Stage 4 — saver.setup()
+        try:
+            await saver.setup()
+        except Exception:
+            # REQ-081: saver-side failure (typically ``CREATE INDEX
+            # CONCURRENTLY`` on a fresh DB without autocommit=True).
+            # Close the now-open pool, keep the singleton empty, and
+            # re-raise the ORIGINAL exception so the next caller can
+            # retry with different kwargs if needed.
+            with contextlib.suppress(Exception):
+                await pool.close()
+            _readiness = _READINESS_SAVER_SETUP_FAILED
+            logger.warning(
+                "checkpointer.init_failed",
+                state=_readiness.state,
+                reason=_readiness.reason,
+            )
+            raise
+
         _pool = pool
         _checkpointer = saver
+        _readiness = _READINESS_UP
         logger.info(
             "checkpointer.initialized",
             pool_config=_POOL_CONFIG,
@@ -162,47 +312,86 @@ async def get_checkpointer() -> AsyncPostgresSaver:
 
 
 async def close_checkpointer() -> None:
-    """Gracefully shut down the checkpointer + pool."""
-    global _checkpointer, _pool
-    if _pool is not None:
-        try:
-            await _pool.close()
-        except Exception:
-            logger.warning("checkpointer.cleanup_failed", exc_info=True)
+    """Gracefully shut down the checkpointer + pool.
+
+    Idempotent: tolerates an already-closed pool and an uninitialised
+    singleton. Always resets module-level state so the next
+    ``get_checkpointer()`` call rebuilds from a clean slate.
+
+    Closes the shared pool and every shard pool that
+    ``checkpointer_pool`` registered — but it does NOT touch ARQ's
+    Redis pool (owned by ``app.core.redis``).
+    """
+    global _checkpointer, _pool, _readiness
+    pool_ref = _pool
     _checkpointer = None
     _pool = None
-    logger.info("checkpointer.closed")
+    _readiness = _READINESS_UNINITIALISED
+    if pool_ref is None:
+        logger.info("checkpointer.closed", state="noop", reason="no_pool")
+    else:
+        try:
+            await pool_ref.close()
+            logger.info("checkpointer.closed", state="ok", reason="pool_closed")
+        except Exception:
+            logger.warning(
+                "checkpointer.cleanup_failed",
+                state="error",
+                reason="pool_close_raised",
+            )
 
 
-async def preheat() -> None:
+async def preheat() -> CheckpointerReadiness:
     """Lifespan preheat: initialize checkpointer (setup() + pool.open()).
 
-    ``get_checkpointer()`` already calls ``setup()`` + ``pool.open(wait=True)``
-    so a successful return means the connection is live.  We deliberately
-    do NOT probe with ``cp.list()`` — the sync ``list`` returns a generator
-    (not a coroutine) in langgraph-checkpoint-postgres 1.0.9/3.1.0, so awaiting
-    it crashes with ``TypeError``.  ``alist`` would also work but adds no
+    Returns the ``CheckpointerReadiness`` snapshot so callers (FastAPI
+    /readyz, worker startup) can fail closed when the checkpointer
+    dependency is not healthy. ``get_checkpointer()`` already calls
+    ``setup()`` + ``pool.open(wait=True)`` so a successful return means
+    the connection is live. We deliberately do NOT probe with
+    ``cp.list()`` — the sync ``list`` returns a generator (not a
+    coroutine) in langgraph-checkpoint-postgres 1.0.9/3.1.0, so awaiting
+    it crashes with ``TypeError``. ``alist`` would also work but adds no
     signal beyond what ``setup()`` already proved.
 
-    Logs success or warning — never raises (use in try/except).
+    The exception is preserved and logged with a redacted reason tag
+    (never the raw exception message) so /readyz can surface the
+    dependency failure without leaking URLs, paths, or user payload.
     """
+    global _readiness
+
     ts = time.time()
     try:
         await get_checkpointer()
         elapsed = int((time.time() - ts) * 1000)
+        readiness = get_checkpointer_readiness()
         logger.info(
             "checkpointer.preheat ok",
             elapsed_ms=elapsed,
             pool_config=_POOL_CONFIG,
             controls=checkpointer_control_status(),
+            readiness=readiness.as_dict(),
         )
+        return readiness
     except Exception:
         elapsed = int((time.time() - ts) * 1000)
+        # REQ-081: actively set a typed down snapshot so callers never
+        # see stale ``uninitialised`` when get_checkpointer() failed
+        # before reaching a stage that publishes a specific reason.
+        # The reason is a short redacted tag — never the raw exception
+        # message or URL.
+        # Preserve a stage-specific failure published by get_checkpointer().
+        # Only synthesize the generic setup reason when no failing stage was
+        # able to publish a typed down snapshot.
+        if _readiness.state != "down":
+            _readiness = _READINESS_SAVER_SETUP_FAILED
+        readiness = get_checkpointer_readiness()
         logger.warning(
             "checkpointer.preheat_failed",
             elapsed_ms=elapsed,
-            exc_info=True,
+            readiness=readiness.as_dict(),
         )
+        return readiness
 
 
 async def _force_rebuild() -> None:
@@ -212,19 +401,18 @@ async def _force_rebuild() -> None:
     connection drop.  Cleanup errors are logged, not swallowed silently
     (FR: observability of pool teardown failures).
     """
-    global _checkpointer, _pool
+    global _checkpointer, _pool, _readiness
     if _pool is not None:
         try:
             await _pool.close()
         except Exception:
-            logger.warning("checkpointer.cleanup_failed", exc_info=True)
+            logger.warning("checkpointer.cleanup_failed", state="error", reason="pool_close_raised")
     _checkpointer = None
     _pool = None
+    _readiness = _READINESS_UNINITIALISED
 
 
-async def get_graph_config(
-    thread_id: str, checkpoint_ns: str = ""
-) -> dict[str, Any]:
+async def get_graph_config(thread_id: str, checkpoint_ns: str = "") -> dict[str, Any]:
     """Build a RunnableConfig dict for graph invocation."""
     return {
         "configurable": {
@@ -319,9 +507,12 @@ async def retry_graph_op(
 
 
 __all__ = [
+    "CheckpointerReadiness",
     "CheckpointerUnavailableError",
+    "build_checkpointer_connection_kwargs",
     "close_checkpointer",
     "get_checkpointer",
+    "get_checkpointer_readiness",
     "get_graph_config",
     "preheat",
     "retry_graph_op",
