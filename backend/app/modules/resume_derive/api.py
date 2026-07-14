@@ -1,4 +1,5 @@
 """FastAPI routes for resume derive (REQ-055)."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -10,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import db_session_user_dep, get_current_user_id
 from app.modules.resume_derive.schemas import (
     DeriveRunAcceptedOut,
-    DeriveRunOut,
     DeriveStartIn,
     ExportGateOut,
     ResumeGuidanceIn,
@@ -38,7 +38,9 @@ async def get_root_resume(
     svc = ResumeDeriveService(session)
     row = await svc.get_root(user_id)
     if row is None:
-        return JSONResponse(status_code=404, content={"error": "NOT_FOUND", "message": "No root resume"})
+        return JSONResponse(
+            status_code=404, content={"error": "NOT_FOUND", "message": "No root resume"}
+        )
     return _resume_payload(row)
 
 
@@ -59,6 +61,18 @@ async def create_root_resume(
         await session.commit()
         return _resume_payload(row)
     except DeriveError as exc:
+        if exc.code == "ROOT_EXISTS":
+            # Return the nested envelope the shared frontend ApiError parser
+            # expects: {"error": {"code": "ROOT_EXISTS", "message": "..."}}
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": {
+                        "code": "ROOT_EXISTS",
+                        "message": exc.message,
+                    }
+                },
+            )
         return _err(exc)
 
 
@@ -175,7 +189,6 @@ async def derive_rationale(
     session: AsyncSession = Depends(db_session_user_dep),
     user_id: UUID = Depends(get_current_user_id),
 ):
-    svc = ResumeDeriveService(session)
     from app.modules.resumes_v2.repository import ResumeV2Repository
 
     row = await ResumeV2Repository(session).get(resume_id, user_id=user_id)
@@ -188,7 +201,10 @@ async def derive_rationale(
         "unused_materials": meta.get("unused_materials") or [],
         "jd_parse": meta.get("jd_parse") or {},
         "supplement_questions": meta.get("supplement_questions") or [],
-        "pending_claims": ((row.data or {}).get("metadata") or {}).get("derive", {}).get("pendingClaims") or [],
+        "pending_claims": ((row.data or {}).get("metadata") or {})
+        .get("derive", {})
+        .get("pendingClaims")
+        or [],
     }
 
 

@@ -1,34 +1,47 @@
 """Resume derive service — start/cancel/status/export-gate/supplements (REQ-055)."""
+
 from __future__ import annotations
 
+import contextlib
 import copy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
-from app.modules.jobs.models import Job
 from app.agents.nodes.resume_derive.validate_sources import (
     collect_root_refs,
     validate_sources,
 )
+from app.core.logging import get_logger
+from app.modules.jobs.models import Job
 from app.modules.resume_derive.metrics import derive_runs_total, suggestion_apply_total
 from app.modules.resume_derive.models import ResumeDeriveRun
 from app.modules.resume_derive.repository import ResumeDeriveRepository
 from app.modules.resume_derive.root_completeness import compute_root_completeness
 from app.modules.resume_derive.themes import normalize_derive_theme_id
-from app.modules.resumes_v2.models import ResumeV2
-from app.modules.resumes_v2.repository import ResumeV2Repository
 from app.modules.resume_intelligence.snapshots import (
     build_input_fingerprint,
     canonical_hash,
     normalize_jd_text,
 )
+from app.modules.resumes_v2.models import ResumeV2
+from app.modules.resumes_v2.repository import ResumeV2Repository
 
 log = get_logger("resume_derive")
+
+# Both the root partial unique index and the slug unique constraint can fire
+# during a root-insert race (the repository first flushes a standard row, then
+# the service sets resume_kind='root').  Accept either as a valid race indicator.
+_EXPECTED_RACE_CONSTRAINTS = frozenset(
+    {
+        "uq_resumes_v2_one_root_per_user",
+        "uq_resumes_v2_user_slug",
+    }
+)
 
 
 class DeriveError(Exception):
@@ -61,25 +74,161 @@ class ResumeDeriveService:
         slug: str,
         data: dict[str, Any] | None = None,
     ) -> ResumeV2:
+        """Create the user's first (and only) root resume.
+
+        Concurrent / racing POSTs for the same user must always resolve to
+        a single row: the second caller must observe a stable
+        ``DeriveError(409, "ROOT_EXISTS")`` and not a 500, and must NEVER
+        overwrite the row already persisted by the winner. We enforce that
+        contract with three layers:
+
+        1. Pre-flight existence check (RLS-scoped `get_root`) — handles the
+           common case without a write.
+        2. SAVEPOINT around the actual INSERT so a concurrent transaction
+           that lost the race raises a unique/conflict error inside the
+           savepoint without aborting our transaction.
+        3. Post-INSERT re-read — after the savepoint commits the row, we
+           re-query `get_root` and, if a different winner is now visible,
+           treat this caller as a loser and surface ROOT_EXISTS instead of
+           returning the duplicated row.
+
+        Structured logs carry identifiers, outcome codes, and content lengths
+        only — never resume content, the marker string, the full JSON payload,
+        or raw database exception text. Unit tests enforce both safe key names
+        and safe values across success and conflict paths.
+        """
         existing = await self.get_root(user_id)
         if existing is not None:
+            log.info(
+                "resume_derive.create_root.conflict",
+                user_id=str(user_id),
+                existing_root_id=str(existing.id),
+                outcome="root_exists_preflight",
+            )
             raise DeriveError(409, "ROOT_EXISTS", "User already has a root resume.")
 
         from app.modules.resumes_v2.defaults import default_resume_data_v2
 
-        payload = data or default_resume_data_v2()
+        payload = data if isinstance(data, dict) else default_resume_data_v2()
         completeness = compute_root_completeness(payload)
         meta = payload.setdefault("metadata", {})
         if isinstance(meta, dict):
             meta["rootCompleteness"] = completeness
 
-        row = await self.resumes.create(user_id=user_id, name=name, slug=slug, data=payload)
-        row.resume_kind = "root"
-        row.root_resume_id = None
-        row.job_id = None
-        row.target_page_count = None
-        row.derive_meta = {}
-        await self.session.flush()
+        marker_length = 0
+        try:
+            md = meta.get("markdown") if isinstance(meta, dict) else None
+            if isinstance(md, dict):
+                src = md.get("sourceMarkdown")
+                if isinstance(src, str):
+                    marker_length = len(src)
+        except Exception:
+            marker_length = 0
+
+        # Race-safe insert: SAVEPOINT isolates the INSERT from any unique /
+        # RLS conflict that a concurrent winner may surface, so we can
+        # recover into a clean state without aborting the outer transaction.
+        savepoint = await self.session.begin_nested()
+        try:
+            row = await self.resumes.create(user_id=user_id, name=name, slug=slug, data=payload)
+            row.resume_kind = "root"
+            row.root_resume_id = None
+            row.job_id = None
+            row.target_page_count = None
+            row.derive_meta = {}
+            await self.session.flush()
+        except IntegrityError as exc:
+            # Walk the exc.orig / __cause__ / __context__ chain to find the
+            # constraint_name (asyncpg may nest it on __cause__.constraint_name
+            # or __context__.diag.constraint_name). Reuses the pattern proven
+            # in test_migration_0055.py:_postgres_error_identity.
+            constraint_name: str | None = None
+            pending: list[BaseException | Any] = [exc.orig]
+            seen: set[int] = set()
+            while pending:
+                current = pending.pop(0)
+                if current is None or id(current) in seen:
+                    continue
+                seen.add(id(current))
+                if constraint_name is None:
+                    constraint_name = getattr(current, "constraint_name", None)
+                if constraint_name is None:
+                    diag = getattr(current, "diag", None)
+                    if diag is not None:
+                        constraint_name = getattr(diag, "constraint_name", None)
+                if constraint_name is None:
+                    pending.extend(
+                        c
+                        for c in (
+                            getattr(current, "__cause__", None),
+                            getattr(current, "__context__", None),
+                        )
+                        if c is not None
+                    )
+
+            # Both the root partial unique index and the slug unique constraint
+            # can fire during a root-insert race (the repository first flushes a
+            # standard row, then the service sets resume_kind='root').  Accept
+            # either as a valid race indicator; for any other constraint name
+            # (e.g. a different slug or an FK) we re-raise so the caller sees a
+            # legitimate DB error.
+            resolved = constraint_name or ""
+
+            # Roll back the SAVEPOINT regardless (it contained the failed
+            # INSERT) so the outer transaction is clean for the re-read.
+            await savepoint.rollback()
+
+            if resolved not in _EXPECTED_RACE_CONSTRAINTS:
+                raise
+
+            # The constraint is one of the expected race indicators.  Re-read
+            # the root — if a winner root actually exists this is a genuine
+            # ROOT_EXISTS; otherwise something unexpected happened and we
+            # propagate the original error.
+            winner = await self.get_root(user_id)
+            if winner is None:
+                raise
+
+            log.info(
+                "resume_derive.create_root.conflict",
+                user_id=str(user_id),
+                existing_root_id=str(winner.id),
+                outcome="root_exists_unique_conflict",
+            )
+            raise DeriveError(409, "ROOT_EXISTS", "User already has a root resume.") from exc
+        except Exception:
+            # Only the two explicitly recognised uniqueness constraints above
+            # may become ROOT_EXISTS. A generic runtime/database failure must
+            # keep its original type and traceback even if another request
+            # happened to create a root concurrently; otherwise a real defect
+            # would be hidden behind a recoverable 409.
+            with contextlib.suppress(Exception):
+                await savepoint.rollback()
+            raise
+
+        # Savepoint succeeded — but a concurrent winner may have written a
+        # different root row in the time between our preflight `get_root`
+        # and the INSERT. Re-read after the savepoint to detect that case
+        # and discard our duplicate without ever overwriting the winner.
+        winner_after = await self.get_root(user_id)
+        if winner_after is not None and winner_after.id != row.id:
+            await savepoint.rollback()
+            log.info(
+                "resume_derive.create_root.conflict",
+                user_id=str(user_id),
+                existing_root_id=str(winner_after.id),
+                outcome="root_exists_post_insert",
+            )
+            raise DeriveError(409, "ROOT_EXISTS", "User already has a root resume.")
+
+        await savepoint.commit()
+        log.info(
+            "resume_derive.create_root.success",
+            user_id=str(user_id),
+            root_id=str(row.id),
+            marker_length=marker_length,
+            name_length=len(name or ""),
+        )
         return row
 
     async def promote_to_root(self, *, user_id: UUID, source_id: UUID) -> ResumeV2:
@@ -122,7 +271,9 @@ class ResumeDeriveService:
         try:
             theme_id = normalize_derive_theme_id(template_id)
         except ValueError as exc:
-            raise DeriveError(400, "INVALID_THEME", "Select one of the supported resume themes.") from exc
+            raise DeriveError(
+                400, "INVALID_THEME", "Select one of the supported resume themes."
+            ) from exc
 
         root = None
         if root_resume_id is not None:
@@ -378,9 +529,7 @@ class ResumeDeriveService:
             "acceptance": artifacts.get("acceptance"),
             "canonical_status": derive.map_domain_status(run.status).value,
             "available_actions": derive.projection_actions(run.status),
-            "milestones": [
-                {"code": code, "status": "pending"} for code in derive.MILESTONE_CODES
-            ],
+            "milestones": [{"code": code, "status": "pending"} for code in derive.MILESTONE_CODES],
         }
 
     @staticmethod
@@ -461,8 +610,8 @@ class ResumeDeriveService:
             run_id,
             user_id=user_id,
             status="cancelled",
-            cancel_requested_at=datetime.now(timezone.utc),
-            finished_at=datetime.now(timezone.utc),
+            cancel_requested_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
         )
         derive_runs_total.labels(status="cancelled").inc()
         assert updated is not None
@@ -550,7 +699,7 @@ class ResumeDeriveService:
                     "question_id": ans["question_id"],
                     "text": ans["text"],
                     "sync_target": sync_target,
-                    "confirmed_at": datetime.now(timezone.utc).isoformat(),
+                    "confirmed_at": datetime.now(UTC).isoformat(),
                 }
             )
         # Clear matching pending claims
@@ -578,7 +727,7 @@ class ResumeDeriveService:
                 s["status"] = "needs_refresh"
         meta_out = dict(row.derive_meta or {})
         meta_out["suggestions"] = suggestions
-        meta_out["last_supplement_at"] = datetime.now(timezone.utc).isoformat()
+        meta_out["last_supplement_at"] = datetime.now(UTC).isoformat()
         row.derive_meta = meta_out
 
         log.info(
@@ -681,7 +830,7 @@ class ResumeDeriveService:
         data = validate_sources(data, allowed_refs=allowed)
 
         suggestion["status"] = "applied"
-        suggestion["applied_at"] = datetime.now(timezone.utc).isoformat()
+        suggestion["applied_at"] = datetime.now(UTC).isoformat()
         meta = dict(row.derive_meta or {})
         meta["suggestions"] = suggestions
         row.derive_meta = meta
