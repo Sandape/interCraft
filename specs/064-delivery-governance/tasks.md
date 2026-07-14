@@ -253,7 +253,7 @@ git revert <squash-merge-sha>
 
 #### Tasks
 
-- [X] T301 [Phase 7] [PR-07a] Diagnose and fix frontend CI — 修复前端构建/lint 失败，建立基线（在独立 commit 中，不混入业务重构） (#64)
+- [ ] T301 [Phase 7] [PR-07a] Diagnose and fix frontend CI — 修复前端构建/lint 失败，建立基线（在独立 commit 中，不混入业务重构；#64 已完成 core typecheck/build/test，lint 子项仍待闭环）
 
 #### Validation
 
@@ -387,7 +387,7 @@ git revert <squash-merge-sha>
 
 #### Tasks
 
-- [X] T307 [Phase 7] [PR-07f] Create deterministic PR Eval — 现由 `.github/workflows/033-eval-gate.yml` 实现，真实模型 nightly 分离 (#88; retained artifacts #90)
+- [ ] T307 [Phase 7] [PR-07f] Create deterministic PR Eval — `.github/workflows/033-eval-gate.yml` 的确定性 PR eval 已由 #88/#90 完成并保留失败证据；真实模型 nightly 分离仍待实现
 - [ ] T308 [Phase 7] [PR-07f] Create `scripts/governance/ci-health.ps1` — CI 健康检查辅助脚本
 
 #### Validation
