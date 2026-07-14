@@ -41,7 +41,8 @@ class Settings(BaseSettings):
     db_pool_size: int = 10
     db_max_overflow: int = 5
     db_echo: bool = False
-    # asyncpg uses `ssl` (not libpq's `sslmode`); values: "disable" | "prefer" | "require" | "verify-ca" | "verify-full", or None.
+    # asyncpg uses `ssl` (not libpq's `sslmode`); values: "disable", "prefer",
+    # "require", "verify-ca", "verify-full", or None.
     db_ssl: str | None = None
     # When true, the engine uses NullPool so every checkout opens a fresh
     # connection. Critical for tests where RLS `app.user_id` must not leak
@@ -217,6 +218,14 @@ class Settings(BaseSettings):
     # TODO(release-manager): drop this flag after the 1-week observation window.
     us3_use_v2_checkpoint_pool: bool = False
     checkpoint_pool_count: int = 8
+
+    # ---- REQ-033 US5 (T049): nightly real-model budget caps ----
+    # Documented caps: 5_000_000 tokens, 50.0 USD per night.
+    # Set both to 0 to disable nightly runs (CLI exits 1 INCOMPLETE).
+    # Environment variables EVAL_NIGHTLY_TOKEN_BUDGET and
+    # EVAL_NIGHTLY_COST_BUDGET_USD override these defaults.
+    eval_nightly_token_budget: int = 5_000_000
+    eval_nightly_cost_budget_usd: float = 50.0
 
     # ---- REQ-048 — Interview Mode Split + Doubao Card ----
     # Embedding + reranker service (single-process, both /embed + /rerank).
