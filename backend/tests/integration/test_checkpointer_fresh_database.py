@@ -159,6 +159,11 @@ async def _assert_empty_catalog(session: AsyncSession) -> None:
         f"Contract requires a truly fresh catalog (no checkpoint_* tables). "
         f"Found {tables}. The CI job must create the database per invocation."
     )
+    # The catalog SELECT implicitly starts a transaction. Release that old
+    # snapshot before saver.setup() runs CREATE INDEX CONCURRENTLY, otherwise
+    # PostgreSQL correctly waits for this session and the contract deadlocks
+    # itself until the outer CI timeout.
+    await session.rollback()
 
 
 async def _teardown_tables(session: AsyncSession) -> None:

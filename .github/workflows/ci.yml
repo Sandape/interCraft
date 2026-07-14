@@ -127,11 +127,11 @@ jobs:
           mkdir -p test-results
           MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
           export MASTER_KEY
-          # REQ-081: first pytest invocation is the fresh-DB contract
-          # (no skip guard surfaces when INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_URL
-          # is set).  The contract refuses to run without the env var, so any
-          # ``skip`` reported by JUnit would mean the env wiring regressed.
-          uv run pytest tests/integration/test_checkpointer_fresh_database.py \
+          # REQ-081: DATABASE_URL satisfies the repository-wide integration
+          # guard while the dedicated URL + ownership marker protect mutation.
+          # Any JUnit skip means that this wiring regressed. The command-level
+          # timeout preserves evidence and leaves time for artifact upload.
+          timeout 5m uv run pytest tests/integration/test_checkpointer_fresh_database.py \
             --junitxml=test-results/checkpointer-fresh-db-junit.xml \
             -v 2>&1 | tee test-results/checkpointer-fresh-db.log
       - name: Assert JUnit has zero skips
