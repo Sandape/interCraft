@@ -63,7 +63,7 @@ REQ-001 至 REQ-052 的历史状态见下方基线索引。
 
 | ID | Feature | Status | Source Of Truth | Notes |
 |---|---|---|---|---|
-| 064 | 跨应用交付治理 | planned | [tasks.md](./064-delivery-governance/tasks.md) | Spec ready; 6 phases (5–10), 16 ordered PR slices. Maximum risk R3 (Ruleset boundary). Dispatch envelope, governance state/gate, handoff invariants specified. See [README.md](./064-delivery-governance/README.md). |
+| 064 | 跨应用交付治理 | in_progress | [tasks.md](./064-delivery-governance/tasks.md) | Stage-A SOP/adapters, Dispatch/Gate, core CI/Playwright/Eval, and clean coding-root cutover are operational. Project v2 remainder, Stage-B, 11 drills, final team regression, and self-contained screenshot HTML remain open. See [requirements-status.md](./064-delivery-governance/requirements-status.md). |
 
 ## Done Or Baseline
 

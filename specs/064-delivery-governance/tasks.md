@@ -44,9 +44,9 @@ review/Owner-bypass and squash-merge path. Never push the revert directly to
 
 #### Tasks
 
-- [ ] T101 [Phase 5] [PR-05a] Create `docs/engineering/delivery-sop.md` — 唯一交付 SOP，覆盖完整流程：Spec → Issue → Dispatch → 分支/worktree → Draft PR → CI → Review → Squash Merge
-- [ ] T102 [Phase 5] [PR-05a] Create `docs/engineering/team-onboarding.md` — 指导开发者在 Fresh Clone 中配置客户端并完成首个 PR
-- [ ] T103 [Phase 5] [PR-05a] Create `docs/decisions/ADR-001-multi-client-delivery-governance.md` — 记录多客户端交付治理的架构决策
+- [X] T101 [Phase 5] [PR-05a] Create `docs/engineering/delivery-sop.md` — 唯一交付 SOP，覆盖完整流程：Spec → Issue → Dispatch → 分支/worktree → Draft PR → CI → Review → Squash Merge (#22, truth alignment #68)
+- [X] T102 [Phase 5] [PR-05a] Create `docs/engineering/team-onboarding.md` — 指导开发者在 Fresh Clone 中配置客户端并完成首个 PR (#22)
+- [X] T103 [Phase 5] [PR-05a] Create `docs/decisions/ADR-001-multi-client-delivery-governance.md` — 记录多客户端交付治理的架构决策 (#22)
 
 #### Validation
 
@@ -76,9 +76,9 @@ git revert <squash-merge-sha>
 
 #### Tasks
 
-- [ ] T104 [Phase 5] [PR-05b] Simplify `AGENTS.md` — 精简为公共规则，不重复 SOP 内容；通过引用方式导入
-- [ ] T105 [Phase 5] [PR-05b] Create `CLAUDE.md` — 通过 `@AGENTS.md` / SOP 导入公共规则；仅确定性 Hook 进入 `.claude/settings.json`
-- [ ] T106 [Phase 5] [PR-05b] Create `.cursor/rules/agent-delivery.mdc` — Cursor 薄适配，不复制 SOP
+- [X] T104 [Phase 5] [PR-05b] Simplify `AGENTS.md` — 精简为公共规则，不重复 SOP 内容；通过引用方式导入 (#26)
+- [X] T105 [Phase 5] [PR-05b] Create `CLAUDE.md` — 通过 `@AGENTS.md` / SOP 导入公共规则；仅确定性 Hook 进入 `.claude/settings.json` (#26)
+- [X] T106 [Phase 5] [PR-05b] Create `.cursor/rules/agent-delivery.mdc` — Cursor 薄适配，不复制 SOP (#26)
 
 #### Validation
 
@@ -108,9 +108,9 @@ Restores AGENTS.md to pre-Phase 5b state, removes CLAUDE.md and .cursor/rules/ag
 
 #### Tasks
 
-- [ ] T107 [Phase 5] [PR-05c] Audit tracked Claude runtime/local files — 识别 `.claude/settings.local.json`、`.claude/state.json`、memory 文件；备份耐久知识；取消追踪；补充 `.gitignore`
-- [ ] T108 [Phase 5] [PR-05c] Scan Git history for secrets — 使用 `git log -p` 或专用扫描工具；发现后通知 Owner 轮换（不自已轮换）
-- [ ] T109 [Phase 5] [PR-05c] Create/update `.gitignore` — 确保 Claude/Cursor runtime 文件不被跟踪
+- [X] T107 [Phase 5] [PR-05c] Audit tracked Claude runtime/local files — 识别 `.claude/settings.local.json`、`.claude/state.json`、memory 文件；备份耐久知识；取消追踪；补充 `.gitignore` (#28)
+- [X] T108 [Phase 5] [PR-05c] Scan Git history for secrets — 使用 `git log -p` 或专用扫描工具；发现后通知 Owner 轮换（不自已轮换） (#28; credential remediation #70)
+- [X] T109 [Phase 5] [PR-05c] Create/update `.gitignore` — 确保 Claude/Cursor runtime 文件不被跟踪 (#28)
 
 #### Validation
 
@@ -148,11 +148,11 @@ Must verify `.gitignore` revert doesn't re-track runtime files incorrectly.
 
 #### Tasks
 
-- [ ] T201 [Phase 6] [PR-06a] Create `.github/ISSUE_TEMPLATE/bug.yml` — Bug 报告 Issue Form，含 dispatch_id、issue_number、base_sha、AC hash、allowed paths 字段
-- [ ] T202 [Phase 6] [PR-06a] Create `.github/ISSUE_TEMPLATE/feature.yml` — Feature 需求 Issue Form
-- [ ] T203 [Phase 6] [PR-06a] Create `.github/ISSUE_TEMPLATE/agent-task.yml` — Agent 自动化任务 Issue Form
-- [ ] T204 [Phase 6] [PR-06a] Create `.github/pull_request_template.md` — PR 模板，含 Refs #N、base/dispatch、files、checks、risks、rollback 章节
-- [ ] T205 [Phase 6] [PR-06a] Create `.github/CODEOWNERS` — 定义治理关键路径的 Review 分配。NekoDreamSensei 不设为主要 Reviewer 或 blocker
+- [X] T201 [Phase 6] [PR-06a] Create `.github/ISSUE_TEMPLATE/bug.yml` — Bug 报告 Issue Form，含 dispatch_id、issue_number、base_sha、AC hash、allowed paths 字段 (#30)
+- [X] T202 [Phase 6] [PR-06a] Create `.github/ISSUE_TEMPLATE/feature.yml` — Feature 需求 Issue Form (#30)
+- [X] T203 [Phase 6] [PR-06a] Create `.github/ISSUE_TEMPLATE/agent-task.yml` — Agent 自动化任务 Issue Form (#30)
+- [X] T204 [Phase 6] [PR-06a] Create `.github/pull_request_template.md` — PR 模板，含 Refs #N、base/dispatch、files、checks、risks、rollback 章节 (#30)
+- [X] T205 [Phase 6] [PR-06a] Create `.github/CODEOWNERS` — 定义治理关键路径的 Review 分配。NekoDreamSensei 不设为主要 Reviewer 或 blocker (#30)
 - [ ] T213 [Phase 6] [PR-06a] Create labels and Project board skeleton — 定义五态（Inbox / Needs Clarification / In Progress / In Review / Done）及必要标签
 
 #### Validation
@@ -184,10 +184,10 @@ git revert <squash-merge-sha>
 
 #### Tasks
 
-- [ ] T206 [Phase 6] [PR-06b] Create `.github/dispatches/` — Dispatch 文件存储目录及示例文件
-- [ ] T207 [Phase 6] [PR-06b] Implement `scripts/governance/dispatch.ps1` — Dispatch 状态机（创建/验证/失效/过期）；必须实现每个 Issue 最多一个活跃 dispatch（不区分 driver）；过期 dispatch 不可重新激活；签发新 dispatch 时必须重新验证 base_sha（权威远端 master）、AC hash（规范 AC 字段）、allowed paths
-- [ ] T211 [Phase 6] [PR-06b] Create `docs/decisions/ADR-002-dispatch-protocol.md` — Dispatch 协议 ADR
-- [ ] T209 [Phase 6] [PR-06b] Write `scripts/governance/tests/dispatch.Tests.ps1` — Dispatch Pester 测试
+- [X] T206 [Phase 6] [PR-06b] Create `.github/dispatches/` — Dispatch 文件存储目录及示例文件 (#32)
+- [X] T207 [Phase 6] [PR-06b] Implement `scripts/governance/dispatch.ps1` — Dispatch 状态机（创建/验证/失效/过期）；必须实现每个 Issue 最多一个活跃 dispatch（不区分 driver）；过期 dispatch 不可重新激活；签发新 dispatch 时必须重新验证 base_sha（权威远端 master）、AC hash（规范 AC 字段）、allowed paths (#32; boundary fix #35)
+- [X] T211 [Phase 6] [PR-06b] Create `docs/decisions/ADR-002-dispatch-protocol.md` — Dispatch 协议 ADR (#32)
+- [X] T209 [Phase 6] [PR-06b] Write `scripts/governance/tests/dispatch.Tests.ps1` — Dispatch Pester 测试 (#32)
 
 #### Validation
 
@@ -218,9 +218,9 @@ git revert <squash-merge-sha>
 
 #### Tasks
 
-- [ ] T208 [Phase 6] [PR-06c] Implement `scripts/governance/gate.ps1` — PR Gate 检查（Issue/Dispatch 有效性、唯一 PR、AC hash 匹配 versioned canonical acceptance statement、allowed paths 合规、base freshness 确定性验证、governance version）；base freshness 必须验证 dispatch base_sha == 权威远端 master HEAD，且 PR HEAD 从 base_sha 派生；AC hash 必须按 Dispatch Envelope v1 规范化，不能 hash checkbox 列表或整个 Issue body
-- [ ] T210 [Phase 6] [PR-06c] Write `scripts/governance/tests/gate.Tests.ps1` — Gate Pester 测试
-- [ ] T212 [Phase 6] [PR-06c] Create `docs/decisions/ADR-003-governance-gate-design.md` — Gate 设计 ADR
+- [X] T208 [Phase 6] [PR-06c] Implement `scripts/governance/gate.ps1` — PR Gate 检查（Issue/Dispatch 有效性、唯一 PR、AC hash 匹配 versioned canonical acceptance statement、allowed paths 合规、base freshness 确定性验证、governance version）；base freshness 必须验证 dispatch base_sha == 权威远端 master HEAD，且 PR HEAD 从 base_sha 派生；AC hash 必须按 Dispatch Envelope v1 规范化，不能 hash checkbox 列表或整个 Issue body (#37)
+- [X] T210 [Phase 6] [PR-06c] Write `scripts/governance/tests/gate.Tests.ps1` — Gate Pester 测试 (#37)
+- [X] T212 [Phase 6] [PR-06c] Create `docs/decisions/ADR-003-governance-gate-design.md` — Gate 设计 ADR (#37)
 
 #### Validation
 
@@ -253,7 +253,7 @@ git revert <squash-merge-sha>
 
 #### Tasks
 
-- [ ] T301 [Phase 7] [PR-07a] Diagnose and fix frontend CI — 修复前端构建/lint 失败，建立基线（在独立 commit 中，不混入业务重构）
+- [ ] T301 [Phase 7] [PR-07a] Diagnose and fix frontend CI — 修复前端构建/lint 失败，建立基线（在独立 commit 中，不混入业务重构；#64 已完成 core typecheck/build/test，lint 子项仍待闭环）
 
 #### Validation
 
@@ -281,7 +281,7 @@ git revert <squash-merge-sha>
 #### Tasks
 
 - [ ] T302 [Phase 7] [PR-07b] Diagnose and fix backend-lint CI — 修复后端 lint 失败
-- [ ] T303 [Phase 7] [PR-07b] Diagnose and fix backend-unit CI — 修复后端单元测试失败
+- [X] T303 [Phase 7] [PR-07b] Diagnose and fix backend-unit CI — 修复后端单元测试失败 (#64)
 
 #### Validation
 
@@ -387,7 +387,7 @@ git revert <squash-merge-sha>
 
 #### Tasks
 
-- [ ] T307 [Phase 7] [PR-07f] Create `.github/workflows/eval.yml` — 确定性 PR Eval（真实模型 nightly 分离）
+- [ ] T307 [Phase 7] [PR-07f] Create deterministic PR Eval — `.github/workflows/033-eval-gate.yml` 的确定性 PR eval 已由 #88/#90 完成并保留失败证据；真实模型 nightly 分离仍待实现
 - [ ] T308 [Phase 7] [PR-07f] Create `scripts/governance/ci-health.ps1` — CI 健康检查辅助脚本
 
 #### Validation

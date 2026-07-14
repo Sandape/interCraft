@@ -4,7 +4,7 @@
 |---|---|
 | Requirement ID | REQ-064 |
 | Spec directory | `specs/064-delivery-governance` |
-| Status | planned (spec ready; implementation pending) |
+| Status | in_progress (Stage-A + core CI operational; Stage-B/final acceptance pending) |
 | Spec | [spec.md](./spec.md) |
 | Plan | [plan.md](./plan.md) |
 | Tasks | [tasks.md](./tasks.md) |
@@ -39,10 +39,12 @@
 ## Dependencies
 
 - Stage-A Ruleset `18825748` 已激活（PR 必须、默认审批、阻止 force push/branch deletion）
-- 远端 `master` 基线为 `880580a088ecf0186fddcb64c46edd48e60043d7`
-- 本 PR 仅含 governance spec 资产，不涉及产品代码
+- 状态核对基线为远端 `master` `6b4ddb48ec97ac45821ca7cc62db36b1089473ec`
+- Phase 5 文档/适配、Phase 6 Dispatch/Gate 与 Phase 7 核心 CI 已通过独立 PR 落地；详见 `requirements-status.md`
 
 ## Next
 
-1. Codex 验收本 PR 后启动 Phase 5（`specs/064-delivery-governance/tasks.md` Phase 5）
-2. 按顺序逐个 PR 实施 Phase 5 → Phase 6 → Phase 7 → Phase 8 → Phase 9 → Phase 10
+1. 完成 open #29 的 Project v2 可视化剩余项，或记录明确的长期延期决定；它不承担授权边界。
+2. 补齐 Phase 7 summary/source-bound required-check 准备，但在产品 P0 与最终回归稳定前不激活 Stage-B。
+3. Phase 8 自动化、Phase 9 十一项 drill、Phase 10 最终自包含截图 HTML/团队验收继续保持未完成。
+4. NekoDreamSensei 始终为可选 reviewer；Sandape owner/product-owner 可按 SOP 使用有理由、有证据的 PR-only bypass。
