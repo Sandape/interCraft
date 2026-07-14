@@ -140,7 +140,17 @@ async def fresh_db_session(fresh_db_configured: None) -> AsyncIterator[AsyncSess
     from app.core.db import _session_cm
 
     async with _session_cm() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            # Each contract test must remain independent even when the prior
+            # assertion fails after setup created the saver tables.
+            from app.agents.checkpointer import close_checkpointer
+            from app.agents.checkpointer_pool import close_all_pools
+
+            await close_all_pools()
+            await close_checkpointer()
+            await _teardown_tables(session)
 
 
 async def _assert_empty_catalog(session: AsyncSession) -> None:
@@ -173,14 +183,13 @@ async def _teardown_tables(session: AsyncSession) -> None:
     exercised the saver.  If teardown fails, the CI runner drops
     the entire database at job exit.
     """
-    await session.execute(
-        text(
-            "DROP TABLE IF EXISTS checkpoint_writes CASCADE; "
-            "DROP TABLE IF EXISTS checkpoint_blobs CASCADE; "
-            "DROP TABLE IF EXISTS checkpoints CASCADE; "
-            "DROP TABLE IF EXISTS checkpoint_migrations CASCADE;"
-        )
-    )
+    for table in (
+        "checkpoint_writes",
+        "checkpoint_blobs",
+        "checkpoints",
+        "checkpoint_migrations",
+    ):
+        await session.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
     await session.commit()
 
 
@@ -191,7 +200,7 @@ def _make_checkpoint(thread_id: str) -> tuple[dict, dict, dict]:
         "v": 4,
         "id": f"cp-{thread_id}",
         "ts": "2026-07-14T00:00:00+00:00",
-        "channel_versions": {},
+        "channel_versions": {"messages": "1"},
         "channel_values": {"messages": ["hello fresh"]},
         "pending_sends": [],
     }
@@ -279,7 +288,7 @@ async def test_shared_singleton_setup_and_round_trip(
     # Step 5 — shared saver aput/aget_tuple round trip.
     tid = f"fresh-shared-{uuid4().hex[:12]}"
     config, checkpoint, metadata = _make_checkpoint(tid)
-    new_versions: dict[str, str] = {}
+    new_versions: dict[str, str] = {"messages": "1"}
 
     next_config = await saver.aput(config, checkpoint, metadata, new_versions)
     assert next_config["configurable"]["thread_id"] == tid
@@ -353,7 +362,7 @@ async def test_shard_pool_round_trip_and_conn_close(
     # Step 4 — shard saver aput/aget_tuple round trip.
     tid = f"fresh-shard-{uuid4().hex[:12]}"
     config, checkpoint, metadata = _make_checkpoint(tid)
-    new_versions: dict[str, str] = {}
+    new_versions: dict[str, str] = {"messages": "1"}
 
     next_config = await saver.aput(config, checkpoint, metadata, new_versions)
     assert next_config["configurable"]["thread_id"] == tid
