@@ -34,7 +34,6 @@ from app.eval.checker import ChineseFidelityChecker, ChineseFidelityResult
 from app.eval.golden_loader import GoldenCase
 from app.eval.prompt_fingerprint import (
     compute_prompt_fingerprint,
-    compute_version_fingerprint,
 )
 from app.modules.telemetry_contracts.schemas import VersionContext
 
@@ -48,6 +47,16 @@ class CaseResult:
     REQ-033 Sub-batch 1: ``run_id`` lets downstream consumers join each
     per-case row back to the aggregate ``EvalReport.run_id`` and
     (future) LangSmith experiment / trace.
+
+    REQ-035 Sub-batch: ``trace_id``, ``llm_call_id``, ``badcase_id``,
+    ``score_dimensions``, ``regression_delta``, ``prompt_tokens``,
+    ``completion_tokens``, ``estimated_cost``, and ``latency_ms`` let
+    downstream consumers (PM dashboard, badcase review, CI artifact diff)
+    join each per-case row to its OTel trace, LLM call, badcase, score
+    breakdown, usage, and cost — without walking the ``metrics`` dict.
+
+    All REQ-035 fields have safe defaults (empty string / zero / None) so
+    every existing constructor call continues to work unchanged.
     """
 
     case_id: str
@@ -59,6 +68,16 @@ class CaseResult:
     label: str = ""
     expected_fidelity_pass: bool = True
     run_id: UUID | None = None
+    # REQ-035 fields (backward-compatible defaults).
+    trace_id: str = ""
+    llm_call_id: str = ""
+    badcase_id: str = ""
+    score_dimensions: dict[str, float] = field(default_factory=dict)
+    regression_delta: float | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    estimated_cost: float = 0.0
+    latency_ms: int = 0
 
 
 @dataclass
@@ -456,6 +475,23 @@ class EvalRunner:
             "english_ratio": fidelity.english_ratio,
         }
 
+        # REQ-035: extract debug/usage ids from case.input_state.
+        trace_id = str(case.input_state.get("trace_id", ""))
+        llm_call_id = str(case.input_state.get("llm_call_id", ""))
+        badcase_id = str(case.input_state.get("badcase_id", ""))
+        regression_delta: float | None = case.input_state.get("regression_delta")
+        usage = case.input_state.get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens", 0))
+        completion_tokens = int(usage.get("completion_tokens", 0))
+        estimated_cost = float(usage.get("estimated_cost", 0.0))
+        latency_ms = int(usage.get("latency_ms", 0))
+
+        # REQ-035: score_dimensions from actual_output + fidelity.
+        score_dimensions: dict[str, float] = dict(
+            actual_output.get("score_dimensions") or {}
+        )
+        score_dimensions["chinese_fidelity"] = fidelity.score
+
         return CaseResult(
             case_id=case.case_id,
             node=case.node,
@@ -465,6 +501,15 @@ class EvalRunner:
             failure_reasons=failure_reasons,
             label=case.label,
             expected_fidelity_pass=case.expected_fidelity_pass,
+            trace_id=trace_id,
+            llm_call_id=llm_call_id,
+            badcase_id=badcase_id,
+            score_dimensions=score_dimensions,
+            regression_delta=regression_delta,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            estimated_cost=estimated_cost,
+            latency_ms=latency_ms,
         )
 
     async def run_all(self) -> EvalReport:
