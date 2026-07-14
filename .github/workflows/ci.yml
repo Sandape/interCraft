@@ -118,6 +118,7 @@ jobs:
         working-directory: backend
         env:
           APP_ENV: test
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/checkpointer_fresh
           INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/checkpointer_fresh
           INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_OWNED: '1'
           JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
@@ -144,10 +145,12 @@ jobs:
           junit_path = Path("test-results/checkpointer-fresh-db-junit.xml")
           tree = ET.parse(junit_path)
           root = tree.getroot()
-          skipped = int(root.attrib.get("skipped", "0") or 0)
-          errors = int(root.attrib.get("errors", "0") or 0)
-          failures = int(root.attrib.get("failures", "0") or 0)
-          tests = int(root.attrib.get("tests", "0") or 0)
+          suites = [root] if root.tag == "testsuite" else list(root)
+          total = lambda key: sum(int(suite.attrib.get(key, "0") or 0) for suite in suites)
+          skipped = total("skipped")
+          errors = total("errors")
+          failures = total("failures")
+          tests = total("tests")
           assert tests == 2, (
               f"JUnit reports {tests} tests (expected 2); "
               "checkpointer-fresh-db job must collect exactly 2 contract tests"
