@@ -1,0 +1,27 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "e625016ff0411e6135fbf07df8cf811757ab2ca2",
+    "ac_hash":  "e7e201c7c0047f7b06d32b0f943c92d935df50c3fedd79c70146fab506c5452d",
+    "spec_task_id":  "ISSUE-086",
+    "driver":  "claude-code",
+    "created_at":  "2026-07-14T07:18:24Z",
+    "state":  "superseded",
+    "issue_number":  86,
+    "dispatch_id":  "req-086-eval-determinism-20260714-01",
+    "allowed_paths":  [
+                          ".env.example",
+                          ".github/dispatches/req-086-eval-determinism-20260714-01.json",
+                          "backend/app/core/config.py",
+                          "backend/app/eval/report.py",
+                          "backend/app/eval/runner.py",
+                          "backend/tests/eval/_gen/__init__.py",
+                          "backend/tests/eval/_gen/expansion.py",
+                          "backend/tests/eval/_gen/registry.py",
+                          "backend/tests/eval/_gen/sync_index.py",
+                          "backend/tests/eval/test_061_eval_dataset_coverage.py",
+                          "docs/evidence/061-ai-agent-production/eval-fixture-expansion.md",
+                          "specs/026-agent-eval-loop/golden/interview_score/case_05_short_answer.json",
+                          "specs/061-ai-agent-production/requirements-status.md"
+                      ]
+}

@@ -2,8 +2,9 @@
 
 Combines:
 
-- 13 hand-written seeds in ``specs/061-ai-agent-production/eval-cases/**``
-  (anchor: real prompt/response traces, ``source="manual"``).
+- Hand-written seeds in ``specs/061-ai-agent-production/eval-cases/**``
+  (anchor: real prompt/response traces, ``source="manual"``) — currently
+  no seed files are shipped; all cases are programmatic.
 - Programmatic variants produced by :mod:`tests.eval._gen.factories`
   according to :mod:`tests.eval._gen.registry` ``TIER_PLAN``
   (``source="programmatic"``).
@@ -27,7 +28,6 @@ from app.eval.capability_registry import (
 )
 from tests.eval._gen.factories import BUILDERS
 from tests.eval._gen.registry import TIER_PLAN
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 # backend/tests/eval/_gen/expansion.py → parents[3] = backend. Project root is one up.
@@ -110,7 +110,15 @@ def coverage_summary() -> dict[str, Any]:
         cap = str(case["capability_code"])
         cls = str(case["case_class"])
         bucket = summary.setdefault(
-            cap, {"total": 0, "normal": 0, "boundary": 0, "failure": 0, "privacy": 0, "adversarial": 0}
+            cap,
+            {
+                "total": 0,
+                "normal": 0,
+                "boundary": 0,
+                "failure": 0,
+                "privacy": 0,
+                "adversarial": 0,
+            },
         )
         bucket["total"] += 1
         bucket[cls] = bucket.get(cls, 0) + 1

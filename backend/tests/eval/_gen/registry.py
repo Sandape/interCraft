@@ -10,7 +10,7 @@ Rules (frozen for FR-112):
   represented.
 - WRITE_FACT_CHARGING capabilities: total == 50, every class represented,
   with adversarial ≥ 6 (P0/P1 risk class requires adversarial coverage).
-- the 13 hand-written seed cases (``specs/061.../eval-cases/...``) count
+- hand-written seed cases (``specs/061.../eval-cases/...``) count
   toward these totals — they are folded in by
   :func:`tests.eval._gen.expansion.expand_all_capabilities`.
 

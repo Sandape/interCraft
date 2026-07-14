@@ -125,11 +125,24 @@ def render_json_report(report: EvalReport | dict[str, Any]) -> dict[str, Any]:
     - ``langsmith_url`` — LangSmith deep link, or
       ``"unavailable"`` when LangSmith is not enabled (US6 deferred
       per user decision).
+
+    REQ-035: per-case fields ``llm_call_id``, ``badcase_id``,
+    ``score_dimensions``, ``regression_delta``, ``total_tokens``
+    and top-level aggregate fields ``input_tokens``, ``output_tokens``,
+    ``total_tokens``, ``estimated_cost``, ``avg_latency_ms``.
     """
     out = _coerce_report(report)
     # Ensure per-case run_id + trace/run references are present
     # (REQ-033 US7 join fields — T125 + T126).
     run_id = out["run_id"]
+
+    # REQ-035 aggregate accumulators.
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_estimated_cost = 0.0
+    total_latency_ms = 0
+    case_count_with_latency = 0
+
     for cr in out["case_results"]:
         if not isinstance(cr, dict):
             continue
@@ -168,6 +181,29 @@ def render_json_report(report: EvalReport | dict[str, Any]) -> dict[str, Any]:
         if "artifact_ref" not in metrics and cr.get("artifact_ref") != "unavailable":
             metrics["artifact_ref"] = cr["artifact_ref"]
         cr["metrics"] = metrics
+
+        # REQ-035: per-case total_tokens = prompt_tokens + completion_tokens.
+        pt = int(cr.get("prompt_tokens", 0) or 0)
+        ct = int(cr.get("completion_tokens", 0) or 0)
+        cr["total_tokens"] = pt + ct
+        total_input_tokens += pt
+        total_output_tokens += ct
+        total_estimated_cost += float(cr.get("estimated_cost", 0.0) or 0.0)
+        lt = int(cr.get("latency_ms", 0) or 0)
+        total_latency_ms += lt
+        if lt > 0:
+            case_count_with_latency += 1
+
+    # REQ-035: top-level aggregate fields.
+    out["input_tokens"] = total_input_tokens
+    out["output_tokens"] = total_output_tokens
+    out["total_tokens"] = total_input_tokens + total_output_tokens
+    out["estimated_cost"] = round(total_estimated_cost, 6)
+    out["avg_latency_ms"] = (
+        round(total_latency_ms / case_count_with_latency, 1)
+        if case_count_with_latency > 0
+        else 0.0
+    )
     return out
 
 
@@ -286,12 +322,12 @@ def render_markdown_report(report: EvalReport | dict[str, Any]) -> str:
     lines.append(f"- **runId**: `{run_id}`\n")
     lines.append(f"- **sourceRevision**: `{source_rev}`\n")
     lines.append(f"- **branch**: `{branch}`\n")
-    lines.append(
-        f"- **artifact.json**: `{artifacts.get('json') or 'docs/evidence/' + str(run_id) + '/eval-report.json'}`\n"
+    json_artifact = artifacts.get("json") or f"docs/evidence/{run_id}/eval-report.json"
+    markdown_artifact = artifacts.get("markdown") or (
+        f"docs/evidence/{run_id}/eval-report.md"
     )
-    lines.append(
-        f"- **artifact.markdown**: `{artifacts.get('markdown') or 'docs/evidence/' + str(run_id) + '/eval-report.md'}`\n"
-    )
+    lines.append(f"- **artifact.json**: `{json_artifact}`\n")
+    lines.append(f"- **artifact.markdown**: `{markdown_artifact}`\n")
     # LangSmith URL only if LangSmith enabled and ref present.
     langsmith_url = out.get("langsmith_url") or out.get("langsmithUrl") or ""
     if langsmith_url and langsmith_url != "unavailable":
@@ -399,7 +435,11 @@ def normalize_req045_report(
         trace_id = raw_case.get("trace_id") or metrics.get("trace_id") or "unavailable"
         span_id = raw_case.get("span_id") or metrics.get("span_id") or "unavailable"
         artifact_ref = raw_case.get("artifact_ref") or metrics.get("artifact_ref") or "unavailable"
-        case_langsmith_url = raw_case.get("langsmith_url") or metrics.get("langsmith_url") or langsmith_url
+        case_langsmith_url = (
+            raw_case.get("langsmith_url")
+            or metrics.get("langsmith_url")
+            or langsmith_url
+        )
         case_results.append(
             {
                 "caseId": str(raw_case.get("case_id") or "unknown"),
@@ -424,7 +464,14 @@ def normalize_req045_report(
         "runId": run_id,
         "suite": suite,
         "environment": str(out.get("environment") or "LOCAL").upper(),
-        "status": str(out.get("status") or ("PASSED" if int(out.get("failed_cases", 0) or 0) == 0 else "FAILED")),
+        "status": str(
+            out.get("status")
+            or (
+                "PASSED"
+                if int(out.get("failed_cases", 0) or 0) == 0
+                else "FAILED"
+            )
+        ),
         "sourceRevision": str(out.get("source_revision") or out.get("git_sha") or "unknown"),
         "branch": str(out.get("branch") or "unknown"),
         "datasetVersion": dataset_version,

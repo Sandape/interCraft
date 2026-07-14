@@ -3,9 +3,7 @@
 Programmatic generators that produce versioned eval cases for every capability
 and ``case_class`` defined in :mod:`app.eval.capability_registry`.
 
-Why programmatic + 13 hand-written seeds (rather than 330+ hand-written JSON):
-- 13 hand-written seeds anchor each capability to a real production traceback
-  (see ``specs/061-ai-agent-production/eval-cases/*/*.json``).
+Why programmatic (rather than hand-written JSON):
 - Programmatic variants extend coverage to FR-112 thresholds (≥30 ordinary,
   ≥50 write/fact/charging) by varying input space, language, expected_contains
   and class, while keeping fixture size bounded.
