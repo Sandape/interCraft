@@ -1281,16 +1281,10 @@ async def test_fresh_upgrade_has_exact_schema_rls_orm_and_recovery_contract(
                     {"id": credential_id, "user_id": user_id},
                 )
 
-            def _restore_rls() -> None:
-                pass
-
         async with engine.connect() as conn:
-            await conn.execution_options(isolation_level="AUTOCOMMIT").execute(
-                text(
-                    "ALTER TABLE wechat_credentials ENABLE ROW LEVEL SECURITY; "
-                    "ALTER TABLE wechat_credentials FORCE ROW LEVEL SECURITY"
-                )
-            )
+            conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+            await conn.execute(text("ALTER TABLE wechat_credentials ENABLE ROW LEVEL SECURITY"))
+            await conn.execute(text("ALTER TABLE wechat_credentials FORCE ROW LEVEL SECURITY"))
 
             await conn.execute(
                 text(
