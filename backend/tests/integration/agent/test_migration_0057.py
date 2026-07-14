@@ -1443,6 +1443,9 @@ async def test_fresh_upgrade_has_exact_schema_rls_orm_and_recovery_contract(
             ).scalar()
             assert done_in_queue == 2
 
+            # AUTOCOMMIT still creates a SQLAlchemy autobegin bookkeeping
+            # object. Clear it before opening the explicit repeat-read scope.
+            await conn.commit()
             async with conn.begin():
                 first = await conn.execute(
                     text("SELECT task_id FROM get_agent_task_recovery_candidates(:n)"),
