@@ -39,7 +39,7 @@ REQ-061 仍为近期主线实现焦点之一；商业套餐与微信支付为 RE
 |---|---|---|---|---|
 | 063 | 派生简历满页校准与真实页数一致 | active | [tasks.md](./063-derive-page-fill/tasks.md) | Specify+plan+tasks complete; next `/speckit-implement`（US1 MVP）。 |
 | 061 | 全域 AI / Agent 生产级升级 | in_progress | [spec.md](./061-ai-agent-production/spec.md) | Implementation tasks complete except T183 LangGraph upgrade **deferred** (keep 0.2.x). See [requirements-status.md](./061-ai-agent-production/requirements-status.md). |
-| 060 | 微信 Agent 生产级升级 | in_progress | [spec.md](./060-wechat-agent-production/spec.md) | Bounded implementation in-flight on Issue #77. Linear Alembic chain `0055_059_ai_resume -> 0056_060_wechat_agent_prod -> 0057_060_agent_recovery_queue` is drafted with queue-only recovery, hardened RLS/SECURITY DEFINER ACL, and rigorous PostgreSQL 16 contract tests. Status remains `in_progress` until the PR pipeline reports all three live migration-contract counts (notification 4, REQ-059 7, REQ-060 6) with zero skip/xfail/xpass and Issue #77 is closed with linked evidence. |
+| 060 | 微信 Agent 生产级升级 | done | [spec.md](./060-wechat-agent-production/spec.md) | Accepted on PR #84 head `e49defd`: the linear Alembic chain `0055_059_ai_resume -> 0056_060_wechat_agent_prod -> 0057_060_agent_recovery_queue`, queue-only recovery, composite tenant integrity, hardened RLS/SECURITY DEFINER ACLs, and ORM registration passed isolated PostgreSQL 16 Action run `29309352015` with exact live counts (notification 4, REQ-059 7, REQ-060 6), zero skip/failure, plus green frontend/backend/worker and Playwright smoke gates. Merge closes Issue #77. |
 | 059 | AI 岗位定制简历与编辑建议闭环 | in_progress | [spec.md](./059-ai-resume-intelligence/spec.md) | Application code and historical browser evidence exist, but the authoritative migration and isolated PostgreSQL CI evidence are pending under Issue #76. Do not mark `done` until both are merged and linked. |
 | 058 | 模拟面试 Agent 质量与体验优化 | in_progress | [spec.md](./058-interview-agent-optimize/spec.md) | Implement landed (plan prewarm, plan-driven Q, score-first WS, failure/degrade, sanitize/report). Unit evidence under `docs/evidence/058-interview-agent-optimize/`; harness timing pending. |
 | 057 | 求职训练指挥台（工作台首页） | in_progress | [spec.md](./057-dashboard-home-optimize/spec.md) | MVP shipped: summary BFF + Dashboard rewrite; browser-harness accepted. See [requirements-status.md](./057-dashboard-home-optimize/requirements-status.md) + evidence. |
@@ -50,7 +50,7 @@ REQ-061 仍为近期主线实现焦点之一；商业套餐与微信支付为 RE
 
 ## In Progress
 
-REQ-057、REQ-058 与 REQ-060 仍有验证或实机验收工作，状态见上方 Active 表；
+REQ-057 与 REQ-058 仍有验证或实机验收工作，状态见上方 Active 表；
 REQ-001 至 REQ-052 的历史状态见下方基线索引。
 
 ## Deferred
