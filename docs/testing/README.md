@@ -109,6 +109,58 @@ general historical reports folder; it is tied to the current fix workflow.
 - Evidence proves behavior; it does not define requirements. Link evidence from
   requirement status tables when a requirement is marked `done`.
 
+## Fresh-DB Checkpointer Contract (REQ-081)
+
+The independent `checkpointer-fresh-db` CI job provisions a real
+PostgreSQL 16 service and exercises the shipped
+`build_checkpointer_connection_kwargs` builder against a truly empty
+catalog. The contract must run end-to-end with zero skipped tests —
+any skip means the env guard regressed.
+
+| Field | Value |
+|---|---|
+| Test file | `backend/tests/integration/test_checkpointer_fresh_database.py` |
+| CI job | `.github/workflows/ci.yml` → `checkpointer-fresh-db` |
+| Service | `postgres:16-alpine` (independent, not shared) |
+| Opt-in env var | `INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_URL` |
+| Ownership marker | `INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_OWNED=1` |
+| Repository-wide placeholder skip | bypassed by setting the env var |
+
+The module refuses to run without both the URL and the explicit ownership
+marker. It accepts only `checkpointer_fresh` or a unique database name
+beginning `checkpointer_fresh_`. Before any mutation it reads the catalog
+and fails if any `checkpoint_*` table exists; it never pre-cleans a dirty
+catalog. Teardown drops only the contract-created tables after a successful
+run. The JUnit step asserts `tests == 2` and `skipped == 0`.
+
+To reproduce locally against your own throwaway Postgres (never
+point this at a shared dev / staging / production instance):
+
+```bash
+cd backend
+INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_URL=postgresql+asyncpg://USER:PASSWORD@127.0.0.1:5432/checkpointer_fresh \
+INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_OWNED=1 \
+DATABASE_URL="$INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_URL" \
+JWT_SECRET="ci-only-dummy-secret-that-is-more-than-32-bytes-long!!" \
+  uv run pytest tests/integration/test_checkpointer_fresh_database.py -v
+```
+
+The contract exercises both production code paths:
+
+1. `app.agents.checkpointer.get_checkpointer()` — the shared singleton.
+2. `app.agents.checkpointer_pool.get_checkpointer_pool(user_id)` —
+   one randomly hashed shard.
+
+Both init paths must complete `setup()` (with the latest migration —
+`ALTER TABLE checkpoint_writes ADD COLUMN task_path`), create the
+expected `checkpoints` / `checkpoint_blobs` / `checkpoint_writes` /
+`checkpoint_migrations` tables and the three `*_thread_id_idx`
+indexes, and survive a minimal real `aput` → `aget_tuple` round trip.
+
+Do not paste a real connection string into Git, an Issue, a PR,
+screenshots, evidence, or agent prompts. Only synthetic test-owned
+URLs with test-only credentials are allowed.
+
 ## CI Eval Gate Path Filter (REQ-033 US5)
 
 Per FR-018 / FR-021 / US5 acceptance scenario 3, only prompt-adjacent,

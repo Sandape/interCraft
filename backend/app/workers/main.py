@@ -23,7 +23,6 @@ from app.core.redis import (
     ARQ_HEALTH_CHECK_INTERVAL_SECONDS,
     ARQ_HEALTH_CHECK_KEY,
     ARQ_QUEUE_NAME,
-    close_redis,
 )
 
 # REQ-061: ARQ composition root — workers assemble ExecutionContext via
@@ -81,7 +80,23 @@ log = get_logger("arq.worker")
 
 
 async def on_worker_startup(ctx: dict[str, Any]) -> None:
-    """Initialize the same process-wide observability surface as the API."""
+    """Initialize the same process-wide observability surface as the API.
+
+    REQ-081 P0: validate the checkpointer init state BEFORE the ARQ
+    worker starts consuming graph-backed business jobs. When the
+    readiness snapshot does NOT report ``up``, this function raises
+    ``CheckpointerUnavailableError`` — ARQ catches it internally and
+    the worker main loop stops, preventing business-job consumption
+    until the dependency is restored or the deployment is rolled back.
+
+    The preheat call itself is fail-closed (returns readiness even on
+    internal exception) so this function only sees typed states; the
+    raise/no-raise decision is based on ``readiness.state`` alone.
+
+    ``ctx["intercraft_worker_started"]`` is set to ``True`` only when
+    the checkpointer is confirmed healthy. ``on_worker_shutdown`` uses
+    this flag to log an honest ``started`` count.
+    """
     configure_logging()
     settings = _get_app_settings()
     init_tracing(
@@ -94,7 +109,13 @@ async def on_worker_startup(ctx: dict[str, Any]) -> None:
             langsmith_project=settings.langsmith_project,
         )
     )
-    ctx["intercraft_worker_started"] = True
+    from app.agents.checkpointer import preheat as _checkpointer_preheat
+
+    readiness = await _checkpointer_preheat()
+    is_ready = readiness.state == "up"
+    ctx["checkpointer_ready"] = is_ready
+    ctx["checkpointer_reason"] = readiness.reason
+    ctx["intercraft_worker_started"] = is_ready
     log.info(
         "worker.start",
         version=__version__,
@@ -102,21 +123,47 @@ async def on_worker_startup(ctx: dict[str, Any]) -> None:
         queue=ARQ_QUEUE_NAME,
         health_check_key=ARQ_HEALTH_CHECK_KEY,
         health_check_interval_seconds=ARQ_HEALTH_CHECK_INTERVAL_SECONDS,
+        checkpointer_state=readiness.state,
+        checkpointer_reason=readiness.reason,
+        started=is_ready,
     )
+    # REQ-081 P0: prevent ARQ from consuming graph-backed jobs when
+    # the checkpointer is not healthy.  ARQ does not read ctx flags
+    # from the health record — the only way to keep the worker from
+    # consuming is to raise here so ARQ stops its main loop.
+    if not is_ready:
+        from app.agents.exceptions import CheckpointerUnavailableError
+
+        raise CheckpointerUnavailableError(
+            f"checkpointer state={readiness.state} reason={readiness.reason}; "
+            "worker startup aborted to prevent silent graph-op failures",
+            retry_after=30,
+        )
 
 
 async def on_worker_shutdown(ctx: dict[str, Any]) -> None:
-    """Release application-owned clients without touching ARQ's pool."""
+    """Release application-owned clients without touching ARQ's pool.
+
+    Closes the shared singleton pool and every shard pool exactly once
+    (tolerating already-closed pools). Does NOT close ARQ's Redis
+    client — ARQ owns its own pool and the heartbeat probe relies on
+    that client staying open during the graceful drain window.
+    """
     from app.agents.checkpointer import close_checkpointer
 
     await close_checkpointer()
+    try:
+        from app.agents.checkpointer_pool import close_all_pools
+
+        await close_all_pools()
+    except Exception:
+        log.exception("worker.shard_pool_shutdown_failed")
     try:
         from app.channels.message_handler import shutdown_llm_client
 
         await shutdown_llm_client()
     except Exception:
         log.exception("worker.llm_client_shutdown_failed")
-    await close_redis()
     await dispose_engine()
     shutdown_tracing()
     log.info("worker.stop", started=bool(ctx.get("intercraft_worker_started")))

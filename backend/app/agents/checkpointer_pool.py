@@ -15,11 +15,17 @@ Design (per L041-001 + L041-005):
   pattern from ``checkpointer.py`` — proven safe under concurrent
   callers).
 - The pool factory ``_create_pool`` builds a per-pool
-  ``AsyncConnectionPool`` with the same keepalive / check params
-  as the existing 023 single-pool implementation.
+  ``AsyncConnectionPool`` whose connection-kwargs funnel through the
+  shared ``build_checkpointer_connection_kwargs`` (REQ-081) so the
+  saver's ``autocommit=True`` / ``prepare_threshold=0`` / ``dict_row``
+  semantics match the locked ``AsyncPostgresSaver.from_conn_string``
+  contract exactly.
 - A failing pool rebuild is scoped to that pool_id — never
-  force-rebuild all 8 pools.
+  force-rebuild all 8 pools. Pool open and saver setup failures close
+  the partial pool, leave the slot uninitialised, and re-raise the
+  original exception so the next caller for that slot can retry.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,16 +34,21 @@ import sys
 from hashlib import md5
 from typing import TYPE_CHECKING, Any
 
+import structlog
 from pydantic import BaseModel, Field
+
+from app.agents.checkpointer import build_checkpointer_connection_kwargs
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-    from psycopg_pool import AsyncConnectionPool
 
 # Windows: force SelectorEventLoop (psycopg rejects ProactorEventLoop).
 if sys.platform.startswith("win"):
     with contextlib.suppress(AttributeError):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+logger = structlog.get_logger("agents.checkpointer_pool")
 
 
 # ---------------------------------------------------------------------------
@@ -63,15 +74,13 @@ class CheckpointerPoolConfig(BaseModel):
 
 
 # Pre-built config for all 8 pools (sizes can diverge in future via env).
-POOL_CONFIGS: list[CheckpointerPoolConfig] = [
-    CheckpointerPoolConfig(pool_id=i) for i in range(8)
-]
+POOL_CONFIGS: list[CheckpointerPoolConfig] = [CheckpointerPoolConfig(pool_id=i) for i in range(8)]
 
 
 # ---------------------------------------------------------------------------
 # Pool registry (one slot per pool_id)
 # ---------------------------------------------------------------------------
-_pools: dict[int, "AsyncPostgresSaver"] = {}
+_pools: dict[int, AsyncPostgresSaver] = {}
 _pool_locks: dict[int, asyncio.Lock] = {}
 _registry_lock = asyncio.Lock()
 
@@ -93,46 +102,95 @@ async def _check_connection(conn: Any) -> None:
         await cur.execute("SELECT 1")
 
 
-async def _create_pool(cfg: CheckpointerPoolConfig) -> "AsyncPostgresSaver":
-    """Build a per-pool ``AsyncPostgresSaver`` + ``AsyncConnectionPool``."""
+async def _create_pool(cfg: CheckpointerPoolConfig) -> AsyncPostgresSaver:
+    """Build a per-pool ``AsyncPostgresSaver`` + ``AsyncConnectionPool``.
+
+    Connection-kwargs come from the shared
+    ``build_checkpointer_connection_kwargs`` so the saver's
+    ``autocommit=True`` / ``prepare_threshold=0`` / ``dict_row``
+    semantics match the locked ``AsyncPostgresSaver.from_conn_string``
+    contract (REQ-081).
+
+    REQ-081 staged fail-closed:
+
+    - Pre-pool stages (imports, URL, kwargs, pool ctor):  propagate
+      the original exception — there is no pool to close; the caller
+      sees ``pool_id not in _pools`` and can retry.
+    - ``pool.open()`` failure: closes the partial pool, logs
+      ``pool_open_failed``, re-raises.
+    - ``AsyncPostgresSaver(pool)`` or ``saver.setup()`` failure:
+      closes the open pool, logs ``saver_setup_failed``, re-raises.
+
+    Concurrent / repeated first calls for the same pool_id are
+    serialised by the per-pool lock (single-flight per slot).
+    """
     import os
 
     os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-    from psycopg_pool import AsyncConnectionPool
 
-    from app.agents.checkpointer import _stripped_db_url
+    # Stage 1 — imports, URL, pool ctor. No pool to close.
+    try:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from psycopg_pool import AsyncConnectionPool
 
-    sync_url = _stripped_db_url()
-    pool = AsyncConnectionPool(
-        conninfo=sync_url,
-        min_size=cfg.min_size,
-        max_size=cfg.max_size,
-        max_idle=300.0,
-        reconnect_timeout=300.0,
-        timeout=30.0,
-        kwargs={
-            "keepalives": 1,
-            "keepalives_idle": 30,
-            "keepalives_interval": 10,
-            "keepalives_count": 5,
-        },
-        check=_check_connection,
-        open=False,
-    )
-    await pool.open(wait=True)
-    saver = AsyncPostgresSaver(pool)
-    await saver.setup()
+        from app.agents.checkpointer import _stripped_db_url
+
+        sync_url = _stripped_db_url()
+        pool = AsyncConnectionPool(
+            conninfo=sync_url,
+            min_size=cfg.min_size,
+            max_size=cfg.max_size,
+            max_idle=300.0,
+            reconnect_timeout=300.0,
+            timeout=30.0,
+            kwargs=build_checkpointer_connection_kwargs(),
+            check=_check_connection,
+            open=False,
+        )
+    except Exception:
+        raise
+
+    # Stage 2 — pool.open()
+    try:
+        await pool.open(wait=True)
+    except Exception:
+        with contextlib.suppress(Exception):
+            await pool.close()
+        logger.warning(
+            "checkpointer_pool.init_failed",
+            pool_id=cfg.pool_id,
+            state="down",
+            reason="pool_open_failed",
+        )
+        raise
+
+    # Stage 3 — saver construction + setup
+    try:
+        saver = AsyncPostgresSaver(pool)
+        await saver.setup()
+    except Exception:
+        with contextlib.suppress(Exception):
+            await pool.close()
+        logger.warning(
+            "checkpointer_pool.init_failed",
+            pool_id=cfg.pool_id,
+            state="down",
+            reason="saver_setup_failed",
+        )
+        raise
+
     return saver
 
 
-async def get_checkpointer_pool(user_id: str) -> "AsyncPostgresSaver":
+async def get_checkpointer_pool(user_id: str) -> AsyncPostgresSaver:
     """Return the pool singleton for ``user_id`` (8-pool sharded).
 
     The first call for a given ``pool_id`` constructs the pool;
     subsequent calls return the cached instance. Per-pool
     ``asyncio.Lock`` ensures only one coroutine builds a given pool,
-    even under concurrent first-touch.
+    even under concurrent first-touch. A failing pool rebuild is
+    scoped to that ``pool_id`` — never force-rebuilt across all 8
+    pools — so shards remain independent.
     """
     pool_id = get_pool_id(user_id)
     if pool_id in _pools:
@@ -156,17 +214,53 @@ async def get_checkpointer_pool(user_id: str) -> "AsyncPostgresSaver":
 
 
 async def close_all_pools() -> None:
-    """Gracefully shut down all 8 pools. Called from FastAPI lifespan."""
-    for pool_id, saver in list(_pools.items()):
-        try:
-            # AsyncPostgresSaver doesn't expose close(); close the underlying pool.
-            inner = getattr(saver, "pool", None) or getattr(saver, "_pool", None)
-            if inner is not None and hasattr(inner, "close"):
-                await inner.close()
-        except Exception:
-            # Best-effort cleanup — never raise from lifespan shutdown.
-            pass
+    """Gracefully shut down all 8 pools. Called from FastAPI lifespan.
+
+    REQ-081: every sharded pool's underlying ``AsyncConnectionPool`` is
+    awaited exactly once per registry entry — the ``saver.conn``
+    attribute holds the pool per the locked
+    ``AsyncPostgresSaver.__init__`` (``self.conn = conn`` — see
+    langgraph-checkpoint-postgres ``aio.py``). The legacy
+    ``saver.pool`` / ``saver._pool`` lookup is gone because it
+    silently fell through when ``conn`` is the source of truth.
+
+    Idempotent: tolerates already-closed pools and a fully-empty
+    registry. Always clears the registry so the next
+    ``get_checkpointer_pool(user_id)`` rebuilds from a clean slate.
+    """
+    if not _pools:
+        logger.info(
+            "checkpointer_pool.closed_all",
+            state="noop",
+            reason="empty_registry",
+        )
+        return
+    # Claim the registry before the first await. Overlapping/repeated
+    # shutdown calls then cannot close the same saver.conn twice.
+    claimed_pools = list(_pools.items())
     _pools.clear()
+    for pool_id, saver in claimed_pools:
+        # Locked langgraph-checkpoint-postgres ``AsyncPostgresSaver``
+        # exposes the underlying conn (which is our
+        # ``AsyncConnectionPool``) as the public ``saver.conn``
+        # attribute. ``pool`` / ``_pool`` are not part of the contract.
+        inner = getattr(saver, "conn", None)
+        if inner is not None and hasattr(inner, "close"):
+            try:
+                await inner.close()
+            except Exception:
+                # Best-effort cleanup — never raise from lifespan shutdown.
+                logger.warning(
+                    "checkpointer_pool.cleanup_failed",
+                    pool_id=pool_id,
+                    state="error",
+                    reason="pool_close_raised",
+                )
+    logger.info(
+        "checkpointer_pool.closed_all",
+        state="ok",
+        reason="pools_closed",
+    )
 
 
 # Test-only reset hook. Production code MUST NOT call this.
@@ -176,8 +270,8 @@ def _reset_pools_for_test() -> None:
 
 
 __all__ = [
-    "CheckpointerPoolConfig",
     "POOL_CONFIGS",
+    "CheckpointerPoolConfig",
     "close_all_pools",
     "get_checkpointer_pool",
     "get_pool_id",
