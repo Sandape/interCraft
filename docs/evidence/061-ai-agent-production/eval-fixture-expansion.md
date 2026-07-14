@@ -4,7 +4,7 @@
 **Scope**: T144 / FR-112 dataset gate
 **Goal**: Lift every REQ-061 capability to ≥30 active eval cases (≥50 for
 write/fact/charging capabilities) with full 5-class coverage, replacing the
-13-seed soft-report baseline that was blocking GA.
+seed-based soft-report baseline that was blocking GA.
 
 ---
 
@@ -12,16 +12,20 @@ write/fact/charging capabilities) with full 5-class coverage, replacing the
 
 Two-layer, single source of truth:
 
-- **Hand-written seeds** (13 active cases) under
+- **Optional hand-written seeds** under
   ``specs/061-ai-agent-production/eval-cases/<capability>/*.json|yaml``.
-  Every seed has a real prompt/response trace back to a production failure
-  or a known edge case.
+  None are currently shipped; future seeds must trace back to a production
+  failure or a known edge case.
 - **Programmatic factory** (``backend/tests/eval/_gen/``) that emits
   the remaining cases needed to reach the per-class distribution defined
   in :data:`tests.eval._gen.registry.TIER_PLAN`.
 
 The two are joined by :func:`tests.eval._gen.expansion.expand_all_capabilities`
 so the test suite, the offline gate, and ``INDEX.yaml`` stay in lockstep.
+
+As of REQ-086, the expansion is fully programmatic (6 write-tier × 50 +
+5 ordinary × 30 = 450 active cases). The seed-loading path is preserved as an
+extension point for future production traceback anchors.
 
 ## 2. Deliverables
 

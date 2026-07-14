@@ -7,9 +7,9 @@ This module regenerates that file from the **expansion layer** so any drift
 in seeds, factories or TIER_PLAN shows up in the same commit as the
 ``tests/eval/_gen`` source-of-truth.
 
-The script is intentionally tiny — it does NOT ship seeds to disk (seeds are
-still 13 hand-written JSON/YAML files) and it does NOT auto-generate new seeds;
-it only re-emits the aggregated INDEX used by the offline gate.
+The script is intentionally tiny — it does NOT ship seeds to disk and it
+does NOT auto-generate new seeds; it only re-emits the aggregated INDEX
+used by the offline gate.
 
 Usage::
 

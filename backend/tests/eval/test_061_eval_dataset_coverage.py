@@ -2,7 +2,7 @@
 
 History:
 - 2026-07-12: was a soft-only report; meets_fr112: False was still a PASS.
-- 2026-07-12: rewritten to **combine** a soft structural report with a
+- 2026-07-12: rewritten to **combine** a structural report with a
   **growth curve** so each ship block raises the per-capability active
   count by a minimum delta (no regression of fixture count).
 
@@ -12,8 +12,8 @@ Two layers:
    - Capability registry exposes ≥10 entries.
    - ``MIN_ACTIVE_CASES_DEFAULT == 30`` and ``MIN_ACTIVE_CASES_WRITE_FACT == 50``.
    - ``REQUIRED_CASE_CLASSES`` contains all 5 classes.
-   - The seed-fixture directory exists and yields ≥5 hand-written cases
-     covering at least 2 distinct capabilities.
+   - The committed aggregate ``INDEX.yaml`` exactly matches the deterministic
+     expansion payload used by the offline gate.
    - Expansion layer produces a per-capability ``coverage_summary()``
      whose totals are ≥ the per-tier threshold (the milestone gate).
 
@@ -54,12 +54,19 @@ from tests.eval._gen.expansion import (
     expand_all_capabilities,
     per_capability_threshold,
 )
+from tests.eval._gen.sync_index import build_index_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 # Each commit baseline is recorded in this file. CI red on regression.
-BASELINE_PATH = REPO_ROOT / "docs" / "evidence" / "061-ai-agent-production" / "eval-coverage-baselines.json"
+BASELINE_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "evidence"
+    / "061-ai-agent-production"
+    / "eval-coverage-baselines.json"
+)
 
 # Minimum growth per release (per spec review at 2026-07-12). On a release day
 # the baseline advances; between releases the baseline is constant.
@@ -74,24 +81,6 @@ def _reset_registry() -> None:
     reset_capability_registry()
     yield
     reset_capability_registry()
-
-
-def _load_fixtures() -> list[dict]:
-    """Backwards-compat path: the original test helper. Reads the raw seed
-    directory only (no programmatic expansion). Used for the layout test so a
-    missing seeds dir still fails loudly."""
-    cases: list[dict] = []
-    if not EVAL_CASES_DIR.is_dir():
-        return cases
-    for path in EVAL_CASES_DIR.rglob("*"):
-        if path.suffix.lower() not in {".json", ".yaml", ".yml"}:
-            continue
-        text = path.read_text(encoding="utf-8")
-        if path.suffix.lower() == ".json":
-            cases.append(json.loads(text))
-        else:
-            cases.append(yaml.safe_load(text))
-    return cases
 
 
 def test_registry_thresholds_and_classes_structure() -> None:
@@ -111,14 +100,33 @@ def test_registry_thresholds_and_classes_structure() -> None:
         assert registry.min_active_cases_for(cap) == 50
 
 
-def test_eval_cases_seed_layout_exists() -> None:
-    assert EVAL_CASES_DIR.is_dir(), "eval-cases directory missing"
-    fixtures = _load_fixtures()
-    assert len(fixtures) >= 5
-    caps = {str(c.get("capability_code")) for c in fixtures}
-    # The hand-written seeds must remain a structural cross-section of capabilities.
-    assert "interview" in caps
-    assert "resume_intelligence" in caps or "wechat_agent" in caps
+def test_eval_cases_index_matches_expansion() -> None:
+    """Validate the committed aggregate index against its source of truth.
+
+    The legacy assertion checked for hand-written seed files that the current
+    design does not ship.  The canonical asset is one generated ``INDEX.yaml``;
+    comparing its complete payload with ``build_index_payload`` catches both
+    missing index data and generator/index drift.
+
+    The expansion layer in ``tests/eval/_gen`` is deterministic: 6 write-tier
+    capabilities (50 each) + 5 ordinary capabilities (30 each) = 450 active
+    cases across 11 capability codes. We assert this floor so any accidental
+    contraction (removed builder, shrunk TIER_PLAN) red-fails before CI.
+    """
+    index_path = EVAL_CASES_DIR / "INDEX.yaml"
+    assert index_path.is_file(), "canonical eval-cases/INDEX.yaml is missing"
+
+    committed = yaml.safe_load(index_path.read_text(encoding="utf-8"))
+    generated = build_index_payload()
+    assert committed == generated, (
+        "eval-cases/INDEX.yaml drifted from tests.eval._gen; regenerate with "
+        "`cd backend && uv run python -m tests.eval._gen.sync_index`"
+    )
+    assert committed["dataset_threshold"]["meets_fr112"] is True
+    assert committed["dataset_threshold"]["current_total_count"] == len(
+        committed["cases"]
+    )
+    assert len(committed["cases"]) >= 450
 
 
 def test_expansion_meets_fr112_per_capability() -> None:
@@ -172,7 +180,9 @@ def test_coverage_report_structure_consistent() -> None:
     class_coverage: dict[str, set[str]] = {}
     for cap, bucket in summary.items():
         class_coverage[cap] = {
-            cls for cls in ("normal", "boundary", "failure", "privacy", "adversarial") if bucket.get(cls, 0) > 0
+            cls
+            for cls in ("normal", "boundary", "failure", "privacy", "adversarial")
+            if bucket.get(cls, 0) > 0
         }
 
     report = coverage_report(active_counts, class_coverage=class_coverage)

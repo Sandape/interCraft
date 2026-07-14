@@ -181,6 +181,12 @@ cases:
   action_code: diagnose
   case_class: failure
   source: programmatic
+- case_id: ability_insight_normal_000
+  file: <programmatic:ability_insight/normal>
+  capability_code: ability_insight
+  action_code: diagnose
+  case_class: normal
+  source: programmatic
 - case_id: ability_insight_normal_001
   file: <programmatic:ability_insight/normal>
   capability_code: ability_insight
@@ -235,12 +241,6 @@ cases:
   action_code: diagnose
   case_class: normal
   source: programmatic
-- case_id: ability_insight_normal_01
-  file: <programmatic:ability_insight/normal>
-  capability_code: ability_insight
-  action_code: diagnose
-  case_class: normal
-  source: manual
 - case_id: ability_insight_normal_010
   file: <programmatic:ability_insight/normal>
   capability_code: ability_insight
@@ -295,6 +295,12 @@ cases:
   action_code: drill
   case_class: adversarial
   source: programmatic
+- case_id: error_coach_boundary_000
+  file: <programmatic:error_coach/boundary>
+  capability_code: error_coach
+  action_code: drill
+  case_class: boundary
+  source: programmatic
 - case_id: error_coach_boundary_001
   file: <programmatic:error_coach/boundary>
   capability_code: error_coach
@@ -325,12 +331,6 @@ cases:
   action_code: drill
   case_class: boundary
   source: programmatic
-- case_id: error_coach_boundary_01
-  file: <programmatic:error_coach/boundary>
-  capability_code: error_coach
-  action_code: drill
-  case_class: boundary
-  source: manual
 - case_id: error_coach_failure_000
   file: <programmatic:error_coach/failure>
   capability_code: error_coach
@@ -511,6 +511,12 @@ cases:
   action_code: replay
   case_class: boundary
   source: programmatic
+- case_id: failure_recovery_failure_000
+  file: <programmatic:failure_recovery/failure>
+  capability_code: failure_recovery
+  action_code: replay
+  case_class: failure
+  source: programmatic
 - case_id: failure_recovery_failure_001
   file: <programmatic:failure_recovery/failure>
   capability_code: failure_recovery
@@ -535,12 +541,6 @@ cases:
   action_code: replay
   case_class: failure
   source: programmatic
-- case_id: failure_recovery_failure_01
-  file: <programmatic:failure_recovery/failure>
-  capability_code: failure_recovery
-  action_code: replay
-  case_class: failure
-  source: manual
 - case_id: failure_recovery_normal_000
   file: <programmatic:failure_recovery/normal>
   capability_code: failure_recovery
@@ -721,6 +721,12 @@ cases:
   action_code: chat
   case_class: failure
   source: programmatic
+- case_id: general_coach_normal_000
+  file: <programmatic:general_coach/normal>
+  capability_code: general_coach
+  action_code: chat
+  case_class: normal
+  source: programmatic
 - case_id: general_coach_normal_001
   file: <programmatic:general_coach/normal>
   capability_code: general_coach
@@ -775,12 +781,6 @@ cases:
   action_code: chat
   case_class: normal
   source: programmatic
-- case_id: general_coach_normal_01
-  file: <programmatic:general_coach/normal>
-  capability_code: general_coach
-  action_code: chat
-  case_class: normal
-  source: manual
 - case_id: general_coach_normal_010
   file: <programmatic:general_coach/normal>
   capability_code: general_coach
@@ -913,6 +913,12 @@ cases:
   action_code: conduct
   case_class: boundary
   source: programmatic
+- case_id: interview_failure_000
+  file: <programmatic:interview/failure>
+  capability_code: interview
+  action_code: start
+  case_class: failure
+  source: programmatic
 - case_id: interview_failure_001
   file: <programmatic:interview/failure>
   capability_code: interview
@@ -967,12 +973,6 @@ cases:
   action_code: conduct
   case_class: failure
   source: programmatic
-- case_id: interview_report_failure_01
-  file: <programmatic:interview/failure>
-  capability_code: interview
-  action_code: conduct
-  case_class: failure
-  source: manual
 - case_id: interview_normal_000
   file: <programmatic:interview/normal>
   capability_code: interview
@@ -1081,6 +1081,12 @@ cases:
   action_code: conduct
   case_class: normal
   source: programmatic
+- case_id: interview_privacy_000
+  file: <programmatic:interview/privacy>
+  capability_code: interview
+  action_code: start
+  case_class: privacy
+  source: programmatic
 - case_id: interview_privacy_001
   file: <programmatic:interview/privacy>
   capability_code: interview
@@ -1111,12 +1117,12 @@ cases:
   action_code: conduct
   case_class: privacy
   source: programmatic
-- case_id: interview_score_privacy_01
-  file: <programmatic:interview/privacy>
-  capability_code: interview
-  action_code: start
-  case_class: privacy
-  source: manual
+- case_id: point_safety_adversarial_000
+  file: <programmatic:point_safety/adversarial>
+  capability_code: point_safety
+  action_code: settle
+  case_class: adversarial
+  source: programmatic
 - case_id: point_safety_adversarial_001
   file: <programmatic:point_safety/adversarial>
   capability_code: point_safety
@@ -1147,12 +1153,6 @@ cases:
   action_code: settle
   case_class: adversarial
   source: programmatic
-- case_id: point_safety_adversarial_01
-  file: <programmatic:point_safety/adversarial>
-  capability_code: point_safety
-  action_code: settle
-  case_class: adversarial
-  source: manual
 - case_id: point_safety_boundary_000
   file: <programmatic:point_safety/boundary>
   capability_code: point_safety
@@ -1573,6 +1573,12 @@ cases:
   action_code: redact
   case_class: normal
   source: programmatic
+- case_id: privacy_privacy_000
+  file: <programmatic:privacy/privacy>
+  capability_code: privacy
+  action_code: redact
+  case_class: privacy
+  source: programmatic
 - case_id: privacy_privacy_001
   file: <programmatic:privacy/privacy>
   capability_code: privacy
@@ -1591,12 +1597,6 @@ cases:
   action_code: redact
   case_class: privacy
   source: programmatic
-- case_id: privacy_redact_privacy_01
-  file: <programmatic:privacy/privacy>
-  capability_code: privacy
-  action_code: redact
-  case_class: privacy
-  source: manual
 - case_id: proactive_research_adversarial_000
   file: <programmatic:proactive_research/adversarial>
   capability_code: proactive_research
@@ -1861,6 +1861,12 @@ cases:
   action_code: research
   case_class: normal
   source: programmatic
+- case_id: proactive_research_privacy_000
+  file: <programmatic:proactive_research/privacy>
+  capability_code: proactive_research
+  action_code: research
+  case_class: privacy
+  source: programmatic
 - case_id: proactive_research_privacy_001
   file: <programmatic:proactive_research/privacy>
   capability_code: proactive_research
@@ -1891,12 +1897,6 @@ cases:
   action_code: research
   case_class: privacy
   source: programmatic
-- case_id: proactive_research_privacy_01
-  file: <programmatic:proactive_research/privacy>
-  capability_code: proactive_research
-  action_code: research
-  case_class: privacy
-  source: manual
 - case_id: resume_derive_adversarial_000
   file: <programmatic:resume_derive/adversarial>
   capability_code: resume_derive
@@ -2053,6 +2053,12 @@ cases:
   action_code: derive
   case_class: failure
   source: programmatic
+- case_id: resume_derive_normal_000
+  file: <programmatic:resume_derive/normal>
+  capability_code: resume_derive
+  action_code: derive
+  case_class: normal
+  source: programmatic
 - case_id: resume_derive_normal_001
   file: <programmatic:resume_derive/normal>
   capability_code: resume_derive
@@ -2107,12 +2113,6 @@ cases:
   action_code: derive
   case_class: normal
   source: programmatic
-- case_id: resume_derive_normal_01
-  file: <programmatic:resume_derive/normal>
-  capability_code: resume_derive
-  action_code: derive
-  case_class: normal
-  source: manual
 - case_id: resume_derive_normal_010
   file: <programmatic:resume_derive/normal>
   capability_code: resume_derive
@@ -2233,6 +2233,12 @@ cases:
   action_code: suggest
   case_class: adversarial
   source: programmatic
+- case_id: resume_intelligence_boundary_000
+  file: <programmatic:resume_intelligence/boundary>
+  capability_code: resume_intelligence
+  action_code: analyze
+  case_class: boundary
+  source: programmatic
 - case_id: resume_intelligence_boundary_001
   file: <programmatic:resume_intelligence/boundary>
   capability_code: resume_intelligence
@@ -2287,12 +2293,6 @@ cases:
   action_code: suggest
   case_class: boundary
   source: programmatic
-- case_id: resume_intelligence_suggest_boundary_01
-  file: <programmatic:resume_intelligence/boundary>
-  capability_code: resume_intelligence
-  action_code: suggest
-  case_class: boundary
-  source: manual
 - case_id: resume_intelligence_failure_000
   file: <programmatic:resume_intelligence/failure>
   capability_code: resume_intelligence
@@ -2353,12 +2353,12 @@ cases:
   action_code: suggest
   case_class: failure
   source: programmatic
-- case_id: resume_intelligence_analyze_normal_01
+- case_id: resume_intelligence_normal_000
   file: <programmatic:resume_intelligence/normal>
   capability_code: resume_intelligence
   action_code: analyze
   case_class: normal
-  source: manual
+  source: programmatic
 - case_id: resume_intelligence_normal_001
   file: <programmatic:resume_intelligence/normal>
   capability_code: resume_intelligence
@@ -2497,6 +2497,12 @@ cases:
   action_code: suggest
   case_class: privacy
   source: programmatic
+- case_id: wechat_agent_adversarial_000
+  file: <programmatic:wechat_agent/adversarial>
+  capability_code: wechat_agent
+  action_code: run
+  case_class: adversarial
+  source: programmatic
 - case_id: wechat_agent_adversarial_001
   file: <programmatic:wechat_agent/adversarial>
   capability_code: wechat_agent
@@ -2527,12 +2533,6 @@ cases:
   action_code: run
   case_class: adversarial
   source: programmatic
-- case_id: wechat_agent_adversarial_01
-  file: <programmatic:wechat_agent/adversarial>
-  capability_code: wechat_agent
-  action_code: run
-  case_class: adversarial
-  source: manual
 - case_id: wechat_agent_boundary_000
   file: <programmatic:wechat_agent/boundary>
   capability_code: wechat_agent
