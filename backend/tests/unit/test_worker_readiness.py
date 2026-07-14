@@ -1,4 +1,14 @@
-"""Worker heartbeat, readiness, and local lifecycle contracts for issue #73."""
+"""Worker heartbeat, readiness, and local lifecycle contracts for issue #73.
+
+REQ-081 follow-on: ``on_worker_startup`` MUST validate the checkpointer
+init state via the typed ``CheckpointerReadiness`` snapshot BEFORE
+flipping ``intercraft_worker_started`` to True. A worker that starts
+without a usable checkpointer would silently crash every graph-backed
+job; the heartbeat/health-record stays ``up`` in ARQ regardless, so the
+operator's only signal that something is wrong would be a flood of
+``OperationalError`` traces. The round-2 contract surfaces this
+dependency in the ctx flag and the /readyz response.
+"""
 
 from __future__ import annotations
 
@@ -96,6 +106,15 @@ async def test_readyz_requires_db_redis_and_fresh_worker(
     monkeypatch.setattr(main_module, "db_ping", AsyncMock(return_value=db_ok))
     monkeypatch.setattr(main_module, "redis_ping", AsyncMock(return_value=redis_ok))
     monkeypatch.setattr(main_module, "arq_worker_health", AsyncMock(return_value=worker))
+    # REQ-081: /readyz also requires checkpointer.state == "up".  Mock it
+    # to "up" so this test's existing parametrize pairs remain valid.
+    from app.agents.checkpointer import CheckpointerReadiness
+
+    monkeypatch.setattr(
+        main_module,
+        "get_checkpointer_readiness",
+        lambda: CheckpointerReadiness("up", "ok"),
+    )
 
     async with AsyncClient(
         transport=ASGITransport(app=main_module.app), base_url="http://test"
@@ -126,6 +145,13 @@ async def test_readyz_bounds_slow_dependency_probes(
         main_module,
         "arq_worker_health",
         AsyncMock(return_value=WorkerHealth("up", "fresh", 100)),
+    )
+    from app.agents.checkpointer import CheckpointerReadiness
+
+    monkeypatch.setattr(
+        main_module,
+        "get_checkpointer_readiness",
+        lambda: CheckpointerReadiness("up", "ok"),
     )
 
     async with AsyncClient(
@@ -167,16 +193,19 @@ async def test_worker_callbacks_initialize_and_release_process_resources(
     init_tracing = MagicMock()
     close_checkpointer = AsyncMock()
     shutdown_llm_client = AsyncMock()
-    close_redis = AsyncMock()
     dispose_engine = AsyncMock()
     shutdown_tracing = MagicMock()
     monkeypatch.setattr(worker_module, "configure_logging", configure_logging)
     monkeypatch.setattr(worker_module, "init_tracing", init_tracing)
     monkeypatch.setattr(checkpointer_module, "close_checkpointer", close_checkpointer)
     monkeypatch.setattr(message_handler_module, "shutdown_llm_client", shutdown_llm_client)
-    monkeypatch.setattr(worker_module, "close_redis", close_redis)
+    # REQ-081: close_redis intentionally not imported in workers/main.py —
+    # ARQ owns its own Redis client.
     monkeypatch.setattr(worker_module, "dispose_engine", dispose_engine)
     monkeypatch.setattr(worker_module, "shutdown_tracing", shutdown_tracing)
+    # REQ-081 P0: mock preheat to return "up" so ARQ startup succeeds.
+    ok_readiness = checkpointer_module.CheckpointerReadiness("up", "ok")
+    monkeypatch.setattr(checkpointer_module, "preheat", AsyncMock(return_value=ok_readiness))
     ctx: dict[str, object] = {}
 
     await worker_module.on_worker_startup(ctx)
@@ -186,7 +215,6 @@ async def test_worker_callbacks_initialize_and_release_process_resources(
     init_tracing.assert_called_once()
     close_checkpointer.assert_awaited_once_with()
     shutdown_llm_client.assert_awaited_once_with()
-    close_redis.assert_awaited_once_with()
     dispose_engine.assert_awaited_once_with()
     shutdown_tracing.assert_called_once_with()
 
@@ -250,3 +278,106 @@ def test_ci_runs_real_worker_readiness_gate_and_uploads_evidence() -> None:
     assert "Verify owned PID evidence" in ci
     assert "frontend-proxy-openapi.json" in ci
     assert "ps -eo pid,ppid,lstart,args" not in ci
+
+
+# ---------------------------------------------------------------------------
+# REQ-081 — worker validates the checkpointer BEFORE marking started.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_worker_startup_refuses_started_when_checkpointer_is_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REQ-081 P0: checkpointer down raises ``CheckpointerUnavailableError``.
+
+    When the readiness snapshot is not ``up``, ``on_worker_startup``
+    MUST raise so ARQ stops its main loop and does NOT consume
+    graph-backed business jobs.  Raising is the only reliable signal
+    because ARQ does not read ``ctx`` flags from its health record.
+    """
+    import app.agents.checkpointer as checkpointer_module
+    import app.workers.main as worker_module
+    from app.agents.exceptions import CheckpointerUnavailableError
+
+    monkeypatch.setattr(worker_module, "configure_logging", MagicMock())
+    monkeypatch.setattr(worker_module, "init_tracing", MagicMock())
+    failing_readiness = checkpointer_module.CheckpointerReadiness("down", "saver_setup_failed")
+    preheat_mock = AsyncMock(return_value=failing_readiness)
+    monkeypatch.setattr(checkpointer_module, "preheat", preheat_mock)
+
+    ctx: dict[str, object] = {}
+    with pytest.raises(CheckpointerUnavailableError) as exc_info:
+        await worker_module.on_worker_startup(ctx)
+
+    assert "saver_setup_failed" in str(exc_info.value)
+    # ctx keys are still set before the raise for logging/debugging.
+    assert ctx.get("checkpointer_ready") is False
+    assert ctx.get("checkpointer_reason") == "saver_setup_failed"
+    assert ctx.get("intercraft_worker_started") is False
+
+
+@pytest.mark.asyncio
+async def test_worker_startup_marks_started_when_checkpointer_is_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REQ-081 happy path: ``up`` readiness flips ``intercraft_worker_started``."""
+    import app.agents.checkpointer as checkpointer_module
+    import app.workers.main as worker_module
+
+    monkeypatch.setattr(worker_module, "configure_logging", MagicMock())
+    monkeypatch.setattr(worker_module, "init_tracing", MagicMock())
+    ok_readiness = checkpointer_module.CheckpointerReadiness("up", "ok")
+    preheat_mock = AsyncMock(return_value=ok_readiness)
+    monkeypatch.setattr(checkpointer_module, "preheat", preheat_mock)
+
+    ctx: dict[str, object] = {}
+    await worker_module.on_worker_startup(ctx)
+
+    assert ctx["checkpointer_ready"] is True
+    assert ctx["checkpointer_reason"] == "ok"
+    assert ctx["intercraft_worker_started"] is True
+
+
+@pytest.mark.asyncio
+async def test_worker_shutdown_never_closes_arq_redis_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REQ-081: ARQ owns its own Redis client; the worker shutdown must
+    NOT call ``close_redis()`` because that helper also closes the
+    ARQ-managed pool and would tear down the connection that the
+    graceful-drain heartbeat relies on.
+    """
+    import app.agents.checkpointer as checkpointer_module
+    import app.channels.message_handler as message_handler_module
+    import app.workers.main as worker_module
+
+    monkeypatch.setattr(worker_module, "configure_logging", MagicMock())
+    monkeypatch.setattr(worker_module, "init_tracing", MagicMock())
+    monkeypatch.setattr(worker_module, "shutdown_tracing", MagicMock())
+    monkeypatch.setattr(worker_module, "dispose_engine", AsyncMock())
+    close_checkpointer_mock = AsyncMock()
+    # REQ-081: close_checkpointer is imported inside the function body;
+    # monkeypatch the source module, not worker_module.
+    monkeypatch.setattr(checkpointer_module, "close_checkpointer", close_checkpointer_mock)
+    monkeypatch.setattr(message_handler_module, "shutdown_llm_client", AsyncMock())
+    shutdown_closed = {"calls": 0}
+    real_close_redis = worker_module.close_redis if hasattr(worker_module, "close_redis") else None
+
+    def _record_close(*_args, **_kwargs):
+        shutdown_closed["calls"] += 1
+
+    # ``close_redis`` is intentionally NOT imported into worker_module.
+    # If a future refactor re-adds the import, this sentinel trips.
+    monkeypatch.setattr("app.core.redis.close_redis", _record_close, raising=False)
+    ctx: dict[str, object] = {}
+    await worker_module.on_worker_shutdown(ctx)
+
+    close_checkpointer_mock.assert_awaited_once_with()
+    assert shutdown_closed["calls"] == 0, (
+        "worker shutdown called close_redis; ARQ-owned Redis must be left intact"
+    )
+    if real_close_redis is not None:
+        # If a refactor reintroduces the import, also intercept the
+        # name on worker_module so the assertion above is sufficient.
+        monkeypatch.setattr(worker_module, "close_redis", _record_close)

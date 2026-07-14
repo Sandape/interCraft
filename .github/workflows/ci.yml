@@ -86,6 +86,92 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  checkpointer-fresh-db:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: checkpointer_fresh
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U ci -d checkpointer_fresh"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Sync locked dependencies
+        working-directory: backend
+        run: uv sync --locked --extra dev
+      - name: Run checkpointer fresh-DB contract
+        working-directory: backend
+        env:
+          APP_ENV: test
+          INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/checkpointer_fresh
+          INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_OWNED: '1'
+          JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
+        run: |
+          set -o pipefail
+          mkdir -p test-results
+          MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          export MASTER_KEY
+          # REQ-081: first pytest invocation is the fresh-DB contract
+          # (no skip guard surfaces when INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_URL
+          # is set).  The contract refuses to run without the env var, so any
+          # ``skip`` reported by JUnit would mean the env wiring regressed.
+          uv run pytest tests/integration/test_checkpointer_fresh_database.py \
+            --junitxml=test-results/checkpointer-fresh-db-junit.xml \
+            -v 2>&1 | tee test-results/checkpointer-fresh-db.log
+      - name: Assert JUnit has zero skips
+        working-directory: backend
+        if: always()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          junit_path = Path("test-results/checkpointer-fresh-db-junit.xml")
+          tree = ET.parse(junit_path)
+          root = tree.getroot()
+          skipped = int(root.attrib.get("skipped", "0") or 0)
+          errors = int(root.attrib.get("errors", "0") or 0)
+          failures = int(root.attrib.get("failures", "0") or 0)
+          tests = int(root.attrib.get("tests", "0") or 0)
+          assert tests == 2, (
+              f"JUnit reports {tests} tests (expected 2); "
+              "checkpointer-fresh-db job must collect exactly 2 contract tests"
+          )
+          assert skipped == 0, (
+              f"JUnit reports {skipped} skipped tests; the fresh-DB contract "
+              "must run with zero skip when INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_URL is set"
+          )
+          assert failures == 0 and errors == 0, (
+              f"JUnit reports failures={failures} errors={errors}; "
+              "check the linked pytest log for details"
+          )
+          print(f"checkpointer-fresh-db: {tests} tests, 0 skips, 0 failures, 0 errors")
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: "checkpointer-fresh-db-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: |
+            backend/test-results/checkpointer-fresh-db-junit.xml
+            backend/test-results/checkpointer-fresh-db.log
+          if-no-files-found: error
+          retention-days: 14
+
   worker-readiness:
     timeout-minutes: 15
     runs-on: ubuntu-latest

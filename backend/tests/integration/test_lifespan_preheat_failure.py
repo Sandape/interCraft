@@ -1,24 +1,25 @@
 """023 US6 — Lifespan checkpointer preheat failure graceful degradation.
 
-Verifies FR-021: when the checkpointer cannot be initialized (e.g. DB
-unreachable), ``preheat()`` logs ``checkpointer.preheat_failed`` warning and
-does NOT raise. The FastAPI app must still be able to start and serve
-healthz.
+Verifies FR-021 + REQ-081 readiness:
+
+- ``preheat()`` is fail-closed: when the checkpointer cannot be initialized
+  (e.g. DB unreachable), ``preheat()`` logs ``checkpointer.preheat_failed``
+  warning and returns a typed ``CheckpointerReadiness`` whose
+  ``state == "down"`` and ``reason`` is a redacted tag (no exception
+  text, no URL).
+- The FastAPI app must still be able to start and serve ``healthz``
+  even when preheat reports ``down`` (lifespan swallow is preserved,
+  but the readiness state surfaces a 503 from ``/readyz``).
 
 Per spec 023 US6 edge case: "当 lifespan 预热 checkpointer 失败 (数据库未就绪)
 时, 服务必须仍然启动 (降级为懒加载), 并记录 warning 日志".
 
-Round-1 review #7 fixed the unit-level failure path
-(``test_preheat_logs_preheat_failed_event_on_failure`` now uses
-``structlog.testing.capture_logs``). Round-2 review #7 part (a) found the
-integration-level lifespan wiring test was still broken: ASGITransport
-only forwards HTTP requests and never runs ASGI lifespan events, so the
-``get_checkpointer`` mock was dead code. ``test_app_starts_when_preheat_fails``
-now manually enters the ``lifespan(app)`` async context manager to
-trigger the real startup sequence, and asserts ``mock_preheat.call_count >= 1``
-as the lifespan-wiring proof (deleting ``main.py``'s
-``await checkpointer_preheat()`` makes it fail).
+REQ-081 round-2 replaces the round-1 ``result is None`` assertions
+because ``preheat()`` was made typed (worker startup now gates
+``intercraft_worker_started`` on ``readiness.state == "up"``); a None
+result would force the worker into the "started" branch blindly.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -30,22 +31,90 @@ from structlog.testing import capture_logs
 
 pytestmark = [pytest.mark.integration]
 
+_FRESH_DB_OWNED_ENV = "INTERCRAFT_TEST_CHECKPOINTER_FRESH_DB_OWNED"
+
+
+def test_fresh_db_guard_rejects_shared_name_without_leaking_dsn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.integration import test_checkpointer_fresh_database as contract
+
+    url = "postgresql+asyncpg://secret-user:secret-password@db.internal:5432/intercraft_test"
+    monkeypatch.setenv(contract._FRESH_DB_ENV, url)
+    monkeypatch.setenv(_FRESH_DB_OWNED_ENV, "1")
+
+    with pytest.raises(pytest.fail.Exception) as exc_info:
+        contract._require_fresh_db_url()
+
+    message = str(exc_info.value)
+    assert "intercraft_test" in message
+    for secret in (url, "secret-user", "secret-password", "db.internal"):
+        assert secret not in message
+
+
+def test_fresh_db_guard_requires_explicit_owned_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.integration import test_checkpointer_fresh_database as contract
+
+    monkeypatch.setenv(
+        contract._FRESH_DB_ENV,
+        "postgresql+asyncpg://ci:ci@127.0.0.1:5432/checkpointer_fresh",
+    )
+    monkeypatch.delenv(_FRESH_DB_OWNED_ENV, raising=False)
+
+    with pytest.raises(pytest.fail.Exception) as exc_info:
+        contract._require_fresh_db_url()
+
+    message = str(exc_info.value)
+    assert "checkpointer_fresh" in message
+    assert "127.0.0.1" not in message
+    assert "ci:ci" not in message
+
+
+def test_fresh_db_guard_accepts_explicitly_owned_dedicated_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.integration import test_checkpointer_fresh_database as contract
+
+    url = "postgresql+asyncpg://ci:ci@127.0.0.1:5432/checkpointer_fresh_run_42"
+    monkeypatch.setenv(contract._FRESH_DB_ENV, url)
+    monkeypatch.setenv(_FRESH_DB_OWNED_ENV, "1")
+
+    assert contract._require_fresh_db_url() == url
+
+
+def test_fresh_db_expected_tables_are_order_independent() -> None:
+    from tests.integration import test_checkpointer_fresh_database as contract
+
+    assert (
+        frozenset(
+            {
+                "checkpoint_migrations",
+                "checkpoints",
+                "checkpoint_blobs",
+                "checkpoint_writes",
+            }
+        )
+        == contract._EXPECTED_TABLES
+    )
+
 
 @pytest.mark.asyncio
 async def test_preheat_does_not_raise_when_get_checkpointer_fails():
-    """023 US6 — DB unreachable → preheat() logs warning, returns None, does not raise."""
+    """023 US6 + REQ-081 — DB unreachable → preheat() does not raise, returns typed down."""
     from app.agents import checkpointer
 
     with (
-        patch.object(
-            checkpointer, "get_checkpointer", side_effect=RuntimeError("db down")
-        ),
+        patch.object(checkpointer, "_readiness", checkpointer._READINESS_UNINITIALISED),
+        patch.object(checkpointer, "get_checkpointer", side_effect=RuntimeError("db down")),
         capture_logs() as logs,
     ):
         # Should NOT raise — the whole point of preheat() is graceful degrade.
         result = await checkpointer.preheat()
 
-    assert result is None, "preheat() must return None on failure (graceful degrade)"
+    assert result.state == "down", result.as_dict()
+    assert result.reason == "saver_setup_failed", result.as_dict()
     failed_events = [e for e in logs if e.get("event") == "checkpointer.preheat_failed"]
     assert failed_events, (
         f"Expected 'checkpointer.preheat_failed' event; got: {[e.get('event') for e in logs]}"
@@ -53,19 +122,47 @@ async def test_preheat_does_not_raise_when_get_checkpointer_fails():
 
 
 @pytest.mark.asyncio
-async def test_preheat_returns_none_when_pool_open_fails():
-    """023 US6 — if pool.open() raises during init, preheat() catches it."""
+async def test_preheat_preserves_stage_specific_pool_open_reason():
+    """A concrete pool-open failure must not be relabelled as saver setup."""
     from app.agents import checkpointer
 
-    fake_cp = AsyncMock()
-    fake_cp.setup = AsyncMock()
+    async def fail_after_pool_open_diagnostic():
+        checkpointer._readiness = checkpointer._READINESS_POOL_OPEN_FAILED
+        raise RuntimeError("db down with secret details")
 
     with (
-        patch.object(checkpointer, "get_checkpointer", side_effect=RuntimeError("connection refused")),
+        patch.object(checkpointer, "_readiness", checkpointer._READINESS_UNINITIALISED),
+        patch.object(checkpointer, "get_checkpointer", side_effect=fail_after_pool_open_diagnostic),
+    ):
+        result = await checkpointer.preheat()
+
+    assert result.state == "down"
+    assert result.reason == "pool_open_failed"
+
+
+@pytest.mark.asyncio
+async def test_preheat_fallback_sets_saver_setup_failed_reason():
+    """REQ-081 — preheat() catch uses ``saver_setup_failed`` as the
+    generic fallback when ``get_checkpointer()`` fails at an unknown stage.
+
+    When the failing code did not publish a stage-specific diagnostic,
+    ``preheat()`` uses ``_READINESS_SAVER_SETUP_FAILED`` rather than
+    returning stale ``uninitialised``.
+    """
+    from app.agents import checkpointer
+
+    with (
+        patch.object(checkpointer, "_readiness", checkpointer._READINESS_UNINITIALISED),
+        patch.object(
+            checkpointer,
+            "get_checkpointer",
+            side_effect=RuntimeError("connection refused"),
+        ),
         capture_logs() as logs,
     ):
         result = await checkpointer.preheat()
-    assert result is None
+    assert result.state == "down"
+    assert result.reason == "saver_setup_failed", result.as_dict()
     failed_events = [e for e in logs if e.get("event") == "checkpointer.preheat_failed"]
     assert failed_events, (
         f"Expected 'checkpointer.preheat_failed' event; got: {[e.get('event') for e in logs]}"
@@ -74,42 +171,12 @@ async def test_preheat_returns_none_when_pool_open_fails():
 
 @pytest.mark.asyncio
 async def test_app_starts_when_preheat_fails():
-    """023 US6 — lifespan triggers preheat; app starts normally.
+    """023 US6 + REQ-081 — lifespan triggers preheat; app starts normally.
 
-    Round-2 review #7 part (a): the round-1 fix switched to
-    ``httpx.AsyncClient(transport=ASGITransport(app))`` claiming it
-    "triggers the FastAPI lifespan on context enter". That is false —
-    ``ASGITransport`` only forwards HTTP requests and never runs ASGI
-    lifespan events. Reviewer empirically confirmed
-    ``preheat.call_count == 0`` on the ASGITransport path vs ``== 1`` on
-    the ``TestClient`` path. The ``get_checkpointer`` mock was dead code
-    (never called); deleting ``main.py``'s ``await checkpointer_preheat()``
-    line left the test green, zero regression protection.
-
-    Fix: manually enter the ``lifespan(app)`` async context manager,
-    which runs the real startup sequence (including
-    ``await checkpointer_preheat()``). This is Option 2 from the fix
-    brief — preferred over ``TestClient`` (Option 1) because it keeps the
-    test async (compatible with the async autouse
-    ``_reset_checkpointer_singleton`` fixture in conftest.py).
-
-    Verification:
-    - ``mock_preheat.call_count >= 1`` proves lifespan triggered preheat.
-      Deleting ``main.py:49``'s ``await checkpointer_preheat()`` makes
-      this assertion fail (verified via reverse test below).
-    - ``healthz 200`` proves app started normally despite the mock.
-
-    Deviation from task brief: the brief suggested
-    ``MagicMock(side_effect=Exception("preheat failed"))``. We deviate
-    because ``main.py``'s lifespan does NOT wrap
-    ``await checkpointer_preheat()`` in try/except — preheat() itself is
-    non-raising by design (internal try/except catches get_checkpointer
-    failures and logs ``checkpointer.preheat_failed``). Using
-    ``side_effect=Exception`` would propagate through lifespan and crash
-    startup, making ``healthz 200`` unreachable. preheat's internal
-    failure handling is covered by unit tests
+    REQ-081: preheat is mockable here; its internal fail-closed
+    semantics are verified in
     ``test_preheat_does_not_raise_when_get_checkpointer_fails`` and
-    ``test_preheat_logs_preheat_failed_event_on_failure``.
+    ``test_preheat_returns_typed_down_readiness_when_pool_open_fails``.
     """
     from app.agents import checkpointer
     from app.main import create_app, lifespan
@@ -138,24 +205,49 @@ async def test_app_starts_when_preheat_fails():
 
 @pytest.mark.asyncio
 async def test_preheat_logs_preheat_failed_event_on_failure():
-    """023 US6 — failure path emits a structured warning event.
-
-    ``structlog.testing.capture_logs`` captures the event dict so we can
-    assert the event name directly (not just that no exception raised).
-    """
+    """023 US6 + REQ-081 — failure path emits a structured warning event with typed reason."""
     from app.agents import checkpointer
 
     with (
         patch.object(
-            checkpointer, "get_checkpointer", side_effect=RuntimeError("simulated outage")
+            checkpointer,
+            "get_checkpointer",
+            side_effect=RuntimeError("simulated outage"),
         ),
         capture_logs() as logs,
     ):
-        await checkpointer.preheat()
+        result = await checkpointer.preheat()
 
+    assert result.state == "down", result.as_dict()
     failed_events = [e for e in logs if e.get("event") == "checkpointer.preheat_failed"]
     assert failed_events, (
         f"Expected 'checkpointer.preheat_failed' event; got: {[e.get('event') for e in logs]}"
     )
-    # exc_info=True should attach exception info to the event
     assert failed_events[0].get("log_level") == "warning", failed_events[0]
+
+
+@pytest.mark.asyncio
+async def test_preheat_failure_global_readiness_is_typed_down():
+    """REQ-081: after preheat() fails, the process-global readiness is typed down.
+
+    Verifies that ``get_checkpointer_readiness()`` called OUTSIDE of
+    ``preheat()`` (after a failure) returns a typed ``down`` snapshot
+    with a redacted reason — not ``uninitialised``, not the raw
+    exception text.  This proves the ``global _readiness`` assignment
+    inside preheat's catch block actually mutates the module-level
+    singleton that /readyz reads.
+    """
+    from app.agents import checkpointer
+
+    with patch.object(checkpointer, "get_checkpointer", side_effect=RuntimeError("db down")):
+        result = await checkpointer.preheat()
+        assert result.state == "down", result.as_dict()
+
+    # The process-global readiness must still be "down" AFTER preheat
+    # returned — not reverted to "uninitialised" by some cleanup.
+    global_snap = checkpointer.get_checkpointer_readiness()
+    assert global_snap.state == "down", global_snap.as_dict()
+    assert global_snap.reason in {"pool_open_failed", "saver_setup_failed"}, global_snap.as_dict()
+    # Redacted: no URL, no credentials, no raw exception message.
+    assert "://" not in global_snap.reason
+    assert "db down" not in global_snap.reason
