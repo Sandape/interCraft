@@ -1408,7 +1408,7 @@ async def test_fresh_upgrade_has_exact_schema_rls_orm_and_recovery_contract(
                     )
                 )
             ]
-            assert len(due_ids) == 2, due_ids
+            assert len(due_ids) == 1, due_ids
 
             null_claim_due = (
                 await conn.execute(
@@ -1433,6 +1433,7 @@ async def test_fresh_upgrade_has_exact_schema_rls_orm_and_recovery_contract(
                 {"user_id": user_id_a},
             )
             assert cancel_id is not None
+            assert due_ids == [cancel_id]
 
             done_in_queue = (
                 await conn.execute(
