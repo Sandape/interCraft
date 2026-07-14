@@ -440,6 +440,10 @@ def upgrade() -> None:
         "agent_tasks",
         ["user_id", sa.text("created_at DESC")],
     )
+    # ``agent_tasks.source_message_id`` immediately gains a composite FK to
+    # agent_messages below. The parent uniqueness must exist before Postgres
+    # can create that FK on a fresh upgrade.
+    _add_parent_unique("agent_messages")
     _add_parent_unique("agent_tasks")
     # Composite cross-tenant FKs sit alongside the per-column FKs on
     # source_message_id/resume_from_task_id/binding_id. The single-column FKs
@@ -549,7 +553,6 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    _add_parent_unique("agent_messages")
     # Composite (task_id, user_id) -> agent_tasks(id, user_id). task_id is
     # nullable, so the FK is matched only when the row has been bound to a task;
     # unbound rows keep SET NULL semantics via the single-column fk above.
