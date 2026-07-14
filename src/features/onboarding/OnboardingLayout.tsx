@@ -9,11 +9,19 @@ export function OnboardingLayout({
   currentStep,
   activated,
   onSkip,
+  skipDisabled = false,
   children,
 }: {
   currentStep: OnboardingStep
   activated: boolean
   onSkip: () => void
+  /**
+   * When true the "暂时跳过" button is disabled. The single-flight
+   * guard on root-resume persistence must never let the user abandon
+   * an in-flight POST; we surface that explicitly by greying the
+   * button instead of hiding it so the user understands why.
+   */
+  skipDisabled?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -63,7 +71,14 @@ export function OnboardingLayout({
             {activated ? '初始化完成' : `步骤 ${currentStep} / 4 · 自动保存`}
           </div>
           {!activated && (
-            <button type="button" onClick={onSkip} className="btn-ghost btn-lg min-h-11">
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={skipDisabled}
+              aria-disabled={skipDisabled}
+              data-testid="onboarding-skip"
+              className="btn-ghost btn-lg min-h-11"
+            >
               暂时跳过
             </button>
           )}

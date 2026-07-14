@@ -73,12 +73,26 @@ export function GoalStep({
   )
 }
 
-export function BaselineStep({ state, error, onChange, onBack, onNext }: StepProps & NavigationProps) {
+export function BaselineStep({
+  state,
+  error,
+  persistPending = false,
+  persistFailed = false,
+  onChange,
+  onBack,
+  onNext,
+  onRetry,
+}: StepProps & NavigationProps & {
+  persistPending?: boolean
+  persistFailed?: boolean
+  onRetry?: () => void
+}) {
   const choices: Array<{ id: ResumeEntryMode; title: string; detail: string }> = [
     { id: 'paste', title: '粘贴现有内容', detail: '适合已有简历或经历笔记' },
     { id: 'structured', title: '逐步填写', detail: '先写核心经历，之后再完善' },
     { id: 'blank', title: '从空白草稿开始', detail: '先建立资产，稍后补充内容' },
   ]
+  const submitDisabled = persistPending
   return (
     <StepFrame eyebrow="Step 02 · Baseline resume" title="创建根简历草稿" body="它是可持续补充的职业素材库，不需要现在就写成完美终稿。">
       <fieldset>
@@ -91,6 +105,7 @@ export function BaselineStep({ state, error, onChange, onBack, onNext }: StepPro
               className={cn('onboarding-option text-left', state.baseline.entryMode === choice.id && 'is-selected')}
               aria-pressed={state.baseline.entryMode === choice.id}
               onClick={() => onChange({ ...state, baseline: { ...state.baseline, entryMode: choice.id } })}
+              disabled={persistPending}
             >
               <FileText className="h-4 w-4 text-ink-3" />
               <span className="mt-3 block text-xs font-semibold text-ink-1">{choice.title}</span>
@@ -106,7 +121,7 @@ export function BaselineStep({ state, error, onChange, onBack, onNext }: StepPro
         </div>
       ) : state.baseline.entryMode === 'blank' ? (
         <div className="mt-6 border-l-2 border-brand-900 bg-surface-subtle px-4 py-3 text-xs leading-6 text-ink-2">
-          已创建空白根简历草稿。进入工作台后可以继续添加经历、项目和技能。
+          已选择空白根简历草稿。下一步会向服务端发送一份完整 v2 简历，源码区严格为空。
         </div>
       ) : (
         <label className="mt-6 block">
@@ -118,13 +133,22 @@ export function BaselineStep({ state, error, onChange, onBack, onNext }: StepPro
             className="mt-2 min-h-40"
             value={state.baseline.content}
             maxLength={20000}
+            disabled={persistPending}
             onChange={(event) => onChange({ ...state, baseline: { ...state.baseline, content: event.target.value } })}
             placeholder="例如：负责某项产品从调研到上线，推动关键指标从……"
           />
           <span className="mt-1 block text-2xs text-ink-3">至少写下一个真实经历线索；之后可以继续完善。</span>
         </label>
       )}
-      <StepActions error={error} onBack={onBack} onNext={onNext} />
+      <StepActions
+        error={error}
+        onBack={onBack}
+        onNext={onNext}
+        nextLabel={persistPending ? '正在保存根简历…' : '下一步'}
+        loading={persistPending}
+        disabled={submitDisabled}
+        onRetry={persistFailed && onRetry ? onRetry : undefined}
+      />
     </StepFrame>
   )
 }
@@ -208,13 +232,75 @@ function StepFrame({ eyebrow, title, body, children }: { eyebrow: string; title:
   )
 }
 
-function StepActions({ error, onBack, onNext, nextLabel = '下一步', loading, disabled }: { error: string | null; onBack?: () => void; onNext: () => void; nextLabel?: string; loading?: boolean; disabled?: boolean }) {
+function StepActions({
+  error,
+  onBack,
+  onNext,
+  nextLabel = '下一步',
+  loading,
+  disabled,
+  onRetry,
+}: {
+  error: string | null
+  onBack?: () => void
+  onNext: () => void
+  nextLabel?: string
+  loading?: boolean
+  disabled?: boolean
+  /**
+   * When the previous step failed (e.g. POST /v2/resumes/root returned
+   * a 5xx), surface a focused retry button instead of the next button so
+   * the user can re-attempt without losing the form state.
+   */
+  onRetry?: () => void
+}) {
+  const nextLabelText = loading ? (nextLabel && nextLabel !== '下一步' ? nextLabel : '正在生成 Demo…') : nextLabel
   return (
     <div className="mt-8 border-t border-surface-border pt-5">
-      {error && <div role="alert" className="mb-4 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
+      {error && (
+        <div role="alert" className="mb-4 rounded bg-red-50 px-3 py-2 text-xs text-red-700">
+          {error}
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="ml-3 underline"
+              data-testid="onboarding-baseline-retry"
+            >
+              重试
+            </button>
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3">
-        {onBack ? <Button type="button" size="lg" variant="ghost" className="min-h-11" leftIcon={<ArrowLeft className="h-4 w-4" />} onClick={onBack}>上一步</Button> : <span />}
-        <Button type="button" size="lg" variant="primary" className="min-h-11 px-5" rightIcon={<ArrowRight className="h-4 w-4" />} onClick={onNext} loading={loading} disabled={disabled}>{loading ? '正在生成 Demo…' : nextLabel}</Button>
+        {onBack ? (
+          <Button
+            type="button"
+            size="lg"
+            variant="ghost"
+            className="min-h-11"
+            leftIcon={<ArrowLeft className="h-4 w-4" />}
+            onClick={onBack}
+            disabled={disabled}
+          >
+            上一步
+          </Button>
+        ) : (
+          <span />
+        )}
+        <Button
+          type="button"
+          size="lg"
+          variant="primary"
+          className="min-h-11 px-5"
+          data-testid="onboarding-baseline-next"
+          rightIcon={<ArrowRight className="h-4 w-4" />}
+          onClick={onNext}
+          loading={loading}
+          disabled={disabled}
+        >
+          {nextLabelText}
+        </Button>
       </div>
     </div>
   )
