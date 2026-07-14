@@ -175,6 +175,160 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  onboarding-root-pg16:
+    timeout-minutes: 12
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: intercraft_test
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U ci -d intercraft_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Sync locked dependencies
+        working-directory: backend
+        run: uv sync --locked --extra dev
+      - name: Create test-results dir
+        working-directory: backend
+        run: mkdir -p test-results
+      - name: Create migration database roles
+        env:
+          PGPASSWORD: ci
+        run: >-
+          psql --host 127.0.0.1 --username ci --dbname intercraft_test
+          --set ON_ERROR_STOP=1
+          --command 'CREATE ROLE appuser NOLOGIN; CREATE ROLE postgres SUPERUSER NOLOGIN'
+      - name: Run Alembic migrations
+        working-directory: backend
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/intercraft_test
+          JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
+        run: |
+          MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          export MASTER_KEY
+          uv run alembic upgrade head 2>&1
+      - name: Run Issue #61 onboarding root tests
+        working-directory: backend
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/intercraft_test
+          JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
+        run: |
+          set -o pipefail
+          MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          export MASTER_KEY
+          timeout 8m uv run pytest \
+            tests/integration/resume_derive/test_onboarding_root_persistence.py \
+            tests/unit/test_resume_derive_root_logging.py \
+            --junitxml=test-results/onboarding-root-junit.xml \
+            -v 2>&1 | tee test-results/onboarding-root.log
+      - name: Assert JUnit total=14, zero skip/failure/error
+        working-directory: backend
+        if: always()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          junit_path = Path("test-results/onboarding-root-junit.xml")
+          tree = ET.parse(junit_path)
+          root = tree.getroot()
+          suites = [root] if root.tag == "testsuite" else list(root)
+          def attr(key):
+              return sum(int(s.attrib.get(key, "0") or 0) for s in suites)
+          total = attr("tests")
+          skipped = attr("skipped")
+          errors = attr("errors")
+          failures = attr("failures")
+          print(f"onboarding-root: {total} tests, {skipped} skipped, {failures} failures, {errors} errors")
+          assert total == 14, f"expected 14 tests, got {total}"
+          assert skipped == 0, f"expected 0 skipped, got {skipped}"
+          assert failures == 0, f"expected 0 failures, got {failures}"
+          assert errors == 0, f"expected 0 errors, got {errors}"
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: "onboarding-root-junit-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: |
+            backend/test-results/onboarding-root-junit.xml
+            backend/test-results/onboarding-root.log
+          if-no-files-found: error
+          retention-days: 14
+
+  frontend-onboarding-gate:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - name: Create test-results
+        run: mkdir -p test-results
+      - name: Run Issue #61 focused onboarding tests
+        run: |
+          set -o pipefail
+          npx vitest run \
+            --reporter default \
+            --reporter junit \
+            --outputFile test-results/frontend-onboarding-junit.xml \
+            src/pages/__tests__/Onboarding.test.tsx \
+            src/pages/__tests__/ResumeEditorV2.markdown-cutover.test.tsx \
+            2>&1 | tee test-results/frontend-onboarding.log
+      - name: Assert frontend JUnit total=13, zero skip/failure/error
+        if: always()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          junit_path = Path("test-results/frontend-onboarding-junit.xml")
+          root = ET.parse(junit_path).getroot()
+          suites = [root] if root.tag == "testsuite" else list(root)
+          def attr(key):
+              return sum(int(s.attrib.get(key, "0") or 0) for s in suites)
+          total = attr("tests")
+          skipped = attr("skipped")
+          errors = attr("errors")
+          failures = attr("failures")
+          print(f"frontend-onboarding: {total} tests, {skipped} skipped, {failures} failures, {errors} errors")
+          assert total == 13, f"expected 13 tests, got {total}"
+          assert skipped == 0, f"expected 0 skipped, got {skipped}"
+          assert failures == 0, f"expected 0 failures, got {failures}"
+          assert errors == 0, f"expected 0 errors, got {errors}"
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: "frontend-onboarding-junit-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: |
+            test-results/frontend-onboarding-junit.xml
+            test-results/frontend-onboarding.log
+          if-no-files-found: error
+          retention-days: 14
+
   worker-readiness:
     timeout-minutes: 15
     runs-on: ubuntu-latest

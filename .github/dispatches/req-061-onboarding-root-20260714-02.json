@@ -1,0 +1,30 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "737a99497e889cafd1f599b35f708a4ea74259ec",
+    "ac_hash":  "d428390f43b9d68c54647e8846791808071a315fc1f771e4cb4c013f6a60f4b9",
+    "spec_task_id":  "ISSUE-061",
+    "driver":  "codex",
+    "created_at":  "2026-07-14T06:11:00Z",
+    "state":  "active",
+    "issue_number":  61,
+    "dispatch_id":  "req-061-onboarding-root-20260714-02",
+    "allowed_paths":  [
+                          ".github/dispatches/req-061-onboarding-root-20260714-01.json",
+                          ".github/dispatches/req-061-onboarding-root-20260714-02.json",
+                          ".github/workflows/ci.yml",
+                          ".github/workflows/playwright.yml",
+                          "backend/app/modules/resume_derive/api.py",
+                          "backend/app/modules/resume_derive/service.py",
+                          "backend/tests/integration/resume_derive/test_error_codes_runtime.py",
+                          "backend/tests/integration/resume_derive/test_onboarding_root_persistence.py",
+                          "backend/tests/unit/test_resume_derive_root_logging.py",
+                          "src/features/onboarding/OnboardingLayout.tsx",
+                          "src/features/onboarding/OnboardingSteps.tsx",
+                          "src/pages/__tests__/Onboarding.test.tsx",
+                          "src/pages/__tests__/ResumeEditorV2.markdown-cutover.test.tsx",
+                          "src/pages/Onboarding.tsx",
+                          "src/pages/ResumeEditorV2.tsx",
+                          "tests/e2e/onboarding-root-resume.spec.ts"
+                      ]
+}

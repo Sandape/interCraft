@@ -25,6 +25,58 @@ import { defaultResumeDataV2 } from "@/modules/resume/v2/schema/defaults";
 import { fireToast } from "@/modules/resume/v2/editor/center/toast";
 import { convertLegacyResumeToMarkdown } from "@/modules/resume/converter";
 
+/**
+ * Decide whether a row's empty `sourceMarkdown` is "empty on purpose"
+ * (a blank onboarding root) versus "missing because the row still holds
+ * structured legacy content" (e.g. an older root whose Markdown cutover
+ * never ran).
+ *
+ * Returns true only when we can find non-trivial structured content —
+ * a populated basics / summary / section item / custom section / or
+ * a non-empty `data_format_version !== "v2"`. An empty v2 document
+ * returns false so the editor never fabricates "# Untitled Resume".
+ */
+function hasLegacyStructuredContent(serverData: ResumeDataV2 | null | undefined): boolean {
+  if (!serverData) return false;
+  const basics = serverData.basics ?? {};
+  if ((basics.name ?? "").trim()) return true;
+  if ((basics.headline ?? "").trim()) return true;
+  if ((basics.email ?? "").trim()) return true;
+  if ((basics.phone ?? "").trim()) return true;
+  if ((basics.location ?? "").trim()) return true;
+  // website URL is a converter-supported legacy signal.
+  const website = basics.website;
+  if (website && typeof website === "object" && "url" in website) {
+    if (typeof (website as { url?: string }).url === "string" && (website as { url?: string }).url!.trim()) return true;
+  }
+  // customFields from legacy basics.
+  if (Array.isArray(basics.customFields) && basics.customFields.length > 0) return true;
+  const summary = serverData.summary ?? {};
+  if ((summary.content ?? "").trim()) return true;
+  const sections = serverData.sections ?? {};
+  for (const value of Object.values(sections)) {
+    if (!value) continue;
+    if (Array.isArray(value.items) && value.items.length > 0) return true;
+    if (typeof value.content === "string" && value.content.trim()) return true;
+  }
+  if (Array.isArray(serverData.customSections) && serverData.customSections.length > 0) return true;
+  // Treat legacy format_version as a positive signal: the v2 cutover is
+  // only meaningful for older documents; v2 documents that landed here
+  // with empty sourceMarkdown are explicitly empty. The field is not
+  // part of the typed ResumeDataV2 schema (it lives on the legacy wire
+  // shape) so we read it defensively through an unknown cast.
+  const raw = serverData as unknown as Record<string, unknown>;
+  const formatVersion = raw["data_format_version"];
+  if (
+    typeof formatVersion === "string" &&
+    formatVersion &&
+    formatVersion !== "v2"
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export default function ResumeEditorV2() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -126,12 +178,26 @@ export default function ResumeEditorV2() {
       };
       let shouldPersistConvertedMarkdown = false;
       if (!serverSourceMarkdown.trim()) {
-        const conversion = convertLegacyResumeToMarkdown(serverData);
-        markdown.sourceMarkdown = conversion.convertedMarkdown;
-        markdown.legacyConversionStatus = conversion.status;
-        markdown.legacyConversionWarnings = conversion.warnings;
-        shouldPersistConvertedMarkdown =
-          conversion.status !== "not_needed" && conversion.convertedMarkdown.trim().length > 0;
+        // Only run the legacy cutover if the row actually carries structured
+        // content worth converting. An explicitly-empty v2 document (e.g. a
+        // brand-new root created from blank onboarding) MUST keep its empty
+        // sourceMarkdown — fabricating "# Untitled Resume" here would leak
+        // demo identity into a row the user explicitly chose to start blank.
+        if (hasLegacyStructuredContent(serverData)) {
+          const conversion = convertLegacyResumeToMarkdown(serverData);
+          markdown.sourceMarkdown = conversion.convertedMarkdown;
+          markdown.legacyConversionStatus = conversion.status;
+          markdown.legacyConversionWarnings = conversion.warnings;
+          shouldPersistConvertedMarkdown =
+            conversion.status !== "not_needed" && conversion.convertedMarkdown.trim().length > 0;
+        } else {
+          // Mark the conversion as "not_needed" so the editor doesn't surface
+          // an empty-state banner or a phantom Untitled heading; the empty
+          // sourceMarkdown is the authoritative state.
+          markdown.sourceMarkdown = "";
+          markdown.legacyConversionStatus = "not_needed";
+          markdown.legacyConversionWarnings = [];
+        }
       }
       const merged: ResumeDataV2 = {
         ...defaultResumeDataV2,
