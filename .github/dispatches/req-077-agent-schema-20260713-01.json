@@ -1,0 +1,21 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "764eb90a54311bb8fc3ffe586abd4e5edb587da7",
+    "ac_hash":  "b6f6625c2f06031075c6ca3cc5a247f9273c6a2c9c64f14820e28b1adaab41f4",
+    "spec_task_id":  "ISSUE-077",
+    "driver":  "claude-code",
+    "created_at":  "2026-07-13T18:23:36Z",
+    "state":  "superseded",
+    "issue_number":  77,
+    "dispatch_id":  "req-077-agent-schema-20260713-01",
+    "allowed_paths":  [
+                          ".github/dispatches/req-077-agent-schema-20260713-01.json",
+                          ".github/workflows/playwright.yml",
+                          "backend/migrations/env.py",
+                          "backend/migrations/versions/0056_060_wechat_agent_prod.py",
+                          "backend/migrations/versions/0057_060_agent_recovery_queue.py",
+                          "backend/tests/integration/agent/test_migration_0057.py",
+                          "specs/README.md"
+                      ]
+}
