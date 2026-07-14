@@ -508,10 +508,10 @@ async def _seed_0055_graph(conn, user_id: uuid.UUID, label: str) -> dict[str, uu
         text(
             "INSERT INTO agent_messages (id, user_id, direction, content, message_type, "
             "status, wechat_msg_id, context_token, client_id, segments_total, "
-            "segment_index, received_at, sent_at, error_message, channel, "
+            "segment_index, received_at, sent_at, error_message, "
             "created_at) VALUES "
             "(:id, :user_id, 'inbound', :content, 'text', 'received', :external_id, "
-            "NULL, NULL, NULL, NULL, now(), NULL, NULL, 'wechat', now())"
+            "NULL, NULL, NULL, NULL, now(), NULL, NULL, now())"
         ),
         {
             "id": message_id,
@@ -681,6 +681,7 @@ async def _rehearsal_database(database_url: str) -> tuple[str, uuid.UUID]:
     database = f"req077_rehearsal_{uuid.uuid4().hex[:12]}"
     url = await _create_database(database_url, database)
     user_id = uuid.uuid4()
+    _run_alembic(url, "upgrade", "0055_059_ai_resume")
     engine = create_async_engine(url)
     try:
         async with engine.begin() as conn:
@@ -1250,12 +1251,8 @@ async def test_fresh_upgrade_has_exact_schema_rls_orm_and_recovery_contract(
 
             user_id_a = uuid.uuid4()
             user_id_b = uuid.uuid4()
-            await conn.execute(
-                text(
-                    "ALTER TABLE wechat_credentials DISABLE ROW LEVEL SECURITY; "
-                    "ALTER TABLE wechat_credentials NO FORCE ROW LEVEL SECURITY"
-                )
-            )
+            await conn.execute(text("ALTER TABLE wechat_credentials DISABLE ROW LEVEL SECURITY"))
+            await conn.execute(text("ALTER TABLE wechat_credentials NO FORCE ROW LEVEL SECURITY"))
             await conn.execute(text("COMMIT"))
         async with engine.begin() as conn:
             await _seed_user(conn, user_id_a, "tenant-a")
@@ -1832,7 +1829,7 @@ async def test_non_bypass_role_enforces_two_tenant_crud_and_queue_visibility(
             "args_json, idempotency_key, side_effect, atomicity, "
             "status, attempt_count, claim_generation, "
             "binding_id, binding_epoch) VALUES "
-            "(:id, :task_id, :user_id, 'probe-tc', 'test_tool', 'v1', 'abc123', "
+            "(:id, :task_id, :user_id, :tool_call_id, 'test_tool', 'v1', 'abc123', "
             "'{}'::jsonb, :idem_key, 'read', 'local_transaction', "
             "'proposed', 0, 0, :binding_id, 1)"
         )
@@ -1866,6 +1863,7 @@ async def test_non_bypass_role_enforces_two_tenant_crud_and_queue_visibility(
                         "id": teid,
                         "task_id": tid,
                         "user_id": uid,
+                        "tool_call_id": f"probe-tc-{teid.hex}",
                         "idem_key": f"te-{teid.hex}",
                         "binding_id": bid,
                     },
@@ -2069,6 +2067,7 @@ async def test_non_bypass_role_enforces_two_tenant_crud_and_queue_visibility(
                 "id": uuid.uuid4(),
                 "task_id": tid,
                 "user_id": user_a,
+                "tool_call_id": f"probe-tc-{uuid.uuid4().hex}",
                 "idem_key": f"te-probe-{uuid.uuid4().hex}",
                 "binding_id": bid,
             }
