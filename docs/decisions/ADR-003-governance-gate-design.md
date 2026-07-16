@@ -378,6 +378,37 @@ design avoids coupling the gate to ephemeral workflow-run state.
 - Negative: CI status is not double-checked by the gate; it relies on
   GitHub's own required-status-check enforcement.
 
+### D14: Trusted `pull_request_target` Runner
+
+**Decision**: `governance-gate.yml` resolves the current `master` ref through
+the authenticated GitHub API, checks out that exact SHA with persisted
+credentials disabled, and executes only the trusted
+`scripts/governance/trusted-gate.ps1` from that checkout. The PR head is never
+checked out or executed. The wrapper reads exactly one Dispatch ID and Refs
+line from PR metadata, fetches only the dispatch JSON at the immutable PR head
+SHA through the authenticated Contents API, validates its type, path, blob
+hash, UTF-8 JSON schema, size, active state, and Issue binding, then stages
+that one file beside trusted copies of `gate.ps1` and `dispatch.ps1` in a
+temporary directory. The existing read-only gate remains the sole policy
+implementation.
+
+The wrapper performs a second PR API read after gate execution and fails closed
+if the head SHA or head repository changed. It emits bounded, sanitized
+`gate-result.json`, `changed-paths.json`, `staging-manifest.json`, and a log;
+no PR body or credential-bearing output is uploaded. The job has read-only
+`contents`, `pull-requests`, and `issues` permissions, a ten-minute timeout,
+and uploads evidence on both success and failure.
+
+**Rationale**: `pull_request_target` runs in the base repository trust domain,
+but checking out the PR head would reintroduce arbitrary-code execution. An
+exact master checkout plus immutable Contents API fetch preserves the trust
+boundary while still allowing a dispatch envelope authored on a fork.
+
+**Stage-A consequence**: The check is informational until baseline product P0s
+and the Stage-B positive/negative drills are complete. It must not be made
+required by the ruleset as part of this slice. Activation requires a separate
+owner-reviewed decision and a fresh verification of the trusted runner.
+
 ## Alternatives Considered
 
 ### Single Monolithic Script vs Child-Process Dispatch Validation
