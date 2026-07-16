@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Initial REQ-061 capability/action registry fixture for contract tests and shadow rollout planning.",
+  "entries": [
+    {
+      "capability_code": "resume_intelligence",
+      "action_code": "analyze",
+      "owners": ["resume-intelligence", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "background_pipeline",
+      "milestones": ["analysis", "suggestions"],
+      "runbooks": "runbooks/req-061/resume-intelligence-analyze",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "resume_intelligence",
+      "action_code": "suggest",
+      "owners": ["resume-intelligence", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "background_pipeline",
+      "milestones": ["analysis", "suggestions"],
+      "runbooks": "runbooks/req-061/resume-intelligence-suggest",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "resume_derive",
+      "action_code": "derive",
+      "owners": ["resume-derive", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "background_pipeline",
+      "milestones": ["draft", "job_analysis", "suggestions"],
+      "runbooks": "runbooks/req-061/resume-derive",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "interview",
+      "action_code": "start",
+      "owners": ["interview", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "langgraph",
+      "milestones": ["round_score", "report"],
+      "runbooks": "runbooks/req-061/interview-start",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "interview",
+      "action_code": "conduct",
+      "owners": ["interview", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "langgraph",
+      "milestones": ["round_score", "report"],
+      "runbooks": "runbooks/req-061/interview-conduct",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "general_coach",
+      "action_code": "chat",
+      "owners": ["coach", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "synchronous_adapter",
+      "milestones": ["assistant_answer"],
+      "runbooks": "runbooks/req-061/general-coach-chat",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "error_coach",
+      "action_code": "drill",
+      "owners": ["coach", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "synchronous_adapter",
+      "milestones": ["scored_round"],
+      "runbooks": "runbooks/req-061/error-coach-drill",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "ability_insight",
+      "action_code": "diagnose",
+      "owners": ["ability-profile", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "synchronous_adapter",
+      "milestones": ["ai_insight"],
+      "runbooks": "runbooks/req-061/ability-insight-diagnose",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "proactive_research",
+      "action_code": "research",
+      "owners": ["research", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "background_pipeline",
+      "milestones": ["sourced_report"],
+      "runbooks": "runbooks/req-061/proactive-research",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "wechat_agent",
+      "action_code": "run",
+      "owners": ["wechat-agent", "ai-runtime"],
+      "tiers": ["standard", "quality"],
+      "engine_kind": "tool_loop",
+      "milestones": ["answer", "committed_tool_result"],
+      "runbooks": "runbooks/req-061/wechat-agent-run",
+      "rollout_status": "shadow"
+    },
+    {
+      "capability_code": "doubao_card",
+      "action_code": "plan",
+      "owners": ["interview", "ai-runtime"],
+      "tiers": ["standard"],
+      "engine_kind": "synchronous_adapter",
+      "milestones": ["card_export"],
+      "runbooks": "runbooks/req-061/doubao-card-plan",
+      "rollout_status": "disabled",
+      "notes": "External card assembly only; excluded from platform model metering."
+    }
+  ]
+}
