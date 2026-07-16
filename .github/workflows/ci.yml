@@ -496,10 +496,28 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: intercraft_test
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U ci -d intercraft_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
       redis:
         image: redis:7
         ports:
           - '6379:6379'
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -514,21 +532,43 @@ jobs:
       - name: Create test-results
         working-directory: backend
         run: mkdir -p test-results
+      - name: Create migration database roles
+        env:
+          PGPASSWORD: ci
+        run: >-
+          psql --host 127.0.0.1 --username ci --dbname intercraft_test
+          --set ON_ERROR_STOP=1
+          --command 'CREATE ROLE appuser NOLOGIN; CREATE ROLE postgres SUPERUSER NOLOGIN'
+      - name: Run database migrations
+        working-directory: backend
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/intercraft_test
+          JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
+        run: |
+          set -o pipefail
+          MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          export MASTER_KEY
+          uv run alembic upgrade head 2>&1 | tee test-results/backend-full-alembic.log
       - name: Run full backend tests
         working-directory: backend
         env:
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/intercraft_test
           REDIS_URL: redis://localhost:6379/0
           APP_ENV: test
+          DB_USE_NULL_POOL: '1'
           JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
         run: |
           MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
           export MASTER_KEY
-          uv run pytest tests/unit -q \
+          timeout 20m uv run pytest tests/unit -q \
             --junitxml=test-results/backend-full-junit.xml
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: "backend-full-junit-${{ github.run_id }}-${{ github.run_attempt }}"
-          path: backend/test-results/backend-full-junit.xml
+          path: |
+            backend/test-results/backend-full-junit.xml
+            backend/test-results/backend-full-alembic.log
           if-no-files-found: error
           retention-days: 14

@@ -51,6 +51,16 @@ Do not point these variables at a shared development, staging, or production
 Redis. When an isolated Redis is unavailable, run/collect the unit gate and
 let the CI service execute the real lifecycle lane.
 
+## Scheduled/manual full backend lane
+
+The `backend-full` job in `.github/workflows/ci.yml` is intentionally not a PR
+blocking check. It runs on the schedule or via `workflow_dispatch`, provisions
+its own PostgreSQL 16 and Redis 7 services, creates the migration roles, runs
+the current Alembic chain, and then executes `tests/unit` with a process-owned
+database URL. JUnit and migration logs are uploaded even when the test command
+fails. A red full-suite result is therefore visible product/test-debt evidence,
+not a reason to weaken the default PR core gate.
+
 ## Local MCP Setup
 
 The tracked `.mcp.json` is a shareable project topology file. It must contain

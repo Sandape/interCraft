@@ -1,0 +1,16 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "983b358076197639320231406b159d0ba923f726",
+    "ac_hash":  "32c63d5345f5be427b73e877ac1d05a0d3fb422db91fb2451a9b66ef9d07f1c5",
+    "spec_task_id":  "REQ-064-CI-BACKEND-FULL-PG",
+    "driver":  "codex",
+    "created_at":  "2026-07-16T06:45:42Z",
+    "state":  "expired",
+    "issue_number":  93,
+    "dispatch_id":  "req-064-ci-backend-full-pg-20260716-01",
+    "allowed_paths":  [
+                          ".github/workflows/ci.yml",
+                          "docs/testing/README.md"
+                      ]
+}
