@@ -1,0 +1,78 @@
+name: Governance Gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: governance-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  governance-gate:
+    name: governance-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve authoritative master SHA
+        id: master
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/master" --jq '.object.sha')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "authoritative master SHA is malformed" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # Only this exact, API-resolved master commit is trusted. The PR head is
+      # never checked out and no PR-controlled file is executed.
+      - name: Checkout exact authoritative master
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.master.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted checkout
+        env:
+          EXPECTED_MASTER_SHA: ${{ steps.master.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          [[ "$actual" == "$EXPECTED_MASTER_SHA" ]] || { echo "checkout is not authoritative master" >&2; exit 1; }
+
+      - name: Run trusted governance gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_MASTER_SHA: ${{ steps.master.outputs.sha }}
+          ARTIFACT_DIR: ${{ github.workspace }}/governance-gate-artifacts
+        shell: pwsh
+        run: |
+          $parts = $env:REPOSITORY.Split('/', 2)
+          if ($parts.Count -ne 2) { throw 'GITHUB_REPOSITORY is malformed' }
+          & ./scripts/governance/trusted-gate.ps1 `
+            -PRNumber ([int]$env:PR_NUMBER) `
+            -Owner $parts[0] `
+            -Repo $parts[1] `
+            -ExpectedMasterSha $env:EXPECTED_MASTER_SHA `
+            -ArtifactDir $env:ARTIFACT_DIR
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload bounded governance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-gate-${{ github.run_id }}
+          path: governance-gate-artifacts/
+          if-no-files-found: error
+          retention-days: 14
