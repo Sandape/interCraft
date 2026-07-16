@@ -4,7 +4,7 @@
 |---|---|
 | Requirement ID | REQ-063 |
 | Spec directory | `specs/063-derive-page-fill` |
-| Status | planned (tasks ready; implement pending) |
+| Status | active (tasks ready; implementation pending) |
 | Spec | [spec.md](./spec.md) |
 | Plan | [plan.md](./plan.md) |
 | Research | [research.md](./research.md) |
@@ -21,6 +21,10 @@
 ## Note on numbering
 
 User initially asked for REQ-062; that ID is reserved for commercial payment (`specs/062-commercial-payment`). This feature is REQ-063.
+
+The active-feature pointer is `.specify/feature.json`, and the feature-level
+status index is `specs/README.md`. This README and
+`requirements-status.md` must stay aligned with those canonical pointers.
 
 ## Next
 
