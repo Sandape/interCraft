@@ -446,6 +446,42 @@ It uses authenticated GitHub API reads and does not mutate repository state.
 
 **Location**: `scripts/governance/gate.ps1`
 
+### 7.1 Trusted `pull_request_target` runner
+
+GitHub Actions runs `.github/workflows/governance-gate.yml` on
+`pull_request_target` events (`opened`, `synchronize`, `reopened`, `edited`,
+and `ready_for_review`). The runner is informational during Stage-A and is not
+yet a required ruleset check.
+
+The workflow must be treated as a trust boundary, not as a normal PR checkout:
+
+1. Resolve `repos/$OWNER/$REPO/git/ref/heads/master` with `gh api`, validate the
+   40-character SHA, and check out exactly that SHA with
+   `persist-credentials: false`. Verify `git rev-parse HEAD` before running
+   governance code.
+2. Run only `scripts/governance/trusted-gate.ps1` from that trusted checkout.
+   Never checkout, import, dot-source, or execute PR-head scripts.
+3. The wrapper reads exactly one `Refs #N` line and one Dispatch ID from PR
+   metadata, fetches only `.github/dispatches/<dispatch-id>.json` at the
+   immutable PR-head SHA via the authenticated Contents API, and validates
+   path, file type, base64, blob SHA, UTF-8 JSON/schema, active state, Issue
+   binding, and a 64 KiB size bound.
+4. Stage that single decoded envelope beside trusted `gate.ps1` and
+   `dispatch.ps1` in a temporary directory, invoke the normal read-only gate,
+   then re-fetch PR metadata. Any head SHA/fork change, transport failure, or
+   parse uncertainty fails closed.
+5. Upload only bounded, sanitized `gate-result.json`, `changed-paths.json`,
+   `staging-manifest.json`, and log artifacts on both pass and failure. Never
+   upload the PR body or credential-bearing output.
+
+The trusted-runner boundary suite is
+`scripts/governance/tests/trusted-gate.Tests.ps1` (10/10). It complements the
+95/95 dispatch/gate/preflight harness; both must pass before opening the Draft
+PR. A positive live run is recorded only after the workflow executes on the
+PR head and the owner reviews the result. Stage-B activation additionally
+requires the documented positive/negative drills, product P0 closure, and an
+explicit owner decision.
+
 ### Enforced Checks
 
 **General (always run):**

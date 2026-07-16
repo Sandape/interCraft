@@ -1,0 +1,21 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "91e6065d3c0ab5660db655898ec768b7c4af5edd",
+    "ac_hash":  "57c6f066ec9187f9ed998028f31ce2dc5541daa976a03c95a91323c6ba9d1d4b",
+    "spec_task_id":  "REQ-100",
+    "driver":  "codex",
+    "created_at":  "2026-07-16T10:56:15Z",
+    "state":  "active",
+    "issue_number":  100,
+    "dispatch_id":  "req-100-trusted-gate-20260716-03",
+    "allowed_paths":  [
+                          ".github/dispatches/**",
+                          ".github/workflows/governance-gate.yml",
+                          "docs/decisions/ADR-003-governance-gate-design.md",
+                          "docs/engineering/delivery-sop.md",
+                          "docs/evidence/governance-gate-trusted-runner-20260716.md",
+                          "scripts/governance/tests/**",
+                          "scripts/governance/trusted-gate.ps1"
+                      ]
+}
