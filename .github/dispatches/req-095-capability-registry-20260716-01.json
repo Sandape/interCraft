@@ -1,0 +1,18 @@
+{
+    "governance_version":  "stage-a-owner-pr-bypass-v1",
+    "canonical_ac_text_version":  "v1",
+    "base_sha":  "983b358076197639320231406b159d0ba923f726",
+    "ac_hash":  "67c6e17d139629181db8576f88b5e686b97e74128e0cc848bd4db290d17e8dfd",
+    "spec_task_id":  "REQ-061-runtime-registry",
+    "driver":  "claude-code",
+    "created_at":  "2026-07-16T09:16:23Z",
+    "state":  "active",
+    "issue_number":  95,
+    "dispatch_id":  "req-095-capability-registry-20260716-01",
+    "allowed_paths":  [
+                          ".github/dispatches/**",
+                          "backend/tests/fixtures/ai_capability_registry.json",
+                          "backend/tests/unit/**",
+                          "docs/evidence/**"
+                      ]
+}
