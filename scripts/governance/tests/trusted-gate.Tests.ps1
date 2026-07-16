@@ -186,7 +186,8 @@ Refs #100
     It 'canonical bullet and backtick Dispatch ID reaches the trusted gate boundary' {
         $r = Invoke-Sut -FakeBin $fakeBin -PrJson (New-PrJson -Body (New-CanonicalBody)) -ContentJson (New-ValidContentJson)
         Assert-True ($r.ExitCode -ne 0) 'fixture unexpectedly passed without complete GitHub authorities'
-        Assert-Contains $r.Text 'GATE_TRUSTED_GATE_FAILED' 'canonical Dispatch ID was rejected before the gate boundary'
+        Assert-Contains $r.Text 'Trusted gate result' 'canonical Dispatch ID was rejected before the gate boundary'
+        Assert-Contains $r.Text 'GATE_DISPATCH_REF_MALFORMED' 'underlying trusted gate result was not preserved'
     }
     It 'GitHub API transport failure fails closed without secrets' {
         $r = Invoke-Sut -FakeBin $fakeBin -PrJson (New-PrJson) -FailGh '1'

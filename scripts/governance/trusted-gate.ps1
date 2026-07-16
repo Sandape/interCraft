@@ -346,10 +346,16 @@ function Invoke-TrustedGate {
 try { Invoke-TrustedGate }
 catch {
     if ($script:gateResult.passed -ne $true) {
+        $existingCheck = $null
+        $existingMessage = $null
+        if ($script:gateResult.PSObject.Properties.Name -contains 'failed_check' -and [string]$script:gateResult.failed_check -match '^GATE_[A-Z0-9_]+$') {
+            $existingCheck = [string]$script:gateResult.failed_check
+            if ($script:gateResult.PSObject.Properties.Name -contains 'message') { $existingMessage = [string]$script:gateResult.message }
+        }
         $raw = "$($_.Exception.Message)"
         $parts = $raw -split ':', 2
-        $code = if ($parts.Count -eq 2 -and $parts[0] -match '^GATE_[A-Z0-9_]+$') { $parts[0] } else { 'GATE_TRUSTED_RUNNER_FAILED' }
-        $message = if ($parts.Count -eq 2) { $parts[1].Trim() } else { $raw }
+        $code = if ($null -ne $existingCheck) { $existingCheck } elseif ($parts.Count -eq 2 -and $parts[0] -match '^GATE_[A-Z0-9_]+$') { $parts[0] } else { 'GATE_TRUSTED_RUNNER_FAILED' }
+        $message = if ($null -ne $existingMessage) { "Trusted gate result: $existingMessage" } elseif ($parts.Count -eq 2) { $parts[1].Trim() } else { $raw }
         $script:gateResult = [ordered]@{ passed = $false; failed_check = $code; message = ConvertTo-SafeText $message }
     }
 }
