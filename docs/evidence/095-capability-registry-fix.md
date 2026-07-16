@@ -26,5 +26,10 @@ credentials.
 - Issue: #95
 - Allowed paths: dispatch metadata, the fixture, `backend/tests/unit/**`, and
   `docs/evidence/**`.
-- Review/merge remains a human owner action; this branch is not merged by this
-  evidence record.
+- The bounded change was squash-merged by the Sandape owner through PR #96 as
+  `15692c3b8fd03644aceceed93f674388d88bbd26`; Issue #95 is closed.
+- Post-merge local verification on clean `master`: the focused contract and
+  REQ-061 eval coverage passed together (`9 passed, 2 warnings`); the frontend
+  AI-contract check, TypeScript check, and production build also passed.
+- Full worker/Redis/checkpointer/AI lifecycle acceptance remains open and is
+  tracked in the P0 queue; this evidence does not claim that runtime gate.
