@@ -20,4 +20,6 @@ existing fail-closed `GATE_DISPATCH_VALIDATION_FAILED` result.
 - Current Windows host selected `powershell.exe` through `Get-Command`; the
   Linux `pwsh` branch is exercised by the same resolver when the runner offers
   `pwsh` and must be confirmed by the PR Actions job.
+- Real GitHub API Gate probe for PR #99 with Dispatch
+  `req-098-governance-gate-20260716-02`: `{"passed":true}`.
 - No product paths, production secrets, or Stage-B Ruleset settings changed.
