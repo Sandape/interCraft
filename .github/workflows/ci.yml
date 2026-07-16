@@ -546,6 +546,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/intercraft_test
           JWT_SECRET: "ci-only-dummy-secret-that-is-more-than-32-bytes-long!!"
         run: |
+          set -o pipefail
           MASTER_KEY="$(python -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
           export MASTER_KEY
           uv run alembic upgrade head 2>&1 | tee test-results/backend-full-alembic.log
