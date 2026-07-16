@@ -554,12 +554,21 @@ if (-not [System.IO.File]::Exists($dispatchFile)) {
 }
 
 # Call dispatch.ps1 Validate as a child process. This validates the
-# envelope against current authoritative master and Issue state.
-$powershellExe = Join-Path $PSHOME 'powershell.exe'
-if (-not [System.IO.File]::Exists($powershellExe)) {
+# envelope against current authoritative master and Issue state. GitHub
+# Actions uses PowerShell 7 (`pwsh`) on Linux, while Windows developers may
+# have either `pwsh` or Windows PowerShell (`powershell.exe`). Resolve the
+# host from PATH instead of assuming the Windows-only PSHOME layout.
+$childHost = @('pwsh', 'powershell.exe') |
+    ForEach-Object {
+        Get-Command -Name $_ -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    } |
+    Select-Object -First 1
+if ($null -eq $childHost) {
     Exit-Gate -Passed $false -FailedCheck 'GATE_DISPATCH_VALIDATION_FAILED' `
-        -Message "Windows PowerShell child executable not found at '$powershellExe'"
+        -Message 'No supported PowerShell child host found (expected pwsh or powershell.exe)'
 }
+$powershellExe = $childHost.Source
 $previousErrorAction = $ErrorActionPreference
 try {
     $ErrorActionPreference = 'Continue'
